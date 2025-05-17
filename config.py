@@ -23,8 +23,8 @@ DB_CONFIG = {
     'port': 3306,
     'user': '库用户',
     'password': '库密码',
-    'database': '表',
-    'charset': '账号',
+    'database': '账号',
+    'charset': '表',
     # 连接池设置
     'pool_name': 'mbot_pool',
     'pool_size': 5,         # 连接池大小

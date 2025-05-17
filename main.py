@@ -8,17 +8,63 @@ import json
 import base64
 import random
 import threading
+import logging
+import logging.handlers
 from flask import Flask, request, jsonify, make_response
 from flask_socketio import SocketIO
 
 # 导入配置
-from config import appid, secret
+from config import appid, secret, LOG_CONFIG
+
+# 配置日志系统
+def setup_logging():
+    """初始化日志系统"""
+    # 确保日志目录存在
+    log_file = LOG_CONFIG.get('file', 'logs/mbot.log')
+    log_dir = os.path.dirname(log_file)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # 获取日志配置
+    log_level = getattr(logging, LOG_CONFIG.get('level', 'INFO'))
+    log_format = LOG_CONFIG.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    max_size = LOG_CONFIG.get('max_size', 10485760)  # 10MB
+    backup_count = LOG_CONFIG.get('backup_count', 5)
+    
+    # 配置日志处理器
+    formatter = logging.Formatter(log_format)
+    
+    # 控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    
+    # 文件处理器
+    file_handler = logging.handlers.RotatingFileHandler(
+        filename=log_file,
+        maxBytes=max_size,
+        backupCount=backup_count,
+        encoding='utf-8'
+    )
+    file_handler.setFormatter(formatter)
+    
+    # 配置根日志记录器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+    
+    # 设置特定模块的日志级别
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    logging.getLogger('socketio').setLevel(logging.WARNING)
+    logging.getLogger('engineio').setLevel(logging.WARNING)
+    
+    logging.info("日志系统初始化完成")
 
 # 导入功能模块
 from function.Access import BOT凭证, BOTAPI, Json取, Json
 
 # 导入Web面板
-from web_panel.app import start_web_panel, add_received_message, add_plugin_log, add_framework_log
+from web_panel.app import start_web_panel, add_received_message, add_plugin_log, add_framework_log, parse_message_content
 
 # 创建主应用
 app = Flask(__name__)
@@ -126,9 +172,7 @@ def handle_request():
                 
                 # 创建消息事件并分发
                 event = MessageEvent(Json(data))
-                if not plugin_manager.dispatch_message(event):
-                    # 默认回复（无插件匹配时）
-                    event.reply("test")
+                plugin_manager.dispatch_message(event)
                 
                 return "OK"
             
@@ -177,22 +221,25 @@ def handle_request():
         from core.event.MessageEvent import MessageEvent
         
         # 记录接收到的消息
-        add_received_message(json.dumps(json_data, ensure_ascii=False))
+        formatted_message = parse_message_content(json_data)
+        add_received_message(formatted_message)
         
         plugin_manager = PluginManager()
         plugin_manager.load_plugins()
         event = MessageEvent(data.decode())
         
-        if not plugin_manager.dispatch_message(event):
-            # 默认回复（无插件匹配时）
-            # event.reply("test")
-            pass
+        # 分发消息处理
+        plugin_manager.dispatch_message(event)
         
         return "OK"
     
     return "Event not handled", 400
 
 if __name__ == "__main__":
+    # 初始化日志系统
+    setup_logging()
+    logging.info("MBot服务启动")
+    
     # 初始化Web面板
     start_web_panel(app)
     

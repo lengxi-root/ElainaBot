@@ -24,7 +24,7 @@ DB_CONFIG = {
     'user': '库用户',
     'password': '库密码',
     'database': '账号',
-    'charset': '表',
+    'charset': 'utf8mb4',
     # 连接池设置
     'pool_name': 'mbot_pool',
     'pool_size': 5,         # 连接池大小

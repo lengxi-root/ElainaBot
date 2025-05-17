@@ -1,22 +1,31 @@
-class Config:
-    _instance = None
-    _initialized = False
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(Config, cls).__new__(cls)
-        return cls._instance
-    
-    def __init__(self):
-        if not self._initialized:
-            self._initialized = True
-            self.appid = "机器人appid"
-            self.secret = "机器人密钥"
-            
-    @property
-    def get_appid(self):
-        return self.appid
-        
-    @property
-    def get_secret(self):
-        return self.secret 
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+QQ机器人配置文件
+"""
+
+# 机器人配置
+appid = ""
+# 机器人的secret
+secret = "" 
+
+# 机器人主人配置
+OWNER_IDS = ["12345678"]  # 主人QQ号列表
+
+# 回复控制开关
+OWNER_ONLY_REPLY = False    # 当非主人触发主人专属命令时是否回复提示
+SEND_DEFAULT_RESPONSE = False  # 当没有插件匹配命令时，是否发送默认回复
+
+# 数据库配置
+DB_CONFIG = {
+    'host': '',
+    'port': ,
+    'user': '',
+    'password': '',
+    'database': '',
+    'pool_name': 'mypool',
+    'pool_size': 5,
+    'connect_timeout': 10,
+    'use_pure': True
+} 

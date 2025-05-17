@@ -1,31 +1,42 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import json
+import binascii
 import nacl.signing
-from config import Config
+from nacl.encoding import RawEncoder
+import os
+import sys
+
+# 从配置中导入应用凭证
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import appid, secret
 
 class Signs:
+    """webhook签名校验"""
     def sign(self, data):
-        """webhook签名校验"""
-        config = Config()
-        bot_secret = config.get_secret
-        
+        """签名处理"""
         if isinstance(data, bytes):
-            payload = json.loads(data.decode())
+            json_data = json.loads(data)
         else:
-            payload = json.loads(data)
+            json_data = json.loads(data)
             
-        # 生成种子
-        seed = bot_secret.encode()
-        while len(seed) < nacl.signing.SEED_SIZE:
+        bot_secret = secret
+        
+        # 生成seed
+        seed = bot_secret
+        while len(seed.encode()) < nacl.signing.SEED_SIZE:
             seed += seed
-            
+        
         # 生成私钥
-        signing_key = nacl.signing.SigningKey(seed[:nacl.signing.SEED_SIZE])
+        private_key = nacl.signing.SigningKey(seed[:nacl.signing.SEED_SIZE].encode())
         
         # 生成签名
-        message = (payload['d']['event_ts'] + payload['d']['plain_token']).encode()
-        signature = signing_key.sign(message).signature
+        signature_message = f"{json_data['d']['event_ts']}{json_data['d']['plain_token']}".encode()
+        signature = private_key.sign(signature_message, encoder=RawEncoder)
         
+        # 返回签名结果
         return json.dumps({
-            'plain_token': payload['d']['plain_token'],
-            'signature': signature.hex()
+            'plain_token': json_data['d']['plain_token'],
+            'signature': binascii.hexlify(signature.signature).decode()
         }) 

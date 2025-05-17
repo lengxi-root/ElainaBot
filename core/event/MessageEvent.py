@@ -22,7 +22,20 @@ class MessageEvent:
 
         # 动态提取群/频道信息
         self.group_id = self.get('d/group_id') or None
-        self.user_id = self.get('d/author/id') or self.sender_id
+        
+        # 处理交互事件的特殊字段
+        if self.event_type == "INTERACTION_CREATE":
+            # 获取交互事件特有的字段
+            self.group_id = self.get('d/group_openid') or self.group_id
+            self.user_id = self.get('d/group_member_openid') or self.get('d/author/id')
+            
+            # 如果有button_data，提取作为content
+            button_data = self.get('d/data/resolved/button_data')
+            if button_data:
+                self.content = self.sanitize_content(button_data)
+        else:
+            self.user_id = self.get('d/author/id') or self.sender_id
+            
         self.channel_id = self.get('d/channel_id') or None
         self.guild_id = self.get('d/guild_id') or None
         self.matches = None
@@ -68,14 +81,13 @@ class MessageEvent:
             payload['msg_id'] = self.message_id
             response = BOTAPI(f"/v2/groups/{self.group_id}/messages", "POST", Json(payload))
         elif self.event_type == "INTERACTION_CREATE":  # 按钮消息
+            # 使用PHP版本的逻辑：直接获取id字段而不是d/id
             payload['event_id'] = self.get('id')
             response = BOTAPI(f"/v2/groups/{self.group_id}/messages", "POST", Json(payload))
         elif self.event_type == "C2C_MESSAGE_CREATE":  # 私聊消息
             payload['msg_id'] = self.message_id
             response = BOTAPI(f"/v2/users/{self.user_id}/messages", "POST", Json(payload))
         
-        print(Json(payload))
-        print(response)
         return response
 
     def get(self, path):
@@ -83,13 +95,14 @@ class MessageEvent:
         return Json取(self.raw_data, path)
 
     def sanitize_content(self, content):
-        """清理内容"""
+        """清理内容，去除前缀斜杠和前后空格"""
         if not content:
             return ""
         
         content = str(content)
+        # 去除前缀斜杠和前后空白
         if content.startswith('/'):
-            return content[1:].strip()
+            content = content[1:]
         return content.strip()
 
     def rows(self, buttons):

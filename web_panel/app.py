@@ -128,11 +128,16 @@ def parse_message_content(message_data):
                 if isinstance(data_obj, dict) and "resolved" in data_obj:
                     resolved = data_obj.get("resolved", {})
                     button_data = resolved.get("button_data", "")
+                    button_id = resolved.get("button_id", "")
+                    
+                    # 增加button_id信息便于调试
+                    if button_id:
+                        button_data = f"{button_data} [ID:{button_id}]"
                 
                 if group_openid:
-                    return f"{group_member_openid}（{group_openid}）：{button_data}"
+                    return f"{group_member_openid}（{group_openid}）按钮交互：{button_data} (回调消息)"
                 else:
-                    return f"{group_member_openid}：{button_data}"
+                    return f"{group_member_openid}按钮交互：{button_data} (回调消息)"
             
             # 私聊消息格式 (C2C_MESSAGE_CREATE)
             elif "op" in data and "d" in data and data.get("t") == "C2C_MESSAGE_CREATE":
@@ -159,9 +164,9 @@ def parse_message_content(message_data):
                 group_id = data.get("group_openid", "") or data.get("group_id", "")
                 
                 if group_id:
-                    return f"{user_id}（{group_id}）：{content}"
+                    return f"{user_id}（{group_id}）：{content}（回调消息）"
                 else:
-                    return f"{user_id}：{content}"
+                    return f"{user_id}：{content}（回调消息）"
         
         # 对于不符合预期结构的数据，返回原始字符串
         return str(message_data)
@@ -175,11 +180,17 @@ def add_received_message(message):
     if socketio is None:
         return
         
-    formatted_message = parse_message_content(message)
+    # 如果message已经是格式化后的字符串，直接使用，否则进行格式化
+    if isinstance(message, str) and not message.startswith('{'):
+        formatted_message = message
+    else:
+        formatted_message = parse_message_content(message)
+        
     entry = {
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'content': formatted_message,
-        'raw': message  # 保存原始消息，以便需要时使用
+        # 不再保存原始消息到日志中
+        # 'raw': message  # 保存原始消息，以便需要时使用
     }
     received_messages.append(entry)  # 使用deque尾部添加，最新的消息在队列尾部
     socketio.emit('new_message', {
@@ -504,7 +515,7 @@ def save_logs_to_file():
     framework_copy = list(framework_logs)
     error_copy = list(error_logs)
     
-    # 1. 保存接收消息日志
+    # 1. 保存接收消息日志 - 仅保存格式化后的内容，不保存原始消息
     if received_copy:
         message_file = os.path.join(date_dir, f"messages.log")
         with open(message_file, 'a', encoding='utf-8') as f:

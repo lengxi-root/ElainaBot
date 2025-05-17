@@ -112,9 +112,9 @@ class PluginManager:
             # 检查文件是否是新文件或已被修改
             if file_path not in cls._file_last_modified or cls._file_last_modified[file_path] < last_modified:
                 cls._file_last_modified[file_path] = last_modified
-                cls._load_example_plugin_file(file_path)
+                # 简化日志：热更新检测与加载结果将在_load_example_plugin_file中一同记录
                 files_changed = True
-                add_framework_log(f"热更新：检测到文件 {py_file} 已更新，重新加载")
+                cls._load_example_plugin_file(file_path)
         
         # 如果有文件变更，清除不再存在的文件记录
         if files_changed:
@@ -127,11 +127,12 @@ class PluginManager:
     @classmethod
     def _load_example_plugin_file(cls, plugin_file):
         """加载单个example插件文件"""
-        # 清除该文件之前注册的处理器和插件
-        cls._unregister_file_plugins(plugin_file)
+        # 记录热更新的处理器数量
+        file_basename = os.path.basename(plugin_file)
+        removed_count = cls._unregister_file_plugins(plugin_file)
         
         # 获取模块名（不含.py后缀）
-        module_name = os.path.splitext(os.path.basename(plugin_file))[0]
+        module_name = os.path.splitext(file_basename)[0]
         
         try:
             # 动态导入模块
@@ -147,6 +148,8 @@ class PluginManager:
                 
                 # 搜索模块中所有以_plugin结尾的类
                 plugin_classes_found = False
+                plugin_load_results = []
+                
                 for attr_name in dir(module):
                     if attr_name.endswith('_plugin') and not attr_name.startswith('__'):
                         plugin_classes_found = True
@@ -156,20 +159,30 @@ class PluginManager:
                             try:
                                 # 保存插件类对应的文件路径
                                 plugin_class._source_file = plugin_file
-                                cls.register_plugin(plugin_class)
-                                add_framework_log(f"热更新插件 {attr_name} 从 {os.path.basename(plugin_file)} 加载成功")
+                                # register_plugin将返回处理器数量
+                                handlers_count = cls.register_plugin(plugin_class, True)
+                                # 记录成功结果
+                                plugin_load_results.append(f"{attr_name}(优先级:{getattr(plugin_class, 'priority', 10)},处理器:{handlers_count})")
                             except Exception as e:
-                                add_framework_log(f"热更新插件 {attr_name} 注册失败: {str(e)}")
+                                # 记录失败结果
+                                plugin_load_results.append(f"{attr_name}(注册失败:{str(e)})")
                 
-                if not plugin_classes_found:
-                    add_framework_log(f"热更新：文件 {os.path.basename(plugin_file)} 中未找到插件类")
+                # 统一记录所有插件加载结果
+                if plugin_classes_found:
+                    # 合并成一行日志
+                    if removed_count > 0:
+                        add_framework_log(f"热更新：{file_basename} 注销{removed_count}个处理器，加载插件: {', '.join(plugin_load_results)}")
+                    else:
+                        add_framework_log(f"热更新：{file_basename} 加载插件: {', '.join(plugin_load_results)}")
+                else:
+                    add_framework_log(f"热更新：文件 {file_basename} 中未找到插件类")
         except Exception as e:
-            error_msg = f"热更新模块 {os.path.basename(plugin_file)} 加载失败：{str(e)}\n{traceback.format_exc()}"
+            error_msg = f"热更新模块 {file_basename} 加载失败：{str(e)}\n{traceback.format_exc()}"
             add_framework_log(error_msg)
     
     @classmethod
     def _unregister_file_plugins(cls, plugin_file):
-        """注销指定文件中的所有插件"""
+        """注销指定文件中的所有插件，返回注销的处理器数量"""
         removed = []
         # 遍历所有处理器和插件，移除来自该文件的插件
         plugin_classes_to_remove = []
@@ -188,12 +201,11 @@ class PluginManager:
             if plugin_class in cls._plugins:
                 del cls._plugins[plugin_class]
         
-        if removed:
-            add_framework_log(f"热更新：注销了 {len(removed)} 个来自 {os.path.basename(plugin_file)} 的处理器")
+        return len(removed)  # 返回注销的处理器数量
     
     @classmethod
-    def register_plugin(cls, plugin_class):
-        """注册插件"""
+    def register_plugin(cls, plugin_class, skip_log=False):
+        """注册插件，返回注册的处理器数量"""
         # 获取插件优先级
         priority = getattr(plugin_class, 'priority', 10)  # 默认优先级为10
         
@@ -201,6 +213,7 @@ class PluginManager:
         cls._plugins[plugin_class] = priority
         
         handlers = plugin_class.get_regex_handlers()
+        handlers_info = []  # 收集处理器信息，用于合并日志
         
         for pattern, handler_info in handlers.items():
             # 解析处理器信息，支持两种格式：
@@ -214,7 +227,7 @@ class PluginManager:
                 owner_only = handler_info.get('owner_only', False)
                 
                 # 兼容旧版本
-                if 'priority' in handler_info:
+                if 'priority' in handler_info and not skip_log:
                     # 忽略指令级优先级，使用警告提示
                     add_framework_log(f"警告：'{pattern}'指令设置了优先级，但现在优先级应该设置在插件类级别")
             
@@ -225,18 +238,31 @@ class PluginManager:
                 'owner_only': owner_only,
             }
             
-            log_message = f"注册插件处理器：{pattern} -> {handler_name}"
+            # 收集处理器信息
+            handler_text = f"{pattern} -> {handler_name}"
             if owner_only:
-                log_message += "，主人专属"
-            add_framework_log(log_message)
+                handler_text += "(主人专属)"
+            handlers_info.append(handler_text)
         
-        add_framework_log(f"插件 {plugin_class.__name__} 已注册，优先级：{priority}")
+        # 不跳过日志时记录
+        if not skip_log:
+            # 合并处理器日志为一行
+            if handlers_info:
+                handlers_text = "，".join(handlers_info)
+                add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，处理器：{handlers_text}")
+            else:
+                add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，无处理器")
+        
+        return len(handlers)  # 返回处理器数量
     
     @classmethod
     def dispatch_message(cls, event):
         """匹配消息并触发处理函数"""
         # 原始消息内容
         original_content = event.content
+        
+        # 处理交互事件(INTERACTION_CREATE)特殊情况
+        # 不再在框架日志中记录按钮回调消息，消息日志中已经处理了
         
         # 检查消息是否以斜杠开头，如果是，创建一个去掉斜杠的版本
         has_slash_prefix = original_content and original_content.startswith('/')
@@ -272,10 +298,7 @@ class PluginManager:
         
         # 按插件优先级排序匹配的处理器
         if matched_handlers:
-            # 如果有匹配且使用了斜杠前缀，这时才记录日志
-            if has_slash_prefix:
-                add_plugin_log(f"检测到斜杠前缀，处理为: {event.content}")
-                
+            # 按插件优先级排序
             matched_handlers.sort(key=lambda x: x['priority'])
             
             # 依次处理匹配的处理器
@@ -284,10 +307,11 @@ class PluginManager:
                 handler_name = handler['handler_name']
                 owner_only = handler['owner_only']
                 match = handler['match']
+                plugin_name = plugin_class.__name__
                 
                 # 检查主人权限
                 if owner_only and event.user_id not in OWNER_IDS:
-                    add_plugin_log(f"用户 {event.user_id} 尝试访问主人专属命令 {plugin_class.__name__}.{handler_name}，已拒绝")
+                    add_plugin_log(f"用户 {event.user_id} 尝试访问主人专属命令 {plugin_name}.{handler_name}，已拒绝")
                     if OWNER_ONLY_REPLY:
                         # 使用模板发送无权限回复
                         owner_reply_template.send_reply(event)
@@ -296,10 +320,12 @@ class PluginManager:
                 
                 try:
                     event.matches = match.groups()
-                    plugin_name = plugin_class.__name__
                     
-                    # 记录开始处理消息
-                    add_plugin_log(f"插件 {plugin_name} 开始处理消息：{event.content}")
+                    # 记录处理消息（包括是否使用了斜杠前缀）
+                    if has_slash_prefix:
+                        add_plugin_log(f"检测到前缀，插件 {plugin_name} 处理为：{event.content}   (原始消息：{original_content})")
+                    else:
+                        add_plugin_log(f"插件 {plugin_name} 开始处理消息：{event.content}")
                     
                     # 保存原始的reply方法
                     original_reply = event.reply
@@ -378,10 +404,11 @@ class PluginManager:
                     handler_name = handler['handler_name']
                     owner_only = handler['owner_only']
                     match = handler['match']
+                    plugin_name = plugin_class.__name__
                     
                     # 检查主人权限
                     if owner_only and event.user_id not in OWNER_IDS:
-                        add_plugin_log(f"用户 {event.user_id} 尝试访问主人专属命令 {plugin_class.__name__}.{handler_name}，已拒绝")
+                        add_plugin_log(f"用户 {event.user_id} 尝试访问主人专属命令 {plugin_name}.{handler_name}，已拒绝")
                         if OWNER_ONLY_REPLY:
                             # 使用模板发送无权限回复
                             owner_reply_template.send_reply(event)
@@ -390,10 +417,9 @@ class PluginManager:
                     
                     try:
                         event.matches = match.groups()
-                        plugin_name = plugin_class.__name__
                         
                         # 记录开始处理原始消息
-                        add_plugin_log(f"插件 {plugin_name} 开始处理原始消息：{event.content}")
+                        add_plugin_log(f"插件 {plugin_name} 开始处理消息：{event.content}")
                         
                         # 保存原始的reply方法
                         original_reply = event.reply
@@ -448,10 +474,5 @@ class PluginManager:
     @classmethod
     def send_default_response(cls, event):
         """发送默认回复"""
-        try:
-            # 使用默认回复模板
-            default_reply_template.send_reply(event)
-            add_plugin_log("默认回复已发送")
-        except Exception as e:
-            error_msg = f"发送默认回复时出错：{str(e)}\n{traceback.format_exc()}"
-            add_plugin_log(error_msg) 
+        # 使用默认回复模板
+        default_reply_template.send_reply(event) 

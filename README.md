@@ -24,8 +24,8 @@ MBot机器人框架，基于Python实现，支持插件热更新、内存优化�
 1. 克隆代码库
 
 ```bash
-git clone https://github.com/yourusername/mbot.git
-cd mbot
+git clone https://github.com/lengxi-root/MBot-Framework.git
+mbot
 ```
 
 2. 安装依赖包

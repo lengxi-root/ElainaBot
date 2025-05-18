@@ -22,7 +22,27 @@ class Signs:
             json_data = json.loads(data)
             
         bot_secret = secret
+        event_ts = json_data['d']['event_ts']
+        plain_token = json_data['d']['plain_token']
         
+        # 使用统一的签名生成函数
+        result = self.generate_signature(bot_secret, event_ts, plain_token)
+        
+        # 返回签名结果
+        return json.dumps(result)
+    
+    @staticmethod
+    def generate_signature(bot_secret, event_ts, plain_token):
+        """正确的签名生成函数
+        
+        参数:
+            bot_secret: 机器人密钥
+            event_ts: 事件时间戳
+            plain_token: 原始令牌
+            
+        返回:
+            包含plain_token和signature的字典
+        """
         # 生成seed
         seed = bot_secret
         while len(seed.encode()) < nacl.signing.SEED_SIZE:
@@ -31,12 +51,12 @@ class Signs:
         # 生成私钥
         private_key = nacl.signing.SigningKey(seed[:nacl.signing.SEED_SIZE].encode())
         
-        # 生成签名
-        signature_message = f"{json_data['d']['event_ts']}{json_data['d']['plain_token']}".encode()
-        signature = private_key.sign(signature_message, encoder=RawEncoder)
+        # 构造消息并签名
+        message = f"{event_ts}{plain_token}".encode()
+        signature = private_key.sign(message, encoder=RawEncoder)
         
         # 返回签名结果
-        return json.dumps({
-            'plain_token': json_data['d']['plain_token'],
-            'signature': binascii.hexlify(signature.signature).decode()
-        }) 
+        return {
+            "plain_token": plain_token,
+            "signature": binascii.hexlify(signature.signature).decode()
+        } 

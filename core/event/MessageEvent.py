@@ -188,8 +188,26 @@ class MessageEvent:
             'url': media['url']
         }
 
-    def uploadToQQImageBed(self, image_data, type='qqshare'):
-        """通用上传图片到图床，type=qqshare或qqbot"""
+    def uploadToQQImageBed(self, image_data, type=None):
+        """通用上传图片到图床，type=qqshare或qqbot
+        如果不指定type，将自动选择已配置的图床
+        """
+        # 自动选择图床类型
+        if type is None:
+            # 检查官方图床配置
+            has_qqbot_config = bool(IMAGE_BED.get('qq_bot', {}).get('channel_id'))
+            # 检查互联图床配置
+            has_qqshare_config = bool(IMAGE_BED.get('qq_share', {}).get('p_uin')) and bool(IMAGE_BED.get('qq_share', {}).get('p_skey'))
+            
+            if has_qqbot_config:
+                type = 'qqbot'  # 优先使用官方图床
+            elif has_qqshare_config:
+                type = 'qqshare'  # 其次使用互联图床
+            else:
+                print("错误: 未检测到任何可用的图床配置，无法上传图片")
+                return ''
+        
+        # 根据选择的类型上传图片
         if type == 'qqbot':
             return self.uploadToQQBotImageBed(image_data)
         else:
@@ -199,7 +217,13 @@ class MessageEvent:
         """QQ机器人官方图床方式"""
         access_token = BOT凭证() or ''
         # 从配置中获取频道ID
-        channel = IMAGE_BED.get('qq_bot', {}).get('channel_id', '1673127')
+        channel = IMAGE_BED.get('qq_bot', {}).get('channel_id')
+        
+        # 检查channel_id是否已配置
+        if not channel:
+            print("错误: 未配置QQ机器人官方图床的频道ID(channel_id)，无法上传图片")
+            return ''
+            
         md5hash = hashlib.md5(image_data).hexdigest().upper()
         
         if not access_token:
@@ -246,6 +270,11 @@ class MessageEvent:
         # 从配置中获取QQ号和p_skey
         p_uin = IMAGE_BED.get('qq_share', {}).get('p_uin', '')  # QQ号
         p_skey = IMAGE_BED.get('qq_share', {}).get('p_skey', '')  # p_skey值
+        
+        # 检查必要参数是否已配置
+        if not p_uin or not p_skey:
+            print("错误: 未配置QQShare图床必要参数(p_uin或p_skey)，无法上传图片")
+            return ''
         
         # 创建临时文件
         with tempfile.NamedTemporaryFile(delete=False) as f:

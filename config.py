@@ -51,15 +51,17 @@ LOG_CONFIG = {
 # 图床配置
 IMAGE_BED = {
     'qq_bot': {
-        'channel_id': '1673127',   # QQ机器人官方图床的频道ID
+        'channel_id': '',   # QQ机器人官方图床的频道ID，必须填写
     },
     'qq_share': {
-        'p_uin': '',               # QQ号(用于QQShare图床)，请填写您的QQ号
-        'p_skey': ''               # 使用电脑登录connect.qq.com获取的cookie中的p_skey值
+        'p_uin': '',        # QQ号(用于QQShare图床)，请填写您的QQ号
+        'p_skey': ''        # 使用电脑登录connect.qq.com获取的cookie中的p_skey值
     }
 }
 
 # 使用图床说明：
-# 1. QQ机器人官方图床：需要填写channel_id，默认已设置为1673127
-# 2. QQShare图床：需要填写QQ号(p_uin)和p_skey
-#    获取p_skey方法：使用电脑浏览器登录connect.qq.com，然后从cookie中提取p_skey值 
+# 系统会自动选择已配置的图床，优先使用官方图床，其次为互联图床
+# 1. QQ机器人官方图床：填写channel_id(频道ID)即可启用
+# 2. QQShare图床：需要同时填写QQ号(p_uin)和p_skey才能启用
+#    获取p_skey方法：使用电脑浏览器登录connect.qq.com，然后从cookie中提取p_skey值
+# 注意：至少需要配置一种图床，否则图片上传功能将无法使用 

@@ -10,6 +10,9 @@ appid = "appid"
 # 机器人的secret
 secret = "密钥" 
 
+# 消息格式配置
+USE_MARKDOWN = False  # 设置为True使用Markdown格式，False使用纯文本格式
+
 # 机器人主人配置
 OWNER_IDS = ["12345678"]  # 主人QQ号列表
 

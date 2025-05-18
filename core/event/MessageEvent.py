@@ -9,6 +9,7 @@ import requests
 from io import BytesIO
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
+from config import USE_MARKDOWN
 
 class MessageEvent:
     def __init__(self, data):
@@ -61,13 +62,19 @@ class MessageEvent:
         buttons = buttons or []
         media = media or []
         
+        # 根据配置决定消息类型
+        msg_type = 2 if USE_MARKDOWN else 0
+        
         payload = {
-            "msg_type": 2,
+            "msg_type": msg_type,
             "msg_seq": random.randint(10000, 999999)
         }
         
         if content:
-            payload['markdown'] = {'content': content}
+            if USE_MARKDOWN:
+                payload['markdown'] = {'content': content}
+            else:
+                payload['content'] = content
             
         if buttons:
             payload['keyboard'] = buttons
@@ -191,7 +198,7 @@ class MessageEvent:
     def uploadToQQBotImageBed(self, image_data):
         """QQ机器人官方图床方式"""
         access_token = BOT凭证() or ''
-        channel = '1673127'
+        channel = '633711532'
         md5hash = hashlib.md5(image_data).hexdigest().upper()
         
         if not access_token:

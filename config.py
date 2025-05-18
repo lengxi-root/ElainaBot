@@ -46,4 +46,20 @@ LOG_CONFIG = {
     'file': 'logs/mbot.log', # 日志文件路径
     'max_size': 10485760,   # 单个日志文件大小上限(字节)，默认10MB
     'backup_count': 5       # 保留日志文件数量
-} 
+}
+
+# 图床配置
+IMAGE_BED = {
+    'qq_bot': {
+        'channel_id': '1673127',   # QQ机器人官方图床的频道ID
+    },
+    'qq_share': {
+        'p_uin': '',               # QQ号(用于QQShare图床)，请填写您的QQ号
+        'p_skey': ''               # 使用电脑登录connect.qq.com获取的cookie中的p_skey值
+    }
+}
+
+# 使用图床说明：
+# 1. QQ机器人官方图床：需要填写channel_id，默认已设置为1673127
+# 2. QQShare图床：需要填写QQ号(p_uin)和p_skey
+#    获取p_skey方法：使用电脑浏览器登录connect.qq.com，然后从cookie中提取p_skey值 

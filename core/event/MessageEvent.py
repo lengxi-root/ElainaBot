@@ -9,7 +9,7 @@ import requests
 from io import BytesIO
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
-from config import USE_MARKDOWN
+from config import USE_MARKDOWN, IMAGE_BED
 
 class MessageEvent:
     def __init__(self, data):
@@ -198,7 +198,8 @@ class MessageEvent:
     def uploadToQQBotImageBed(self, image_data):
         """QQ机器人官方图床方式"""
         access_token = BOT凭证() or ''
-        channel = '633711532'
+        # 从配置中获取频道ID
+        channel = IMAGE_BED.get('qq_bot', {}).get('channel_id', '1673127')
         md5hash = hashlib.md5(image_data).hexdigest().upper()
         
         if not access_token:
@@ -242,8 +243,9 @@ class MessageEvent:
 
     def uploadToQQShareImageBed(self, image_data):
         """QQShare方式"""
-        p_uin = ''  # QQ号
-        p_skey = ''  # 使用电脑登录connect.qq.com使用F12获取cookie里面的p_skey
+        # 从配置中获取QQ号和p_skey
+        p_uin = IMAGE_BED.get('qq_share', {}).get('p_uin', '')  # QQ号
+        p_skey = IMAGE_BED.get('qq_share', {}).get('p_skey', '')  # p_skey值
         
         # 创建临时文件
         with tempfile.NamedTemporaryFile(delete=False) as f:

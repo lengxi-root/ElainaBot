@@ -19,6 +19,12 @@ import threading
 import time
 from flask_cors import CORS
 import functools
+import gc  # 导入垃圾回收模块
+import warnings
+import urllib3
+
+# 禁用urllib3不安全请求的警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 路径前缀
 PREFIX = '/web'
@@ -294,13 +300,122 @@ def status():
     })
 
 def get_system_info():
+    """获取系统信息，包括细化的内存使用情况"""
     process = psutil.Process(os.getpid())
+    
+    # 触发内存回收但不记录日志（框架内记录日志）
+    collected = gc.collect()
+    
+    # 获取主要内存信息
+    memory_info = process.memory_info()
+    rss = memory_info.rss / 1024 / 1024  # MB
+    
+    # 获取插件内存占用（估计值）
+    plugins_memory = 0
+    framework_memory = 0
+    web_panel_memory = 0
+    other_memory = 0
+    
+    # 分析对象占用的内存
+    objects = gc.get_objects()
+    total_tracked_size = 0
+    
+    # 计算Python内部对象的内存占用
+    for obj in objects:
+        try:
+            obj_size = sys.getsizeof(obj)
+            if hasattr(obj, "__module__"):
+                module_name = obj.__module__ or ""
+                if module_name.startswith('plugins.'):
+                    plugins_memory += obj_size
+                    total_tracked_size += obj_size
+                elif module_name.startswith('core.'):
+                    framework_memory += obj_size
+                    total_tracked_size += obj_size
+                elif module_name.startswith('web_panel.') or module_name.startswith('flask.') or module_name.startswith('socketio.'):
+                    web_panel_memory += obj_size
+                    total_tracked_size += obj_size
+                else:
+                    other_memory += obj_size
+                    total_tracked_size += obj_size
+        except:
+            pass
+    
+    # 深度内存分析 - 模块分类
+    for module_name, module in sys.modules.items():
+        if module:
+            try:
+                module_size = sys.getsizeof(module)
+                total_tracked_size += module_size
+                
+                if module_name.startswith('plugins.'):
+                    plugins_memory += module_size
+                elif module_name.startswith('core.'):
+                    framework_memory += module_size
+                elif module_name.startswith('web_panel.') or module_name.startswith('flask') or module_name.startswith('socketio'):
+                    web_panel_memory += module_size
+                else:
+                    other_memory += module_size
+            except:
+                pass
+    
+    # 确保内存总和等于真实内存使用量
+    tracked_memory_mb = (total_tracked_size / 1024 / 1024)
+    
+    # 将实际内存与追踪内存的差值按比例分配
+    remaining_memory = max(0, rss - tracked_memory_mb)
+    
+    # 分配剩余内存到各组件，按比例分配
+    if total_tracked_size > 0:
+        plugins_ratio = plugins_memory / total_tracked_size
+        framework_ratio = framework_memory / total_tracked_size
+        web_panel_ratio = web_panel_memory / total_tracked_size
+        other_ratio = other_memory / total_tracked_size
+        
+        # 转为MB并添加剩余内存
+        plugins_memory = (plugins_memory / 1024 / 1024) + (remaining_memory * plugins_ratio)
+        framework_memory = (framework_memory / 1024 / 1024) + (remaining_memory * framework_ratio)
+        web_panel_memory = (web_panel_memory / 1024 / 1024) + (remaining_memory * web_panel_ratio)
+        other_memory = (other_memory / 1024 / 1024) + (remaining_memory * other_ratio)
+    else:
+        # 如果没有可以追踪的对象，将所有内存归入"其他"类别
+        other_memory = rss
+        plugins_memory = 0
+        framework_memory = 0
+        web_panel_memory = 0
+    
+    # 获取最大的10个对象的大小和类型，用于调试内存问题
+    largest_objects = []
+    for obj in objects:
+        try:
+            obj_size = sys.getsizeof(obj)
+            if obj_size > 1024 * 1024:  # 大于1MB的对象
+                largest_objects.append({
+                    'type': type(obj).__name__,
+                    'size_mb': obj_size / 1024 / 1024
+                })
+        except:
+            pass  # 忽略无法获取大小的对象
+    
+    # 排序并保留最大的10个
+    largest_objects.sort(key=lambda x: x['size_mb'], reverse=True)
+    largest_objects = largest_objects[:10]
+    
+    # 返回系统信息
     return {
-        'cpu_percent': process.cpu_percent(interval=0.1),  # 设置较小的间隔获取实时值
+        'cpu_percent': process.cpu_percent(interval=0.1),
         'memory_percent': process.memory_percent(),
         'memory_info': {
-            'rss': process.memory_info().rss / 1024 / 1024,  # MB
-            'vms': process.memory_info().vms / 1024 / 1024   # MB
+            'total_mb': rss,
+            'plugins_mb': plugins_memory,
+            'framework_mb': framework_memory,
+            'web_panel_mb': web_panel_memory,
+            'other_mb': other_memory,
+            'largest_objects': largest_objects
+        },
+        'memory_collection': {
+            'collected_count': gc.get_count(),
+            'objects_count': len(objects)
         }
     }
 
@@ -312,87 +427,184 @@ def scan_plugins():
     
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
-    # 1. 处理非example目录下的插件 (仅main.py)
-    non_example_plugin_files = []
+    # 1. 处理system目录下的所有插件
+    system_dir = os.path.join(script_dir, 'plugins', 'system')
+    if os.path.exists(system_dir) and os.path.isdir(system_dir):
+        py_files = [f for f in os.listdir(system_dir) if f.endswith('.py') and f != '__init__.py']
+        
+        for py_file in py_files:
+            plugin_file = os.path.join(system_dir, py_file)
+            plugin_name = os.path.splitext(py_file)[0]
+            
+            try:
+                # 尝试导入模块检查状态
+                spec = importlib.util.spec_from_file_location(f"plugins.system.{plugin_name}", plugin_file)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    
+                    try:
+                        spec.loader.exec_module(module)
+                        
+                        # 搜索模块中所有可能的插件类
+                        plugin_classes_found = False
+                        
+                        for attr_name in dir(module):
+                            # 跳过特殊属性、内置函数和模块
+                            if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
+                                continue
+                                
+                            attr = getattr(module, attr_name)
+                            # 检查是否是类，并且不是从其他模块导入的类
+                            if isinstance(attr, type) and attr.__module__ == module.__name__:
+                                # 检查是否有get_regex_handlers方法
+                                if hasattr(attr, 'get_regex_handlers'):
+                                    plugin_classes_found = True
+                                    plugin_info = {
+                                        'name': f"system/{plugin_name}/{attr_name}",
+                                        'class_name': attr_name,
+                                        'status': 'loaded',
+                                        'error': '',
+                                        'path': plugin_file,
+                                        'is_hot_reload': False,
+                                        'is_cold_load': True
+                                    }
+                                    
+                                    # 获取处理器
+                                    handlers = attr.get_regex_handlers()
+                                    plugin_info['handlers'] = len(handlers) if handlers else 0
+                                    plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
+                                    # 获取插件优先级
+                                    plugin_info['priority'] = getattr(attr, 'priority', 10)
+                                    # 获取处理器的owner_only属性
+                                    handlers_owner_only = {}
+                                    for pattern, handler_info in handlers.items():
+                                        if isinstance(handler_info, dict):
+                                            handlers_owner_only[pattern] = handler_info.get('owner_only', False)
+                                        else:
+                                            handlers_owner_only[pattern] = False
+                                    plugin_info['handlers_owner_only'] = handlers_owner_only
+                                    
+                                    plugins_info.append(plugin_info)
+                        
+                        if not plugin_classes_found:
+                            plugin_info = {
+                                'name': f"system/{plugin_name}",
+                                'class_name': 'unknown',
+                                'status': 'error',
+                                'error': '未在模块中找到有效的插件类',
+                                'path': plugin_file,
+                                'is_hot_reload': False,
+                                'is_cold_load': True
+                            }
+                            plugins_info.append(plugin_info)
+                    except Exception as e:
+                        plugin_info = {
+                            'name': f"system/{plugin_name}",
+                            'class_name': 'unknown',
+                            'status': 'error',
+                            'error': str(e),
+                            'path': plugin_file,
+                            'is_hot_reload': False,
+                            'is_cold_load': True,
+                            'traceback': traceback.format_exc()
+                        }
+                        plugins_info.append(plugin_info)
+                else:
+                    plugin_info = {
+                        'name': f"system/{plugin_name}",
+                        'class_name': 'unknown',
+                        'status': 'error',
+                        'error': '无法加载插件文件',
+                        'path': plugin_file,
+                        'is_hot_reload': False,
+                        'is_cold_load': True
+                    }
+                    plugins_info.append(plugin_info)
+            except Exception as e:
+                plugin_info = {
+                    'name': f"system/{plugin_name}",
+                    'class_name': 'unknown',
+                    'status': 'error',
+                    'error': str(e),
+                    'path': plugin_file,
+                    'is_hot_reload': False,
+                    'is_cold_load': True
+                }
+                plugins_info.append(plugin_info)
+    
+    # 2. 处理非example和system目录下的插件 (仅main.py)
     for item in os.listdir(os.path.join(script_dir, 'plugins')):
-        if item != 'example' and os.path.isdir(os.path.join(script_dir, 'plugins', item)):
+        if item not in ['example', 'system'] and os.path.isdir(os.path.join(script_dir, 'plugins', item)):
             main_py = os.path.join(script_dir, 'plugins', item, 'main.py')
             if os.path.exists(main_py):
-                non_example_plugin_files.append(main_py)
-    
-    # 处理非example目录下的main.py插件
-    for plugin_file in non_example_plugin_files:
-        # 获取插件名称
-        plugin_name = os.path.basename(os.path.dirname(plugin_file))
-        class_name = f"{plugin_name}_plugin"
-        plugin_info = {
-            'name': plugin_name,
-            'class_name': class_name,
-            'status': 'unknown',
-            'error': '',
-            'path': plugin_file,
-            'is_hot_reload': False
-        }
-        
-        try:
-            # 尝试导入模块检查状态
-            spec = importlib.util.spec_from_file_location(f"plugins.{plugin_name}.main", plugin_file)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
+                # 获取插件名称
+                plugin_name = item
+                class_name = f"{plugin_name}_plugin"
+                plugin_info = {
+                    'name': plugin_name,
+                    'class_name': class_name,
+                    'status': 'unknown',
+                    'error': '',
+                    'path': main_py,
+                    'is_hot_reload': False,
+                    'is_cold_load': True
+                }
                 
                 try:
-                    spec.loader.exec_module(module)
-                    
-                    # 检查插件类是否存在
-                    if hasattr(module, class_name):
-                        plugin_class = getattr(module, class_name)
-                        # 检查是否实现了必要方法
-                        if hasattr(plugin_class, 'get_regex_handlers'):
-                            plugin_info['status'] = 'loaded'
-                            # 获取处理器数量
-                            handlers = plugin_class.get_regex_handlers()
-                            plugin_info['handlers'] = len(handlers) if handlers else 0
-                            # 获取处理器列表
-                            plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
-                            # 获取插件优先级
-                            plugin_info['priority'] = getattr(plugin_class, 'priority', 10)
-                            # 获取处理器的owner_only属性
-                            handlers_owner_only = {}
-                            for pattern, handler_info in handlers.items():
-                                if isinstance(handler_info, dict):
-                                    handlers_owner_only[pattern] = handler_info.get('owner_only', False)
+                    # 尝试导入模块检查状态
+                    spec = importlib.util.spec_from_file_location(f"plugins.{plugin_name}.main", main_py)
+                    if spec and spec.loader:
+                        module = importlib.util.module_from_spec(spec)
+                        
+                        try:
+                            spec.loader.exec_module(module)
+                            
+                            # 检查插件类是否存在
+                            if hasattr(module, class_name):
+                                plugin_class = getattr(module, class_name)
+                                # 检查是否实现了必要方法
+                                if hasattr(plugin_class, 'get_regex_handlers'):
+                                    plugin_info['status'] = 'loaded'
+                                    # 获取处理器数量
+                                    handlers = plugin_class.get_regex_handlers()
+                                    plugin_info['handlers'] = len(handlers) if handlers else 0
+                                    # 获取处理器列表
+                                    plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
+                                    # 获取插件优先级
+                                    plugin_info['priority'] = getattr(plugin_class, 'priority', 10)
+                                    # 获取处理器的owner_only属性
+                                    handlers_owner_only = {}
+                                    for pattern, handler_info in handlers.items():
+                                        if isinstance(handler_info, dict):
+                                            handlers_owner_only[pattern] = handler_info.get('owner_only', False)
+                                        else:
+                                            handlers_owner_only[pattern] = False
+                                    plugin_info['handlers_owner_only'] = handlers_owner_only
                                 else:
-                                    handlers_owner_only[pattern] = False
-                            plugin_info['handlers_owner_only'] = handlers_owner_only
-                        else:
+                                    plugin_info['status'] = 'error'
+                                    plugin_info['error'] = '插件未实现必要的get_regex_handlers方法'
+                            else:
+                                plugin_info['status'] = 'error'
+                                plugin_info['error'] = f'未找到插件类 {class_name}'
+                        except Exception as e:
                             plugin_info['status'] = 'error'
-                            plugin_info['error'] = '插件未实现必要的get_regex_handlers方法'
+                            plugin_info['error'] = str(e)
+                            plugin_info['traceback'] = traceback.format_exc()
                     else:
                         plugin_info['status'] = 'error'
-                        plugin_info['error'] = f'未找到插件类 {class_name}'
+                        plugin_info['error'] = '无法加载插件文件'
                 except Exception as e:
                     plugin_info['status'] = 'error'
                     plugin_info['error'] = str(e)
-                    plugin_info['traceback'] = traceback.format_exc()
-            else:
-                plugin_info['status'] = 'error'
-                plugin_info['error'] = '无法加载插件文件'
-        except Exception as e:
-            plugin_info['status'] = 'error'
-            plugin_info['error'] = str(e)
-        
-        plugins_info.append(plugin_info)
+                
+                plugins_info.append(plugin_info)
     
-    # 2. 处理example目录下的所有py文件
+    # 3. 处理example目录下的所有py文件
     example_dir = os.path.join(script_dir, 'plugins', 'example')
     if os.path.exists(example_dir) and os.path.isdir(example_dir):
-        py_files = [f for f in os.listdir(example_dir) if f.endswith('.py')]
+        py_files = [f for f in os.listdir(example_dir) if f.endswith('.py') and f != '__init__.py']
         
         for py_file in py_files:
-            # 跳过 __init__.py 文件
-            if py_file == '__init__.py':
-                continue
-                
             # 获取模块名（不含.py后缀）
             module_name = os.path.splitext(py_file)[0]
             plugin_file = os.path.join(example_dir, py_file)
@@ -408,14 +620,20 @@ def scan_plugins():
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
                     
-                    # 搜索模块中所有以_plugin结尾的类
+                    # 搜索模块中所有可能的插件类
                     plugin_classes_found = False
+                    
                     for attr_name in dir(module):
-                        if attr_name.endswith('_plugin') and not attr_name.startswith('__'):
-                            plugin_classes_found = True
-                            plugin_class = getattr(module, attr_name)
+                        # 跳过特殊属性、内置函数和模块
+                        if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
+                            continue
                             
-                            if hasattr(plugin_class, 'get_regex_handlers'):
+                        attr = getattr(module, attr_name)
+                        # 检查是否是类，并且不是从其他模块导入的类
+                        if isinstance(attr, type) and attr.__module__ == module.__name__:
+                            # 检查是否有get_regex_handlers方法
+                            if hasattr(attr, 'get_regex_handlers'):
+                                plugin_classes_found = True
                                 plugin_info = {
                                     'name': f"example/{module_name}/{attr_name}",
                                     'class_name': attr_name,
@@ -427,11 +645,11 @@ def scan_plugins():
                                 }
                                 
                                 # 获取处理器
-                                handlers = plugin_class.get_regex_handlers()
+                                handlers = attr.get_regex_handlers()
                                 plugin_info['handlers'] = len(handlers) if handlers else 0
                                 plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
                                 # 获取插件优先级
-                                plugin_info['priority'] = getattr(plugin_class, 'priority', 10)
+                                plugin_info['priority'] = getattr(attr, 'priority', 10)
                                 # 获取处理器的owner_only属性
                                 handlers_owner_only = {}
                                 for pattern, handler_info in handlers.items():
@@ -442,24 +660,13 @@ def scan_plugins():
                                 plugin_info['handlers_owner_only'] = handlers_owner_only
                                 
                                 plugins_info.append(plugin_info)
-                            else:
-                                plugin_info = {
-                                    'name': f"example/{module_name}/{attr_name}",
-                                    'class_name': attr_name,
-                                    'status': 'error',
-                                    'error': '插件未实现必要的get_regex_handlers方法',
-                                    'path': plugin_file,
-                                    'is_hot_reload': True,
-                                    'last_modified': last_modified_str
-                                }
-                                plugins_info.append(plugin_info)
                     
                     if not plugin_classes_found:
                         plugin_info = {
                             'name': f"example/{module_name}",
                             'class_name': 'unknown',
                             'status': 'error',
-                            'error': '未在模块中找到插件类（以_plugin结尾的类）',
+                            'error': '未在模块中找到有效的插件类',
                             'path': plugin_file,
                             'is_hot_reload': True,
                             'last_modified': last_modified_str
@@ -480,7 +687,7 @@ def scan_plugins():
                 plugins_info.append(plugin_info)
     
     # 按状态排序：已加载的排在前面，然后按热更新排序
-    plugins_info.sort(key=lambda x: (0 if x['status'] == 'loaded' else 1, 0 if x.get('is_hot_reload') else 1))
+    plugins_info.sort(key=lambda x: (0 if x['status'] == 'loaded' else 1, 0 if x.get('is_hot_reload', False) else 1))
     return plugins_info
 
 @catch_error

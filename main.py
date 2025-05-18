@@ -10,8 +10,14 @@ import random
 import threading
 import logging
 import logging.handlers
+import gc  # 导入垃圾回收模块
+import warnings
+import urllib3
 from flask import Flask, request, jsonify, make_response
 from flask_socketio import SocketIO
+
+# 禁用urllib3不安全请求的警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 导入配置
 from config import appid, secret, LOG_CONFIG
@@ -79,6 +85,45 @@ socketio = SocketIO(app,
 
 # 将Socket.IO实例绑定到app
 app.socketio = socketio
+
+# 定期执行内存回收
+def start_memory_manager():
+    """启动内存管理线程，定期执行内存回收"""
+    def memory_manager_thread():
+        from web_panel.app import add_framework_log
+        add_framework_log("内存管理线程已启动")
+        
+        # 启用自动内存回收
+        gc.enable()
+        
+        # 设置垃圾回收阈值
+        gc.set_threshold(700, 10, 5)
+        
+        while True:
+            try:
+                # 执行垃圾回收
+                collected = gc.collect()
+                
+                # 导入所需模块
+                import psutil
+                
+                # 获取当前进程
+                process = psutil.Process(os.getpid())
+                memory_info = process.memory_info()
+                
+                # 计算内存使用情况
+                memory_mb = memory_info.rss / 1024 / 1024
+                
+                # 记录内存回收情况到框架日志
+                add_framework_log(f"内存回收完成：清理了 {collected} 个对象，当前内存使用：{memory_mb:.2f}MB")
+                
+                # 每5分钟执行一次
+                time.sleep(300)
+            except Exception as e:
+                # 记录错误到框架日志
+                error_msg = f"内存管理线程出错: {str(e)}"
+                add_framework_log(error_msg)
+                time.sleep(60)  # 出错后等待1分钟再试
 
 def format_bytes(bytes_num, precision=2):
     """转换字节为易读格式"""
@@ -240,8 +285,17 @@ if __name__ == "__main__":
     setup_logging()
     logging.info("MBot服务启动")
     
+    # 启动垃圾回收
+    gc.enable()
+    gc.collect()
+    logging.info("内存管理初始化完成")
+    
     # 初始化Web面板
     start_web_panel(app)
+    
+    # 启动内存管理线程
+    memory_thread = threading.Thread(target=start_memory_manager, daemon=True)
+    memory_thread.start()
     
     # 日志记录
     add_framework_log(f"MBot服务启动，监听端口: 5001")

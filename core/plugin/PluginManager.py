@@ -8,6 +8,8 @@ import importlib.util
 import sys
 import traceback
 import time
+import gc  # 导入垃圾回收模块
+import weakref  # 导入弱引用模块
 
 # 导入配置
 from config import SEND_DEFAULT_RESPONSE, OWNER_IDS, OWNER_ONLY_REPLY
@@ -46,6 +48,9 @@ class PluginManager:
     # 存储热更新文件的最后修改时间
     _file_last_modified = {}
     
+    # 存储卸载的模块，便于垃圾回收
+    _unloaded_modules = []
+    
     @classmethod
     def load_plugins(cls):
         """加载所有插件，按照不同策略处理example和其他插件"""
@@ -61,38 +66,108 @@ class PluginManager:
     
     @classmethod
     def _load_non_example_plugins(cls, script_dir):
-        """加载非example目录下的插件（只加载main.py）"""
-        # 获取所有插件目录下的main.py文件（排除example目录）
-        plugin_files = []
+        """加载非example目录下的插件"""
+        # 处理主插件目录下的插件
         for item in os.listdir(os.path.join(script_dir, 'plugins')):
             if item != 'example' and os.path.isdir(os.path.join(script_dir, 'plugins', item)):
-                main_py = os.path.join(script_dir, 'plugins', item, 'main.py')
-                if os.path.exists(main_py):
-                    plugin_files.append(main_py)
+                plugin_dir = os.path.join(script_dir, 'plugins', item)
+                
+                # 对system目录特殊处理，加载所有.py文件
+                if item == 'system':
+                    cls._load_system_plugins(plugin_dir)
+                else:
+                    # 其他目录只加载main.py
+                    main_py = os.path.join(plugin_dir, 'main.py')
+                    if os.path.exists(main_py):
+                        cls._load_standard_plugin(main_py)
+    
+    @classmethod
+    def _load_system_plugins(cls, system_dir):
+        """加载system目录下的所有插件文件（不热更新）"""
+        if not os.path.exists(system_dir) or not os.path.isdir(system_dir):
+            return
+            
+        # 获取所有py文件
+        py_files = [f for f in os.listdir(system_dir) if f.endswith('.py') and f != '__init__.py']
         
-        for plugin_file in plugin_files:
-            # 获取插件名称
-            plugin_name = os.path.basename(os.path.dirname(plugin_file))
-            class_name = f"{plugin_name}_plugin"
+        for py_file in py_files:
+            plugin_file = os.path.join(system_dir, py_file)
+            plugin_name = os.path.splitext(py_file)[0]
             
             try:
                 # 动态导入模块
-                spec = importlib.util.spec_from_file_location(f"plugins.{plugin_name}.main", plugin_file)
+                spec = importlib.util.spec_from_file_location(f"plugins.system.{plugin_name}", plugin_file)
                 if spec and spec.loader:
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
-                    sys.modules[f"plugins.{plugin_name}.main"] = module
+                    sys.modules[f"plugins.system.{plugin_name}"] = module
                     
-                    # 检查插件类是否存在
-                    if hasattr(module, class_name):
-                        plugin_class = getattr(module, class_name)
-                        cls.register_plugin(plugin_class)
-                        add_framework_log(f"非热更新插件 {plugin_name} 加载成功")
+                    # 搜索模块中所有可能的插件类
+                    plugin_classes_found = False
+                    plugin_load_results = []
+                    
+                    for attr_name in dir(module):
+                        # 跳过特殊属性、内置函数和模块
+                        if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
+                            continue
+                            
+                        attr = getattr(module, attr_name)
+                        # 检查是否是类，并且不是从其他模块导入的类
+                        if isinstance(attr, type) and attr.__module__ == module.__name__:
+                            try:
+                                # 检查是否有get_regex_handlers方法
+                                if hasattr(attr, 'get_regex_handlers'):
+                                    plugin_classes_found = True
+                                    # 标记为system插件
+                                    attr._source_file = plugin_file
+                                    attr._is_system = True
+                                    
+                                    # register_plugin将返回处理器数量
+                                    handlers_count = cls.register_plugin(attr)
+                                    # 记录成功结果
+                                    plugin_load_results.append(f"{attr_name}(优先级:{getattr(attr, 'priority', 10)},处理器:{handlers_count})")
+                            except Exception as e:
+                                # 记录失败结果
+                                plugin_load_results.append(f"{attr_name}(注册失败:{str(e)})")
+                    
+                    # 统一记录所有插件加载结果
+                    if plugin_classes_found:
+                        add_framework_log(f"系统插件 {py_file} 加载成功: {', '.join(plugin_load_results)}")
                     else:
-                        add_framework_log(f"插件 {plugin_name} 加载失败：未找到插件类 {class_name}")
+                        add_framework_log(f"系统插件 {py_file} 中未找到有效的插件类")
             except Exception as e:
-                error_msg = f"插件 {plugin_name} 加载失败：{str(e)}\n{traceback.format_exc()}"
+                error_msg = f"系统插件 {py_file} 加载失败：{str(e)}\n{traceback.format_exc()}"
                 add_framework_log(error_msg)
+    
+    @classmethod
+    def _load_standard_plugin(cls, plugin_file):
+        """加载标准插件（main.py）"""
+        # 获取插件名称
+        plugin_name = os.path.basename(os.path.dirname(plugin_file))
+        class_name = f"{plugin_name}_plugin"
+        
+        try:
+            # 动态导入模块
+            spec = importlib.util.spec_from_file_location(f"plugins.{plugin_name}.main", plugin_file)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                sys.modules[f"plugins.{plugin_name}.main"] = module
+                
+                # 检查插件类是否存在
+                if hasattr(module, class_name):
+                    plugin_class = getattr(module, class_name)
+                    # 标记为标准插件
+                    plugin_class._source_file = plugin_file
+                    plugin_class._is_standard = True
+                    
+                    cls.register_plugin(plugin_class)
+                    add_framework_log(f"标准插件 {plugin_name} 加载成功")
+                else:
+                    add_framework_log(f"插件 {plugin_name} 加载失败：未找到插件类 {class_name}")
+        except Exception as e:
+            error_msg = f"插件 {plugin_name} 加载失败：{str(e)}\n{traceback.format_exc()}"
+            add_framework_log(error_msg)
     
     @classmethod
     def _check_and_load_example_plugins(cls, script_dir):
@@ -116,14 +191,29 @@ class PluginManager:
                 files_changed = True
                 cls._load_example_plugin_file(file_path)
         
-        # 如果有文件变更，清除不再存在的文件记录
-        if files_changed:
-            # 清理已删除文件的记录
-            for file_path in list(cls._file_last_modified.keys()):
-                if not os.path.exists(file_path) or not file_path.startswith(example_dir):
-                    del cls._file_last_modified[file_path]
-                    add_framework_log(f"热更新：文件已删除 {os.path.basename(file_path)}")
-    
+        # 检查文件是否已删除（无论是否有其他文件变更）
+        deleted_files = []
+        for file_path in list(cls._file_last_modified.keys()):
+            if not os.path.exists(file_path) or not file_path.startswith(example_dir):
+                deleted_files.append(file_path)
+                
+        # 注销已删除文件中的插件
+        for file_path in deleted_files:
+            # 先注销对应的插件
+            removed_count = cls._unregister_file_plugins(file_path)
+            # 再删除文件记录
+            del cls._file_last_modified[file_path]
+            
+            if removed_count > 0:
+                add_framework_log(f"热更新：文件已删除 {os.path.basename(file_path)}，已注销{removed_count}个处理器")
+            else:
+                add_framework_log(f"热更新：文件已删除 {os.path.basename(file_path)}")
+                
+        # 如果调试模式下还可以显示更详细的插件状态
+        # if deleted_files or files_changed:
+        #     registered_plugins = ", ".join([f"{p.__name__}({cls._plugins[p]})" for p in cls._plugins])
+        #     add_framework_log(f"当前已注册的插件: {registered_plugins}")
+        
     @classmethod
     def _load_example_plugin_file(cls, plugin_file):
         """加载单个example插件文件"""
@@ -140,32 +230,43 @@ class PluginManager:
             if spec and spec.loader:
                 # 强制重新加载模块
                 if f"plugins.example.{module_name}" in sys.modules:
+                    # 保存旧模块以便进行垃圾回收
+                    old_module = sys.modules[f"plugins.example.{module_name}"]
+                    cls._unloaded_modules.append(weakref.ref(old_module))
                     del sys.modules[f"plugins.example.{module_name}"]
+                    
+                    # 触发垃圾回收
+                    gc.collect()
                     
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 sys.modules[f"plugins.example.{module_name}"] = module
                 
-                # 搜索模块中所有以_plugin结尾的类
+                # 搜索模块中所有可能的插件类
                 plugin_classes_found = False
                 plugin_load_results = []
                 
                 for attr_name in dir(module):
-                    if attr_name.endswith('_plugin') and not attr_name.startswith('__'):
-                        plugin_classes_found = True
-                        plugin_class = getattr(module, attr_name)
+                    # 跳过特殊属性、内置函数和模块
+                    if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
+                        continue
                         
-                        if hasattr(plugin_class, 'get_regex_handlers'):
-                            try:
+                    attr = getattr(module, attr_name)
+                    # 检查是否是类，并且不是从其他模块导入的类
+                    if isinstance(attr, type) and attr.__module__ == module.__name__:
+                        try:
+                            # 检查是否有get_regex_handlers方法
+                            if hasattr(attr, 'get_regex_handlers'):
+                                plugin_classes_found = True
                                 # 保存插件类对应的文件路径
-                                plugin_class._source_file = plugin_file
+                                attr._source_file = plugin_file
                                 # register_plugin将返回处理器数量
-                                handlers_count = cls.register_plugin(plugin_class, True)
+                                handlers_count = cls.register_plugin(attr, True)
                                 # 记录成功结果
-                                plugin_load_results.append(f"{attr_name}(优先级:{getattr(plugin_class, 'priority', 10)},处理器:{handlers_count})")
-                            except Exception as e:
-                                # 记录失败结果
-                                plugin_load_results.append(f"{attr_name}(注册失败:{str(e)})")
+                                plugin_load_results.append(f"{attr_name}(优先级:{getattr(attr, 'priority', 10)},处理器:{handlers_count})")
+                        except Exception as e:
+                            # 记录失败结果
+                            plugin_load_results.append(f"{attr_name}(注册失败:{str(e)})")
                 
                 # 统一记录所有插件加载结果
                 if plugin_classes_found:
@@ -175,7 +276,7 @@ class PluginManager:
                     else:
                         add_framework_log(f"热更新：{file_basename} 加载插件: {', '.join(plugin_load_results)}")
                 else:
-                    add_framework_log(f"热更新：文件 {file_basename} 中未找到插件类")
+                    add_framework_log(f"热更新：文件 {file_basename} 中未找到有效的插件类")
         except Exception as e:
             error_msg = f"热更新模块 {file_basename} 加载失败：{str(e)}\n{traceback.format_exc()}"
             add_framework_log(error_msg)
@@ -200,6 +301,13 @@ class PluginManager:
         for plugin_class in plugin_classes_to_remove:
             if plugin_class in cls._plugins:
                 del cls._plugins[plugin_class]
+                
+        # 清理旧的弱引用
+        cls._unloaded_modules = [ref for ref in cls._unloaded_modules if ref() is not None]
+        
+        # 执行垃圾回收
+        if removed:
+            gc.collect()
         
         return len(removed)  # 返回注销的处理器数量
     
@@ -214,6 +322,9 @@ class PluginManager:
         
         handlers = plugin_class.get_regex_handlers()
         handlers_info = []  # 收集处理器信息，用于合并日志
+        
+        # 优化：预先计算处理器数量
+        handlers_count = 0
         
         for pattern, handler_info in handlers.items():
             # 解析处理器信息，支持两种格式：
@@ -243,6 +354,7 @@ class PluginManager:
             if owner_only:
                 handler_text += "(主人专属)"
             handlers_info.append(handler_text)
+            handlers_count += 1
         
         # 不跳过日志时记录
         if not skip_log:
@@ -253,7 +365,7 @@ class PluginManager:
             else:
                 add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，无处理器")
         
-        return len(handlers)  # 返回处理器数量
+        return handlers_count  # 返回处理器数量
     
     @classmethod
     def dispatch_message(cls, event):

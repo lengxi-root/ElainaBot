@@ -9,11 +9,24 @@ import time
 import gc  # 垃圾回收模块
 import weakref  # 弱引用管理
 import logging  # 添加日志记录
+import warnings
+import urllib3
 
-# 配置基本日志
+# 禁用urllib3不安全请求的警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 设置日志记录器
 logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('db_pool')
+
+# 导入框架日志记录功能，用于重要日志
+try:
+    from web_panel.app import add_framework_log
+except ImportError:
+    # 如果导入失败，创建一个空函数来避免错误
+    def add_framework_log(msg):
+        pass
 
 class DatabasePool:
     _instance = None
@@ -58,8 +71,11 @@ class DatabasePool:
                         'last_used': time.time()
                     })
             logger.info(f"数据库连接池初始化成功，创建了{len(self._pool)}个连接")
+            add_framework_log(f"数据库连接池：初始化成功，创建了{len(self._pool)}个连接")
         except Exception as e:
-            logger.error(f"初始化数据库连接池失败: {str(e)}")
+            error_msg = f"初始化数据库连接池失败: {str(e)}"
+            logger.error(error_msg)
+            add_framework_log(f"数据库连接池错误：{error_msg}")
     
     def _create_connection(self):
         """创建新的数据库连接"""
@@ -99,6 +115,13 @@ class DatabasePool:
         except Exception:
             return False
     
+    def _close_connection_safely(self, connection):
+        """安全关闭连接"""
+        try:
+            connection.close()
+        except Exception:
+            pass
+    
     def get_connection(self):
         """获取数据库连接"""
         connection_id = threading.get_ident()
@@ -119,20 +142,14 @@ class DatabasePool:
                     
                     # 检查连接是否有效，无效则创建新连接
                     if not self._check_connection(connection):
-                        try:
-                            connection.close()
-                        except:
-                            pass
+                        self._close_connection_safely(connection)
                         connection = self._create_connection()
                         if not connection:
                             continue  # 尝试下一个连接
                     
                     # 检查连接是否超过最大生命周期，超过则创建新连接
                     if time.time() - conn_info['created_at'] > self._connection_lifetime:
-                        try:
-                            connection.close()
-                        except:
-                            pass
+                        self._close_connection_safely(connection)
                         connection = self._create_connection()
                         if not connection:
                             continue  # 尝试下一个连接
@@ -171,11 +188,10 @@ class DatabasePool:
                 conn_info = self._busy_connections[conn_id]
                 # 连接使用超过30秒视为可能死锁
                 if current_time - conn_info['acquired_at'] > 30:
-                    logger.warning(f"警告: 强制释放可能死锁的连接ID {conn_id}，使用时间: {int(current_time - conn_info['acquired_at'])}秒")
-                    try:
-                        conn_info['connection'].close()
-                    except:
-                        pass
+                    warning_msg = f"警告: 强制释放可能死锁的连接ID {conn_id}，使用时间: {int(current_time - conn_info['acquired_at'])}秒"
+                    logger.warning(warning_msg)
+                    add_framework_log(f"数据库连接池：{warning_msg}")
+                    self._close_connection_safely(conn_info['connection'])
                     del self._busy_connections[conn_id]
     
     def release_connection(self, connection=None):
@@ -196,10 +212,7 @@ class DatabasePool:
                         connection_id = found_id
                     else:
                         # 连接不在忙碌列表中，可能是已释放或外部连接
-                        try:
-                            connection.close()
-                        except:
-                            pass
+                        self._close_connection_safely(connection)
                         return
                 
                 # 获取当前线程的连接
@@ -220,10 +233,7 @@ class DatabasePool:
                     
                     # 连接已使用太久 或 总生命周期过长，直接关闭
                     if usage_time > 300 or created_time > self._connection_lifetime:
-                        try:
-                            connection.close()
-                        except:
-                            pass
+                        self._close_connection_safely(connection)
                         return
                     
                     # 只有当池中连接数少于最大值时才放回
@@ -235,20 +245,17 @@ class DatabasePool:
                         })
                     else:
                         # 池已满，关闭连接
-                        try:
-                            connection.close()
-                        except:
-                            pass
+                        self._close_connection_safely(connection)
                 else:
-                    try:
-                        connection.close()
-                    except:
-                        pass
+                    self._close_connection_safely(connection)
             except Exception as e:
                 logger.error(f"释放连接过程中出错: {str(e)}")
     
     def _maintain_pool(self):
         """维护连接池，定期检查并处理过期连接"""
+        pool_status_interval = 180  # 池状态记录间隔：3分钟
+        last_pool_status_time = 0  # 上次记录池状态的时间
+        
         while True:
             time.sleep(20)  # 每20秒检查一次
             
@@ -257,66 +264,86 @@ class DatabasePool:
                     current_time = time.time()
                     
                     # 检查并清理池中过期的连接
-                    for i in range(len(self._pool) - 1, -1, -1):
-                        if i >= len(self._pool):
-                            continue  # 防止索引越界
-                            
-                        conn_info = self._pool[i]
-                        # 超过超时时间且池中连接数大于最小值，关闭连接
-                        if (current_time - conn_info['last_used'] > self._timeout and 
-                            len(self._pool) > self._min_connections):
-                            try:
-                                conn_info['connection'].close()
-                            except Exception as e:
-                                logger.debug(f"关闭过期连接失败: {str(e)}")
-                            try:
-                                del self._pool[i]
-                            except IndexError:
-                                pass  # 防止并发修改导致的问题
-                        
-                        # 检查连接是否超过最大生命周期
-                        elif current_time - conn_info['created_at'] > self._connection_lifetime:
-                            try:
-                                conn_info['connection'].close()
-                            except Exception as e:
-                                logger.debug(f"关闭过期连接失败: {str(e)}")
-                            try:
-                                del self._pool[i]
-                            except IndexError:
-                                pass
+                    self._cleanup_expired_connections(current_time)
                     
                     # 确保保持最小连接数
-                    try:
-                        while len(self._pool) < self._min_connections:
-                            conn = self._create_connection()
-                            if conn:
-                                self._pool.append({
-                                    'connection': conn,
-                                    'created_at': time.time(),
-                                    'last_used': time.time()
-                                })
-                            else:
-                                break  # 无法创建连接时退出循环
-                    except Exception as e:
-                        logger.error(f"维护最小连接数失败: {str(e)}")
+                    self._ensure_min_connections()
                     
                     # 检查并处理长时间未释放的连接
-                    for conn_id in list(self._busy_connections.keys()):
-                        conn_info = self._busy_connections[conn_id]
-                        # 连接使用超过2分钟视为异常
-                        if current_time - conn_info['acquired_at'] > 120:
-                            logger.warning(f"警告: 连接ID {conn_id} 已使用超过2分钟，可能存在未释放的情况")
+                    self._check_long_running_connections(current_time)
                     
                     # 定期执行垃圾回收
                     if current_time - self._last_gc_time > self._gc_interval:
                         collected = gc.collect()
                         self._last_gc_time = current_time
                         logger.info(f"执行垃圾回收完成，回收了 {collected} 个对象")
-                        
-                    # 定期记录连接池状态
-                    logger.info(f"连接池状态：空闲 {len(self._pool)}，忙碌 {len(self._busy_connections)}")
+                        # 同时发送到框架日志
+                        add_framework_log(f"数据库连接池：执行垃圾回收完成，回收了 {collected} 个对象")
+                    
+                    # 每3分钟记录一次连接池状态
+                    if current_time - last_pool_status_time > pool_status_interval:
+                        pool_status = f"连接池状态：空闲 {len(self._pool)}，忙碌 {len(self._busy_connections)}"
+                        logger.info(pool_status)
+                        # 同时发送到框架日志
+                        add_framework_log(f"数据库连接池：{pool_status}")
+                        last_pool_status_time = current_time
             except Exception as e:
-                logger.error(f"连接池维护过程中发生错误: {str(e)}")
+                error_msg = f"连接池维护过程中发生错误: {str(e)}"
+                logger.error(error_msg)
+                add_framework_log(f"数据库连接池错误：{error_msg}")
+                
+                # 尝试进行垃圾回收
+                try:
+                    gc.collect()
+                except:
+                    pass
+    
+    def _cleanup_expired_connections(self, current_time):
+        """清理过期连接"""
+        for i in range(len(self._pool) - 1, -1, -1):
+            if i >= len(self._pool):
+                continue  # 防止索引越界
+                
+            conn_info = self._pool[i]
+            # 超过超时时间且池中连接数大于最小值，关闭连接
+            if ((current_time - conn_info['last_used'] > self._timeout and 
+                len(self._pool) > self._min_connections) or
+                current_time - conn_info['created_at'] > self._connection_lifetime):
+                try:
+                    conn_info['connection'].close()
+                    del self._pool[i]
+                except Exception as e:
+                    logger.debug(f"关闭过期连接失败: {str(e)}")
+                    try:
+                        del self._pool[i]
+                    except IndexError:
+                        pass  # 防止并发修改导致的问题
+    
+    def _ensure_min_connections(self):
+        """确保维持最小连接数"""
+        try:
+            while len(self._pool) < self._min_connections:
+                conn = self._create_connection()
+                if conn:
+                    self._pool.append({
+                        'connection': conn,
+                        'created_at': time.time(),
+                        'last_used': time.time()
+                    })
+                else:
+                    break  # 无法创建连接时退出循环
+        except Exception as e:
+            logger.error(f"维护最小连接数失败: {str(e)}")
+    
+    def _check_long_running_connections(self, current_time):
+        """检查长时间运行的连接"""
+        for conn_id in list(self._busy_connections.keys()):
+            conn_info = self._busy_connections[conn_id]
+            # 连接使用超过2分钟视为异常
+            if current_time - conn_info['acquired_at'] > 120:
+                warning_msg = f"警告: 连接ID {conn_id} 已使用超过2分钟，可能存在未释放的情况"
+                logger.warning(warning_msg)
+                add_framework_log(f"数据库连接池：{warning_msg}")
 
 class ConnectionManager:
     """数据库连接管理器，提供便捷的上下文管理接口"""
@@ -464,218 +491,30 @@ def execute_transaction(sql_list):
             logger.error(f"事务执行失败: {str(e)}")
             return False
 
-# 初始化数据库表结构的函数
-def init_db_tables():
-    """初始化数据库表结构，确保所需表存在"""
-    # 使用事务创建表，确保原子性
-    tables_sql = []
-    
-    # 创建doro_records表
-    tables_sql.append({
-        'sql': """
-            CREATE TABLE IF NOT EXISTS doro_records (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                user_id VARCHAR(100) NOT NULL,
-                date DATE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX (user_id, date)
-            )
-        """
-    })
-    
-    # 创建tklj表 (图库链接记录)
-    tables_sql.append({
-        'sql': """
-            CREATE TABLE IF NOT EXISTS tklj (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                originalUrl VARCHAR(255) NOT NULL,
-                newUrl VARCHAR(255) NOT NULL,
-                px VARCHAR(100) NOT NULL,
-                domainAfterLastDash VARCHAR(100),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX (originalUrl(191))
-            )
-        """
-    })
-    
-    # 创建tplj表 (塔罗牌链接记录)
-    tables_sql.append({
-        'sql': """
-            CREATE TABLE IF NOT EXISTS tplj (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                originalUrl VARCHAR(255) NOT NULL,
-                newUrl VARCHAR(255) NOT NULL,
-                px VARCHAR(100) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX (originalUrl(191))
-            )
-        """
-    })
-    
-    # 执行表创建事务
-    return execute_transaction(tables_sql)
-
 class DatabaseService:
-    """数据库服务类，为插件提供数据库操作接口"""
+    """数据库服务类，为插件提供基础数据库操作接口"""
     
     @staticmethod
     def execute_query(sql, params=None, fetch_all=False):
-        """
-        执行查询SQL并返回结果
-        
-        参数:
-            sql (str): SQL查询语句
-            params (tuple|dict): 参数化查询的参数
-            fetch_all (bool): 是否返回所有结果行，默认False只返回第一行
-            
-        返回:
-            dict|list|None: 查询结果，可能是单行(dict)、多行(list of dict)或None(无结果)
-        """
+        """执行查询SQL并返回结果"""
         return execute_query(sql, params, fetch_all)
     
     @staticmethod
     def execute_update(sql, params=None):
-        """
-        执行更新SQL并提交(INSERT, UPDATE, DELETE等)
-        
-        参数:
-            sql (str): SQL更新语句
-            params (tuple|dict): 参数化查询的参数
-            
-        返回:
-            bool: 操作是否成功
-        """
+        """执行更新SQL并提交"""
         return execute_update(sql, params)
     
     @staticmethod
     def execute_transaction(operations):
-        """
-        执行事务，包含多条SQL语句
-        
-        参数:
-            operations (list): SQL操作列表，每项为包含'sql'和'params'的字典
-                例如: [
-                    {'sql': 'INSERT INTO table_name(col1) VALUES(%s)', 'params': ('value1',)},
-                    {'sql': 'UPDATE table_name SET col1=%s WHERE col2=%s', 'params': ('new_value', 'condition')}
-                ]
-                
-        返回:
-            bool: 事务是否成功完成
-        """
+        """执行事务，包含多条SQL语句"""
         return execute_transaction(operations)
     
     @staticmethod
-    def check_daily_usage(user_id, table_name, limit=3):
+    def is_table_exists(table_name):
+        """检查表是否存在"""
+        sql = """
+            SELECT COUNT(*) as count FROM information_schema.tables 
+            WHERE table_schema = DATABASE() AND table_name = %s
         """
-        检查用户每日使用次数，常用于限制功能使用频率
-        
-        参数:
-            user_id (str): 用户ID
-            table_name (str): 记录表名称
-            limit (int): 每日使用次数限制
-            
-        返回:
-            dict: {
-                'can_use': True|False,  # 是否可以使用
-                'count': int,           # 今日已使用次数
-                'remaining': int        # 剩余可用次数
-            }
-        """
-        # 检查记录表是否存在该用户今日的记录
-        sql = f"""
-            SELECT COUNT(*) as count 
-            FROM {table_name} 
-            WHERE user_id = %s 
-            AND date = CURDATE()
-        """
-        result = execute_query(sql, (user_id,))
-        
-        if not result:
-            count = 0
-        else:
-            count = result.get('count', 0)
-        
-        remaining = max(0, limit - count)
-        can_use = remaining > 0
-        
-        return {
-            'can_use': can_use,
-            'count': count,
-            'remaining': remaining
-        }
-    
-    @staticmethod
-    def add_usage_record(user_id, table_name):
-        """
-        添加用户功能使用记录
-        
-        参数:
-            user_id (str): 用户ID
-            table_name (str): 记录表名称
-            
-        返回:
-            bool: 操作是否成功
-        """
-        sql = f"""
-            INSERT INTO {table_name} (user_id, date)
-            VALUES (%s, CURDATE())
-        """
-        return execute_update(sql, (user_id,))
-    
-    @staticmethod
-    def find_image_url(original_url, table_name):
-        """
-        查找图片URL的映射关系
-        
-        参数:
-            original_url (str): 原始URL
-            table_name (str): 存储映射关系的表名
-            
-        返回:
-            dict|None: 包含映射信息的字典或None(未找到)
-        """
-        if not original_url:  # 避免空URL查询
-            return None
-            
-        sql = f"""
-            SELECT * FROM {table_name}
-            WHERE originalUrl = %s
-            LIMIT 1
-        """
-        return execute_query(sql, (original_url,))
-    
-    @staticmethod
-    def save_image_url(original_url, new_url, px, domain=None, table_name="tklj"):
-        """
-        保存图片URL的映射关系
-        
-        参数:
-            original_url (str): 原始URL
-            new_url (str): 新URL
-            px (str): 图片尺寸
-            domain (str, optional): 域名信息
-            table_name (str): 存储映射关系的表名
-            
-        返回:
-            bool: 操作是否成功
-        """
-        if not original_url or not new_url:  # 避免无效数据
-            return False
-            
-        # 先检查是否已存在记录，避免重复插入
-        existing = DatabaseService.find_image_url(original_url, table_name)
-        if existing:
-            return True  # 已存在记录，视为成功
-            
-        if table_name == "tklj" and domain is not None:
-            sql = """
-                INSERT INTO tklj (originalUrl, newUrl, px, domainAfterLastDash)
-                VALUES (%s, %s, %s, %s)
-            """
-            return execute_update(sql, (original_url, new_url, px, domain))
-        else:
-            sql = f"""
-                INSERT INTO {table_name} (originalUrl, newUrl, px)
-                VALUES (%s, %s, %s)
-            """
-            return execute_update(sql, (original_url, new_url, px)) 
+        result = execute_query(sql, (table_name,))
+        return result and result.get('count', 0) > 0 

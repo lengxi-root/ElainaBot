@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# ===== 1. 标准库导入 =====
 import sys
 import os
 import time
@@ -13,292 +14,197 @@ import logging.handlers
 import gc  # 导入垃圾回收模块
 import warnings
 import urllib3
+import traceback  # 添加traceback模块
+
+# ===== 2. 第三方库导入 =====
 from flask import Flask, request, jsonify, make_response
 from flask_socketio import SocketIO
 
-# 禁用urllib3不安全请求的警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# ===== 3. 自定义模块导入 =====
+from config import appid, secret, LOG_CONFIG, LOG_DB_CONFIG
+from web_panel.app import start_web_panel, add_received_message, add_plugin_log, add_framework_log, add_error_log
+try:
+    from function.log_db import add_log_to_db
+except ImportError:
+    def add_log_to_db(log_type, log_data):
+        return False
+from function.Access import BOT凭证, BOTAPI, Json取, Json
 
-# 导入配置
-from config import appid, secret, LOG_CONFIG
+# ===== 4. 全局配置与变量 =====
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # 禁用urllib3不安全请求的警告
 
-# 配置日志系统
+# ===== 5. 日志系统与全局异常处理 =====
+def global_exception_handler(exctype, value, tb):
+    """
+    处理所有未捕获的异常，记录到错误日志并打印到控制台。
+    """
+    error_msg = f"未捕获的异常: {exctype.__name__}: {value}"
+    tb_str = "".join(traceback.format_tb(tb))
+    print(error_msg)
+    print(tb_str)
+    add_error_log(error_msg, tb_str)
+    sys.__excepthook__(exctype, value, tb)
+
+sys.excepthook = global_exception_handler
+
 def setup_logging():
-    """初始化日志系统"""
-    # 确保日志目录存在
-    log_file = LOG_CONFIG.get('file', 'logs/mbot.log')
-    log_dir = os.path.dirname(log_file)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    
-    # 获取日志配置
-    log_level = getattr(logging, LOG_CONFIG.get('level', 'INFO'))
-    log_format = LOG_CONFIG.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    max_size = LOG_CONFIG.get('max_size', 10485760)  # 10MB
-    backup_count = LOG_CONFIG.get('backup_count', 5)
-    
-    # 配置日志处理器
-    formatter = logging.Formatter(log_format)
-    
-    # 控制台处理器
+    """
+    初始化日志系统，仅控制台输出。
+    """
+    formatter = logging.Formatter(
+        LOG_CONFIG.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    )
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-    
-    # 文件处理器
-    file_handler = logging.handlers.RotatingFileHandler(
-        filename=log_file,
-        maxBytes=max_size,
-        backupCount=backup_count,
-        encoding='utf-8'
-    )
-    file_handler.setFormatter(formatter)
-    
-    # 配置根日志记录器
     root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
+    root_logger.setLevel(getattr(logging, LOG_CONFIG.get('level', 'INFO')))
     root_logger.addHandler(console_handler)
-    root_logger.addHandler(file_handler)
-    
-    # 设置特定模块的日志级别
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
     logging.getLogger('socketio').setLevel(logging.WARNING)
     logging.getLogger('engineio').setLevel(logging.WARNING)
-    
-    logging.info("日志系统初始化完成")
+    print("日志系统初始化完成 (仅控制台输出模式)")
 
-# 导入功能模块
-from function.Access import BOT凭证, BOTAPI, Json取, Json
+def setup_message_recorder():
+    """
+    初始化消息记录系统（数据库模式）。
+    """
+    print("消息记录系统已初始化，使用数据库记录模式")
+    return None
 
-# 导入Web面板
-from web_panel.app import start_web_panel, add_received_message, add_plugin_log, add_framework_log, parse_message_content
+def record_message(message_data):
+    """
+    记录接收到的消息到Web面板和数据库。
+    """
+    try:
+        add_received_message(message_data)
+    except Exception as e:
+        print(f"记录消息失败: {str(e)}")
 
-# 创建主应用
+# ===== 6. 主 Flask 应用与 SocketIO 实例 =====
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'mbot_secret'
-
-# 创建全局Socket.IO实例
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
 socketio = SocketIO(app, 
                    cors_allowed_origins="*",
                    async_mode='threading',
                    logger=False,
                    engineio_logger=False)
-
-# 将Socket.IO实例绑定到app
 app.socketio = socketio
 
-# 定期执行内存回收
-def start_memory_manager():
-    """启动内存管理线程，定期执行内存回收"""
-    def memory_manager_thread():
-        from web_panel.app import add_framework_log
-        add_framework_log("内存管理线程已启动")
-        
-        # 启用自动内存回收
-        gc.enable()
-        
-        # 设置垃圾回收阈值
-        gc.set_threshold(700, 10, 5)
-        
-        while True:
-            try:
-                # 执行垃圾回收
-                collected = gc.collect()
-                
-                # 导入所需模块
-                import psutil
-                
-                # 获取当前进程
-                process = psutil.Process(os.getpid())
-                memory_info = process.memory_info()
-                
-                # 计算内存使用情况
-                memory_mb = memory_info.rss / 1024 / 1024
-                
-                # 记录内存回收情况到框架日志
-                add_framework_log(f"内存回收完成：清理了 {collected} 个对象，当前内存使用：{memory_mb:.2f}MB")
-                
-                # 每5分钟执行一次
-                time.sleep(300)
-            except Exception as e:
-                # 记录错误到框架日志
-                error_msg = f"内存管理线程出错: {str(e)}"
-                add_framework_log(error_msg)
-                time.sleep(60)  # 出错后等待1分钟再试
+# ===== 7. 工具函数 =====
+# （已淘汰：upload_media、send_message、上传群图片、发群、format_bytes、convert_url等函数，推荐统一通过MessageEvent类实现）
 
-def format_bytes(bytes_num, precision=2):
-    """转换字节为易读格式"""
-    units = ['B', 'KB', 'MB', 'GB', 'TB']
-    bytes_num = max(bytes_num, 0)
-    pow_val = min(int(pow(bytes_num, 1/1024) if bytes_num > 0 else 0), len(units) - 1)
-    bytes_num /= (1 << (10 * pow_val))
-    return f"{round(bytes_num, precision)} {units[pow_val]}"
+def process_message_event(data, raw_data=None):
+    """
+    集中处理消息事件，记录消息并分发到插件系统。
+    """
+    record_message(data)
+    from core.plugin.PluginManager import PluginManager
+    from core.event.MessageEvent import MessageEvent
+    plugin_manager = PluginManager()
+    plugin_manager.load_plugins()
+    event = MessageEvent(raw_data if raw_data else data)
+    return plugin_manager.dispatch_message(event)
 
-def 上传群图片(group, content):
-    """上传图片到群"""
-    content_base64 = base64.b64encode(content).decode()
-    return json.loads(BOTAPI(f"/v2/groups/{group}/files", "POST", Json({"srv_send_msg": False, "file_type": 1, "file_data": content_base64})))
-
-def 发群(group, content):
-    """发送消息到群"""
-    return BOTAPI(f"/v2/groups/{group}/messages", "POST", Json(content))
-
-def 发群2(group, content, type=0, id=None):
-    """使用ark模板发送消息到群"""
-    ark = {
-        'template_id': 23,
-        'kv': [
-            {'key': '#DESC#', 'value': 'TSmoe'},
-            {'key': '#PROMPT#', 'value': '闲仁Bot'},
-            {
-                'key': '#LIST#',
-                'obj': [
-                    {
-                        'obj_kv': [
-                            {'key': 'desc', 'value': content}
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
-    return BOTAPI(f"/v2/groups/{group}/messages", "POST", json.dumps({
-        "msg_id": id,
-        "msg_type": 3,
-        "ark": ark,
-        "msg_seq": random.randint(10000, 999999)
-    }))
-
-def convert_url(url):
-    """转换URL格式"""
-    if url is None:
-        return ''
-    
-    url_str = str(url)
-    parts = url_str.split('://', 1)
-    
-    if len(parts) == 1:
-        return url_str.upper()
-    
-    protocol = parts[0].lower()
-    rest = parts[1]
-    
-    host_part = rest.split('/', 1)[0] if '/' in rest else rest.split('?', 1)[0] if '?' in rest else rest.split('#', 1)[0] if '#' in rest else rest
-    separator_index = rest.find(host_part) + len(host_part)
-    
-    return protocol + '://' + host_part.upper() + rest[separator_index:]
-
-# 主应用路由
+# ===== 8. 主路由 =====
 @app.route('/', methods=['GET', 'POST'])
 def handle_request():
-    # 立即返回200响应
-    if request.method == 'GET':
-        type_param = request.args.get('type')
-        if type_param:
-            if type_param == 'test':
-                msg = request.args.get('msg')
-                data = {
-                    't': 'test',
-                    'd': {
-                        'id': 'test',
-                        'content': msg,
-                        'timestamp': int(time.time()),
-                        'group_id': 'test_group',
-                        'author': {'id': 'test_user'}
-                    }
-                }
-                
-                # 导入需要的模块
-                from core.plugin.PluginManager import PluginManager
-                from core.event.MessageEvent import MessageEvent
-                
-                # 初始化插件管理器并加载插件
-                plugin_manager = PluginManager()
-                plugin_manager.load_plugins()
-                
-                # 创建消息事件并分发
-                event = MessageEvent(Json(data))
-                plugin_manager.dispatch_message(event)
-                
-                return "OK"
-            
-            return "Type handled"
-        
-        # 收集服务状态信息
-        import platform
-        import psutil
-        
-        info = "服务状态信息\n"
-        me = BOTAPI("/users/@me", "GET", "")
-        name = Json取(me, 'username')
-        info += "==================\n"
-        info += f"Bot: {name}\n"
-        info += f"Python 版本: {platform.python_version()}\n"
-        info += "服务状态: 运行中\n"
-        
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        
-        info += f"当前内存使用: {format_bytes(memory_info.rss)}\n"
-        info += f"服务器时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        info += f"Python 运行模式: {sys.implementation.name}\n"
-        info += f"操作系统: {platform.system()} {platform.release()}\n"
-        
-        return me
-    
-    # 处理POST请求
-    data = request.get_data()
-    if not data:
-        return "No data received", 400
-    
-    json_data = json.loads(data)
-    op = json_data.get("op")
-    t = json_data.get("t")
-    
-    # 签名校验
-    if op == 13:
-        from function.sign import Signs
-        sign = Signs()
-        return sign.sign(data.decode())
-    
-    # 消息事件
-    if op == 0:
+    """
+    主入口路由，处理GET/POST请求。
+    """
+    try:
+        if request.method == 'GET':
+            type_param = request.args.get('type')
+            if type_param:
+                return "Type handled"
+            return "MBot 服务已启动"
+        data = request.get_data()
+        if not data:
+            return "No data received", 400
+        json_data = json.loads(data)
+        op = json_data.get("op")
+        if op == 13:
+            from function.sign import Signs
+            sign = Signs()
+            return sign.sign(data.decode())
+        if op == 0:
+            process_message_event(json_data, data.decode())
+            return "OK"
+        return "Event not handled", 400
+    except Exception as e:
+        error_msg = f"处理请求时发生错误: {str(e)}"
+        add_error_log(error_msg, traceback.format_exc())
+        return "Server error", 500
+
+# ===== 9. 系统初始化与主入口 =====
+def init_systems():
+    """
+    初始化所有系统组件（日志、消息记录、内存管理、插件等）。
+    """
+    success = True
+    results = []
+    try:
+        setup_logging()
+        results.append("日志系统初始化成功")
+    except Exception as e:
+        results.append(f"日志系统初始化失败: {str(e)}")
+        success = False
+    try:
+        setup_message_recorder()
+        results.append("消息记录系统已启用 (数据库模式)")
+    except Exception as e:
+        results.append(f"消息记录系统初始化失败: {str(e)}")
+        success = False
+    try:
+        gc.enable()
+        collected = gc.collect()
+        results.append(f"内存管理初始化完成，回收了 {collected} 个对象")
+    except Exception as e:
+        results.append(f"内存管理初始化失败: {str(e)}")
+    try:
         from core.plugin.PluginManager import PluginManager
-        from core.event.MessageEvent import MessageEvent
-        
-        # 记录接收到的消息
-        formatted_message = parse_message_content(json_data)
-        add_received_message(formatted_message)
-        
         plugin_manager = PluginManager()
-        plugin_manager.load_plugins()
-        event = MessageEvent(data.decode())
-        
-        # 分发消息处理
-        plugin_manager.dispatch_message(event)
-        
-        return "OK"
-    
-    return "Event not handled", 400
+        plugin_count = plugin_manager.load_plugins()
+        results.append(f"插件系统预加载完成，加载了 {plugin_count} 个插件")
+    except Exception as e:
+        results.append(f"插件系统预加载失败: {str(e)}")
+    return success, results
 
 if __name__ == "__main__":
-    # 初始化日志系统
-    setup_logging()
-    logging.info("MBot服务启动")
-    
-    # 启动垃圾回收
-    gc.enable()
-    gc.collect()
-    logging.info("内存管理初始化完成")
-    
-    # 初始化Web面板
-    start_web_panel(app)
-    
-    # 启动内存管理线程
-    memory_thread = threading.Thread(target=start_memory_manager, daemon=True)
-    memory_thread.start()
-    
-    # 日志记录
-    add_framework_log(f"MBot服务启动，监听端口: 5001")
-    
-    # 使用socketio启动应用（这将同时服务于主应用和web面板）
-    socketio.run(app, host='0.0.0.0', port=5001, debug=False, allow_unsafe_werkzeug=True)  
+    try:
+        # 初始化系统组件
+        success, results = init_systems()
+        logging.info("MBot服务启动")
+        for result in results:
+            logging.info(result)
+        if not success:
+            logging.warning("部分系统组件初始化失败，服务可能无法正常工作")
+        # 初始化Web面板
+        start_web_panel(app)
+        # 记录启动日志
+        for result in results:
+            add_framework_log(result)
+        add_framework_log(f"MBot服务启动，监听端口: 5001")
+        # 启动SocketIO服务
+        socketio.run(app, host='0.0.0.0', port=5001, debug=False, allow_unsafe_werkzeug=True)
+    except Exception as e:
+        error_msg = f"MBot服务启动失败: {str(e)}"
+        traceback_str = traceback.format_exc()
+        print(error_msg)
+        print(traceback_str)
+        try:
+            add_error_log(error_msg, traceback_str)
+        except Exception as e2:
+            print(f"记录启动错误失败: {str(e2)}")
+            if LOG_DB_CONFIG.get('enabled', False):
+                try:
+                    log_data = {
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'content': error_msg,
+                        'traceback': traceback_str
+                    }
+                    add_log_to_db('error', log_data)
+                except Exception as e3:
+                    print(f"写入日志数据库失败: {str(e3)}")
+        sys.exit(1)  

@@ -1,60 +1,58 @@
 # 重新导入Flask组件
-from flask import Flask
-from flask import render_template
-from flask import request
-from flask import jsonify
-from flask import Blueprint
-from flask_socketio import SocketIO
-import psutil
-import json
+# ===== 1. 标准库导入 =====
 import os
-import glob
-import importlib.util
 import sys
-import traceback
-from datetime import datetime
-from collections import deque
+import glob
+import json
+import time
 import re
 import threading
-import time
-from flask_cors import CORS
+import traceback
+import importlib.util
 import functools
 import gc  # 导入垃圾回收模块
 import warnings
+import logging
+from datetime import datetime
+from collections import deque
+
+# ===== 2. 第三方库导入 =====
+from flask import Flask, render_template, request, jsonify, Blueprint
+from flask_socketio import SocketIO
+from flask_cors import CORS
+import psutil
 import urllib3
 
-# 禁用urllib3不安全请求的警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# ===== 3. 自定义模块导入 =====
+from config import LOG_DB_CONFIG
+try:
+    from function.log_db import add_log_to_db
+except ImportError:
+    def add_log_to_db(log_type, log_data):
+        return False
 
-# 路径前缀
-PREFIX = '/web'
-
-# 创建Blueprint而不是直接创建Flask应用
+# ===== 4. 全局配置与变量 =====
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # 禁用urllib3不安全请求的警告
+START_TIME = datetime.now()  # 记录框架启动时间
+PREFIX = '/web'  # 路径前缀
 web_panel = Blueprint('web_panel', __name__, 
                      static_url_path=f'{PREFIX}/static',
                      static_folder='static',  
                      template_folder='templates')
-
-# Socket.IO实例 - 会在start_web_panel中设置
-socketio = None
-
-# 使用deque限制日志条数，提高性能
+socketio = None  # Socket.IO实例 - 会在start_web_panel中设置
 MAX_LOGS = 1000  # 最大保存日志数量
 received_messages = deque(maxlen=MAX_LOGS)
 plugin_logs = deque(maxlen=MAX_LOGS)
 framework_logs = deque(maxlen=MAX_LOGS)
-error_logs = deque(maxlen=MAX_LOGS)  # 新增：错误日志
+error_logs = deque(maxlen=MAX_LOGS)
+_last_gc_time = 0  # 上次垃圾回收时间
+_last_gc_log_time = 0  # 上次推送垃圾回收日志的时间
+_gc_interval = 30  # 垃圾回收间隔(秒)
+_gc_log_interval = 120  # 垃圾回收日志推送间隔(秒)
+plugins_info = []  # 存储插件信息
+from core.event.MessageEvent import MessageEvent  # 导入MessageEvent用于消息解析
 
-# 存储插件信息
-plugins_info = []
-
-# 日志文件保存目录
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
-# 确保日志目录存在
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
-
-# 捕获错误的装饰器，放在使用它的函数之前定义
+# ===== 5. 装饰器与通用函数 =====
 def catch_error(func):
     """捕获错误的装饰器，记录到错误日志"""
     @functools.wraps(func)
@@ -62,205 +60,157 @@ def catch_error(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            # 获取错误信息和调用栈
             error_msg = f"{func.__name__} 执行出错: {str(e)}"
             tb_info = traceback.format_exc()
-            
-            # 记录错误
             print(error_msg)
             print(tb_info)
-            
-            # 如果socketio初始化了，使用add_error_log
             if 'add_error_log' in globals() and 'socketio' in globals() and socketio is not None:
                 add_error_log(error_msg, tb_info)
             else:
-                # 否则直接写入日志文件
-                try:
-                    today = datetime.now().strftime('%Y-%m-%d')
-                    date_dir = os.path.join(LOG_DIR, today)
-                    if not os.path.exists(date_dir):
-                        os.makedirs(date_dir)
-                    error_file = os.path.join(date_dir, f"error.log")
-                    with open(error_file, 'a', encoding='utf-8') as f:
-                        f.write(f"\n--- 函数执行错误 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-                        f.write(error_msg + "\n")
-                        f.write(tb_info + "\n")
-                except:
-                    pass
-            
-            # 可以返回一个默认值或重新抛出异常
+                log_data = {
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'content': error_msg,
+                    'traceback': tb_info
+                }
+                add_log_to_db('error', log_data)
             return None
     return wrapper
 
-# 消息内容解析
-def parse_message_content(message_data):
-    """解析消息内容，格式化为更友好的显示"""
-    try:
-        # 尝试解析JSON字符串
-        if isinstance(message_data, str):
+# ===== 6. 日志处理类 =====
+class LogHandler:
+    """
+    统一日志处理基类，减少重复代码。
+    支持内存队列、数据库写入、SocketIO推送。
+    """
+    def __init__(self, log_type, max_logs=MAX_LOGS):
+        self.log_type = log_type
+        self.logs = deque(maxlen=max_logs)
+        if log_type == 'received':
+            self.global_logs = received_messages
+        elif log_type == 'plugin':
+            self.global_logs = plugin_logs
+        elif log_type == 'framework':
+            self.global_logs = framework_logs
+        elif log_type == 'error':
+            self.global_logs = error_logs
+    def add(self, content, traceback_info=None, skip_db=False):
+        """
+        添加日志条目，支持SocketIO推送和数据库写入。
+        :param content: 日志内容
+        :param traceback_info: 错误调用栈信息（可选）
+        :param skip_db: 是否跳过数据库写入
+        """
+        global socketio
+        entry = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'content': content
+        }
+        if traceback_info:
+            entry['traceback'] = traceback_info
+        self.logs.append(entry)
+        self.global_logs.append(entry)
+        if not skip_db:
+            add_log_to_db(self.log_type, entry)
+            self.logs.clear()
+            self.global_logs.clear()
+        if socketio is not None:
             try:
-                data = json.loads(message_data)
-            except json.JSONDecodeError:
-                return message_data
-        else:
-            data = message_data
-            
-        # 检查是否是JSON格式的消息
-        if isinstance(data, dict):
-            # 群聊消息格式 (GROUP_AT_MESSAGE_CREATE)
-            if "op" in data and "d" in data and data.get("t") == "GROUP_AT_MESSAGE_CREATE":
-                d = data.get("d", {})
-                member_openid = d.get("author", {}).get("member_openid", "未知用户")
-                group_openid = d.get("group_openid", "")
-                content = d.get("content", "")
-                
-                if group_openid:
-                    return f"{member_openid}（{group_openid}）：{content}"
-                else:
-                    return f"{member_openid}：{content}"
-            
-            # 按钮回调消息格式 (INTERACTION_CREATE)
-            elif "op" in data and "d" in data and data.get("t") == "INTERACTION_CREATE":
-                d = data.get("d", {})
-                
-                # 根据用户提供的示例精确提取字段
-                # 示例: {"op": 0, "id": "INTERACTION_CREATE:fb0d70b6-d6d3-4208-9e18-92278b4ca7d9", "d": {"id": "8035e62e-31e3-4a10-a74e-2489842acb0f", "application_id": "102134274", "type": 11, "data": {"type": 11, "resolved": {"button_data": "/胡桃签到", "button_id": "1"}}, "version": 1, "group_openid": "8F1223458B2A13A13678F0D05BB125F8", "chat_type": 1, "scene": "group", "timestamp": "2025-05-17T02:16:55+08:00", "group_member_openid": "8C7A05AC58E3BCAAA3E83B22486FAF8F"}, "t": "INTERACTION_CREATE"}
-                group_member_openid = d.get("group_member_openid", "未知用户")
-                group_openid = d.get("group_openid", "")
-                
-                # 从data.resolved中获取按钮数据
-                button_data = ""
-                data_obj = d.get("data", {})
-                if isinstance(data_obj, dict) and "resolved" in data_obj:
-                    resolved = data_obj.get("resolved", {})
-                    button_data = resolved.get("button_data", "")
-                    button_id = resolved.get("button_id", "")
-                    
-                    # 增加button_id信息便于调试
-                    if button_id:
-                        button_data = f"{button_data} [ID:{button_id}]"
-                
-                if group_openid:
-                    return f"{group_member_openid}（{group_openid}）按钮交互：{button_data} (回调消息)"
-                else:
-                    return f"{group_member_openid}按钮交互：{button_data} (回调消息)"
-            
-            # 私聊消息格式 (C2C_MESSAGE_CREATE)
-            elif "op" in data and "d" in data and data.get("t") == "C2C_MESSAGE_CREATE":
-                d = data.get("d", {})
-                user_openid = d.get("author", {}).get("user_openid", "未知用户")
-                content = d.get("content", "")
-                return f"{user_openid}：{content}"
-                    
-            # 尝试提取通用字段
-            if "content" in data:
-                # 检查作者信息位置
-                author = data.get("author", {})
-                content = data.get("content", "")
-                
-                # 尝试获取各种可能的ID
-                user_id = (
-                    author.get("user_openid") or 
-                    author.get("member_openid") or 
-                    author.get("id") or 
-                    "未知用户"
-                )
-                
-                # 检查是否有群组ID
-                group_id = data.get("group_openid", "") or data.get("group_id", "")
-                
-                if group_id:
-                    return f"{user_id}（{group_id}）：{content}（回调消息）"
-                else:
-                    return f"{user_id}：{content}（回调消息）"
-        
-        # 对于不符合预期结构的数据，返回原始字符串
-        return str(message_data)
-    except Exception as e:
-        return f"消息解析错误: {str(e)}"
+                socketio.emit('new_message', {
+                    'type': self.log_type,
+                    'data': entry
+                }, namespace=PREFIX)
+            except Exception as e:
+                print(f"推送日志到前端失败: {str(e)}")
+        return entry
 
-# 日志函数定义
+# ===== 7. 日志处理器实例 =====
+received_handler = LogHandler('received')
+plugin_handler = LogHandler('plugin')
+framework_handler = LogHandler('framework')
+error_handler = LogHandler('error')
+
+# ===== 8. 日志与消息相关API =====
+@catch_error
 def add_received_message(message):
-    """添加接收到的消息日志"""
-    global socketio
-    if socketio is None:
-        return
-        
-    # 如果message已经是格式化后的字符串，直接使用，否则进行格式化
+    """
+    添加接收到的消息日志，使用MessageEvent解析消息。
+    支持原始字符串和结构化消息。
+    """
     if isinstance(message, str) and not message.startswith('{'):
         formatted_message = message
+        user_id = "未知用户"
+        group_id = "c2c"
+        pure_content = message
     else:
-        formatted_message = parse_message_content(message)
-        
-    entry = {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'content': formatted_message,
-        # 不再保存原始消息到日志中
-        # 'raw': message  # 保存原始消息，以便需要时使用
+        try:
+            event = MessageEvent(message)
+            user_id = event.user_id or "未知用户"
+            group_id = event.group_id or "c2c"
+            pure_content = event.content or ""
+            is_interaction = getattr(event, 'event_type', None) == 'INTERACTION_CREATE'
+            if is_interaction:
+                chat_type = event.get('d/chat_type')
+                scene = event.get('d/scene')
+                if (chat_type == 2 or scene == 'c2c'):
+                    group_id = "c2c"
+                    user_id = event.get('d/user_openid') or user_id
+                button_data = event.get('d/data/resolved/button_data')
+                if button_data and not pure_content:
+                    pure_content = button_data
+            is_group_add = getattr(event, 'message_type', None) == getattr(event, 'GROUP_ADD_ROBOT', 'GROUP_ADD_ROBOT')
+            if (
+                (not user_id or user_id == "未知用户") and (not group_id or group_id == "未知群" or group_id == "c2c")
+                or ((not user_id or user_id == "未知用户") and (not group_id or group_id == "未知群" or group_id == "c2c") and (not pure_content))
+            ) and not is_group_add:
+                try:
+                    pure_content = json.dumps(message, ensure_ascii=False)
+                except Exception:
+                    pure_content = str(message)
+            formatted_message = f"{user_id}（{group_id}）：{pure_content}" if group_id != "c2c" else f"{user_id}：{pure_content}"
+        except Exception as e:
+            formatted_message = str(message)
+            user_id = "未知用户"
+            group_id = "c2c"
+            pure_content = formatted_message
+            add_error_log(f"消息解析失败: {str(e)}", traceback.format_exc())
+    display_entry = received_handler.add(formatted_message, skip_db=True)
+    db_entry = {
+        'timestamp': display_entry['timestamp'],
+        'content': pure_content,
+        'user_id': user_id,
+        'group_id': group_id
     }
-    received_messages.append(entry)  # 使用deque尾部添加，最新的消息在队列尾部
-    socketio.emit('new_message', {
-        'type': 'received',
-        'data': entry
-    }, namespace=PREFIX)
+    add_log_to_db('received', db_entry)
+    return display_entry
 
+@catch_error
 def add_plugin_log(log):
-    global socketio
-    if socketio is None:
-        return
-        
-    entry = {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'content': log
-    }
-    plugin_logs.append(entry)  # 使用deque尾部添加，最新的消息在队列尾部
-    socketio.emit('new_message', {
-        'type': 'plugin',
-        'data': entry
-    }, namespace=PREFIX)
+    """添加插件日志"""
+    return plugin_handler.add(log)
 
+@catch_error
 def add_framework_log(log):
-    global socketio
-    if socketio is None:
-        return
-        
-    entry = {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'content': log
-    }
-    framework_logs.append(entry)  # 使用deque尾部添加，最新的消息在队列尾部
-    socketio.emit('new_message', {
-        'type': 'framework',
-        'data': entry
-    }, namespace=PREFIX)
+    """添加框架日志"""
+    return framework_handler.add(log)
 
+@catch_error
 def add_error_log(log, traceback_info=None):
     """添加错误日志"""
-    global socketio
-    if socketio is None:
-        return
-        
-    entry = {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'content': log,
-        'traceback': traceback_info
-    }
-    error_logs.append(entry)  # 使用deque尾部添加，最新的消息在队列尾部
-    socketio.emit('new_message', {
-        'type': 'error',
-        'data': entry
-    }, namespace=PREFIX)
+    return error_handler.add(log, traceback_info)
 
+# ===== 9. API路由 =====
 @web_panel.route('/')
+@catch_error
 def index():
+    """Web面板首页"""
     return render_template('index.html', prefix=PREFIX)
 
 @web_panel.route('/api/logs/<log_type>')
+@catch_error
 def get_logs(log_type):
     """API端点，用于分页获取日志"""
     page = request.args.get('page', 1, type=int)
     page_size = request.args.get('size', 50, type=int)
-    
     if log_type == 'received':
         logs = list(received_messages)
     elif log_type == 'plugin':
@@ -269,15 +219,10 @@ def get_logs(log_type):
         logs = list(framework_logs)
     else:
         return jsonify({'error': '无效的日志类型'}), 400
-    
-    # 所有类型的日志都逆序排列，最新的在前面
     logs.reverse()
-    
-    # 计算分页
     start = (page - 1) * page_size
     end = start + page_size
     page_logs = logs[start:end]
-    
     return jsonify({
         'logs': page_logs,
         'total': len(logs),
@@ -287,6 +232,7 @@ def get_logs(log_type):
     })
 
 @web_panel.route('/status')
+@catch_error
 def status():
     """状态检查接口"""
     return jsonify({
@@ -299,125 +245,237 @@ def status():
         }
     })
 
+# ===== 10. 系统信息与插件管理 =====
+@catch_error
 def get_system_info():
-    """获取系统信息，包括细化的内存使用情况"""
+    """
+    获取系统信息，包含基本的内存和CPU使用情况以及详细的内存分配。
+    支持自动垃圾回收和内存分配估算。
+    """
+    global _last_gc_time, _last_gc_log_time
     process = psutil.Process(os.getpid())
-    
-    # 触发内存回收但不记录日志（框架内记录日志）
-    collected = gc.collect()
-    
-    # 获取主要内存信息
+    current_time = time.time()
+    collected = 0
+    if current_time - _last_gc_time >= _gc_interval:
+        collected = gc.collect()
+        _last_gc_time = current_time
+        if current_time - _last_gc_log_time >= _gc_log_interval:
+            add_framework_log(f"系统执行垃圾回收，回收了 {collected} 个对象")
+            _last_gc_log_time = current_time
     memory_info = process.memory_info()
     rss = memory_info.rss / 1024 / 1024  # MB
-    
-    # 获取插件内存占用（估计值）
-    plugins_memory = 0
-    framework_memory = 0
-    web_panel_memory = 0
-    other_memory = 0
-    
-    # 分析对象占用的内存
+    cpu_percent = process.cpu_percent(interval=0.05)
     objects = gc.get_objects()
-    total_tracked_size = 0
-    
-    # 计算Python内部对象的内存占用
-    for obj in objects:
+    framework_mb = 0
+    plugins_mb = 0
+    web_panel_mb = 0
+    other_mb = 0
+    modules = sys.modules.copy()
+    for module_name, module in modules.items():
+        module_size = 0
         try:
-            obj_size = sys.getsizeof(obj)
-            if hasattr(obj, "__module__"):
-                module_name = obj.__module__ or ""
-                if module_name.startswith('plugins.'):
-                    plugins_memory += obj_size
-                    total_tracked_size += obj_size
-                elif module_name.startswith('core.'):
-                    framework_memory += obj_size
-                    total_tracked_size += obj_size
-                elif module_name.startswith('web_panel.') or module_name.startswith('flask.') or module_name.startswith('socketio.'):
-                    web_panel_memory += obj_size
-                    total_tracked_size += obj_size
-                else:
-                    other_memory += obj_size
-                    total_tracked_size += obj_size
+            if module and hasattr(module, '__dict__'):
+                for name, obj in module.__dict__.items():
+                    try:
+                        obj_size = sys.getsizeof(obj) / (1024 * 1024)
+                        module_size += obj_size
+                    except:
+                        pass
+            if module_name.startswith('plugins'):
+                plugins_mb += module_size
+            elif module_name == 'web_panel' or module_name.startswith('web_panel.'):
+                web_panel_mb += module_size
+            elif module_name in ('core', 'function') or module_name.startswith(('core.', 'function.')):
+                framework_mb += module_size
+            else:
+                other_mb += module_size
         except:
             pass
-    
-    # 深度内存分析 - 模块分类
-    for module_name, module in sys.modules.items():
-        if module:
-            try:
-                module_size = sys.getsizeof(module)
-                total_tracked_size += module_size
-                
-                if module_name.startswith('plugins.'):
-                    plugins_memory += module_size
-                elif module_name.startswith('core.'):
-                    framework_memory += module_size
-                elif module_name.startswith('web_panel.') or module_name.startswith('flask') or module_name.startswith('socketio'):
-                    web_panel_memory += module_size
-                else:
-                    other_memory += module_size
-            except:
-                pass
-    
-    # 确保内存总和等于真实内存使用量
-    tracked_memory_mb = (total_tracked_size / 1024 / 1024)
-    
-    # 将实际内存与追踪内存的差值按比例分配
-    remaining_memory = max(0, rss - tracked_memory_mb)
-    
-    # 分配剩余内存到各组件，按比例分配
-    if total_tracked_size > 0:
-        plugins_ratio = plugins_memory / total_tracked_size
-        framework_ratio = framework_memory / total_tracked_size
-        web_panel_ratio = web_panel_memory / total_tracked_size
-        other_ratio = other_memory / total_tracked_size
-        
-        # 转为MB并添加剩余内存
-        plugins_memory = (plugins_memory / 1024 / 1024) + (remaining_memory * plugins_ratio)
-        framework_memory = (framework_memory / 1024 / 1024) + (remaining_memory * framework_ratio)
-        web_panel_memory = (web_panel_memory / 1024 / 1024) + (remaining_memory * web_panel_ratio)
-        other_memory = (other_memory / 1024 / 1024) + (remaining_memory * other_ratio)
+    total_estimated = plugins_mb + framework_mb + web_panel_mb + other_mb
+    if total_estimated > 0:
+        ratio = rss / total_estimated
+        plugins_mb *= ratio
+        framework_mb *= ratio
+        web_panel_mb *= ratio
+        other_mb *= ratio
     else:
-        # 如果没有可以追踪的对象，将所有内存归入"其他"类别
-        other_memory = rss
-        plugins_memory = 0
-        framework_memory = 0
-        web_panel_memory = 0
-    
-    # 获取最大的10个对象的大小和类型，用于调试内存问题
-    largest_objects = []
-    for obj in objects:
-        try:
-            obj_size = sys.getsizeof(obj)
-            if obj_size > 1024 * 1024:  # 大于1MB的对象
-                largest_objects.append({
-                    'type': type(obj).__name__,
-                    'size_mb': obj_size / 1024 / 1024
-                })
-        except:
-            pass  # 忽略无法获取大小的对象
-    
-    # 排序并保留最大的10个
-    largest_objects.sort(key=lambda x: x['size_mb'], reverse=True)
-    largest_objects = largest_objects[:10]
-    
-    # 返回系统信息
+        avg = rss / 4
+        plugins_mb = avg
+        framework_mb = avg
+        web_panel_mb = avg
+        other_mb = avg
+    uptime_seconds = (datetime.now() - START_TIME).total_seconds()
+    days, remainder = divmod(uptime_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    formatted_uptime = {
+        'days': int(days),
+        'hours': int(hours),
+        'minutes': int(minutes),
+        'seconds': int(seconds),
+        'total_seconds': uptime_seconds
+    }
     return {
-        'cpu_percent': process.cpu_percent(interval=0.1),
+        'cpu_percent': cpu_percent,
         'memory_percent': process.memory_percent(),
         'memory_info': {
             'total_mb': rss,
-            'plugins_mb': plugins_memory,
-            'framework_mb': framework_memory,
-            'web_panel_mb': web_panel_memory,
-            'other_mb': other_memory,
-            'largest_objects': largest_objects
+            'plugins_mb': plugins_mb,
+            'framework_mb': framework_mb,
+            'web_panel_mb': web_panel_mb,
+            'other_mb': other_mb,
+            'gc_counts': gc.get_count(),
+            'total_objects': len(objects)
         },
         'memory_collection': {
             'collected_count': gc.get_count(),
             'objects_count': len(objects)
-        }
+        },
+        'uptime': formatted_uptime
     }
+
+@catch_error
+def process_plugin_module(module, plugin_path, module_name, is_hot_reload=False, is_system=False, is_cold_load=False):
+    """处理单个插件模块，提取插件信息"""
+    plugin_info_list = []
+    plugin_classes_found = False
+    
+    # 获取文件修改时间（仅热更新插件需要）
+    last_modified_str = ""
+    if is_hot_reload:
+        last_modified = os.path.getmtime(plugin_path)
+        last_modified_str = datetime.fromtimestamp(last_modified).strftime('%Y-%m-%d %H:%M:%S')
+        
+    # 扫描模块中的所有类
+    for attr_name in dir(module):
+        # 跳过特殊属性、内置函数和模块
+        if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
+            continue
+            
+        attr = getattr(module, attr_name)
+        # 检查是否是类，并且不是从其他模块导入的类
+        if isinstance(attr, type) and attr.__module__ == module.__name__:
+            # 检查是否有get_regex_handlers方法
+            if hasattr(attr, 'get_regex_handlers'):
+                plugin_classes_found = True
+                
+                # 确定插件名称
+                if is_system:
+                    name = f"system/{module_name}/{attr_name}"
+                elif is_hot_reload:
+                    name = f"example/{module_name}/{attr_name}"
+                else:
+                    name = f"{module_name}/{attr_name}"
+                
+                plugin_info = {
+                    'name': name,
+                    'class_name': attr_name,
+                    'status': 'loaded',
+                    'error': '',
+                    'path': plugin_path,
+                    'is_hot_reload': is_hot_reload,
+                    'is_cold_load': is_cold_load,
+                    'is_system': is_system
+                }
+                
+                # 获取处理器
+                try:
+                    handlers = attr.get_regex_handlers()
+                    plugin_info['handlers'] = len(handlers) if handlers else 0
+                    plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
+                    
+                    # 获取插件优先级
+                    plugin_info['priority'] = getattr(attr, 'priority', 10)
+                    
+                    # 获取处理器的owner_only属性
+                    handlers_owner_only = {}
+                    handlers_group_only = {}
+                    for pattern, handler_info in handlers.items():
+                        if isinstance(handler_info, dict):
+                            handlers_owner_only[pattern] = handler_info.get('owner_only', False)
+                            handlers_group_only[pattern] = handler_info.get('group_only', False)
+                        else:
+                            handlers_owner_only[pattern] = False
+                            handlers_group_only[pattern] = False
+                            
+                    plugin_info['handlers_owner_only'] = handlers_owner_only
+                    plugin_info['handlers_group_only'] = handlers_group_only
+                    
+                    # 添加修改时间（如果有）
+                    if last_modified_str:
+                        plugin_info['last_modified'] = last_modified_str
+                        
+                except Exception as e:
+                    plugin_info['status'] = 'error'
+                    plugin_info['error'] = f"获取处理器失败: {str(e)}"
+                    plugin_info['traceback'] = traceback.format_exc()
+                
+                # 添加到结果列表
+                plugin_info_list.append(plugin_info)
+    
+    # 如果没有找到插件类，添加一个错误记录
+    if not plugin_classes_found:
+        name_prefix = "system/" if is_system else "example/" if is_hot_reload else ""
+        plugin_info = {
+            'name': f"{name_prefix}{module_name}",
+            'class_name': 'unknown',
+            'status': 'error',
+            'error': '未在模块中找到有效的插件类',
+            'path': plugin_path,
+            'is_hot_reload': is_hot_reload,
+            'is_cold_load': is_cold_load
+        }
+        # 添加修改时间（如果有）
+        if last_modified_str:
+            plugin_info['last_modified'] = last_modified_str
+            
+        plugin_info_list.append(plugin_info)
+    
+    return plugin_info_list
+
+@catch_error
+def load_plugin_module(plugin_path, module_name, is_hot_reload=False, is_system=False, is_cold_load=False):
+    """加载插件模块并进行错误处理"""
+    try:
+        # 确定完整模块名称
+        if is_system:
+            full_module_name = f"plugins.system.{module_name}"
+        elif is_hot_reload:
+            full_module_name = f"plugins.example.{module_name}"
+        else:
+            full_module_name = f"plugins.{module_name}.main"
+            
+        # 动态导入模块
+        spec = importlib.util.spec_from_file_location(full_module_name, plugin_path)
+        if not spec or not spec.loader:
+            return [{
+                'name': module_name,
+                'class_name': 'unknown',
+                'status': 'error',
+                'error': '无法加载插件文件',
+                'path': plugin_path,
+                'is_hot_reload': is_hot_reload,
+                'is_cold_load': is_cold_load
+            }]
+            
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # 处理模块中的插件类
+        return process_plugin_module(module, plugin_path, module_name, is_hot_reload, is_system, is_cold_load)
+        
+    except Exception as e:
+        name_prefix = "system/" if is_system else "example/" if is_hot_reload else ""
+        return [{
+            'name': f"{name_prefix}{module_name}",
+            'class_name': 'unknown',
+            'status': 'error',
+            'error': str(e),
+            'path': plugin_path,
+            'is_hot_reload': is_hot_reload,
+            'is_cold_load': is_cold_load,
+            'traceback': traceback.format_exc()
+        }]
 
 @catch_error
 def scan_plugins():
@@ -436,168 +494,18 @@ def scan_plugins():
             plugin_file = os.path.join(system_dir, py_file)
             plugin_name = os.path.splitext(py_file)[0]
             
-            try:
-                # 尝试导入模块检查状态
-                spec = importlib.util.spec_from_file_location(f"plugins.system.{plugin_name}", plugin_file)
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    
-                    try:
-                        spec.loader.exec_module(module)
-                        
-                        # 搜索模块中所有可能的插件类
-                        plugin_classes_found = False
-                        
-                        for attr_name in dir(module):
-                            # 跳过特殊属性、内置函数和模块
-                            if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
-                                continue
-                                
-                            attr = getattr(module, attr_name)
-                            # 检查是否是类，并且不是从其他模块导入的类
-                            if isinstance(attr, type) and attr.__module__ == module.__name__:
-                                # 检查是否有get_regex_handlers方法
-                                if hasattr(attr, 'get_regex_handlers'):
-                                    plugin_classes_found = True
-                                    plugin_info = {
-                                        'name': f"system/{plugin_name}/{attr_name}",
-                                        'class_name': attr_name,
-                                        'status': 'loaded',
-                                        'error': '',
-                                        'path': plugin_file,
-                                        'is_hot_reload': False,
-                                        'is_cold_load': True
-                                    }
-                                    
-                                    # 获取处理器
-                                    handlers = attr.get_regex_handlers()
-                                    plugin_info['handlers'] = len(handlers) if handlers else 0
-                                    plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
-                                    # 获取插件优先级
-                                    plugin_info['priority'] = getattr(attr, 'priority', 10)
-                                    # 获取处理器的owner_only属性
-                                    handlers_owner_only = {}
-                                    for pattern, handler_info in handlers.items():
-                                        if isinstance(handler_info, dict):
-                                            handlers_owner_only[pattern] = handler_info.get('owner_only', False)
-                                        else:
-                                            handlers_owner_only[pattern] = False
-                                    plugin_info['handlers_owner_only'] = handlers_owner_only
-                                    
-                                    plugins_info.append(plugin_info)
-                        
-                        if not plugin_classes_found:
-                            plugin_info = {
-                                'name': f"system/{plugin_name}",
-                                'class_name': 'unknown',
-                                'status': 'error',
-                                'error': '未在模块中找到有效的插件类',
-                                'path': plugin_file,
-                                'is_hot_reload': False,
-                                'is_cold_load': True
-                            }
-                            plugins_info.append(plugin_info)
-                    except Exception as e:
-                        plugin_info = {
-                            'name': f"system/{plugin_name}",
-                            'class_name': 'unknown',
-                            'status': 'error',
-                            'error': str(e),
-                            'path': plugin_file,
-                            'is_hot_reload': False,
-                            'is_cold_load': True,
-                            'traceback': traceback.format_exc()
-                        }
-                        plugins_info.append(plugin_info)
-                else:
-                    plugin_info = {
-                        'name': f"system/{plugin_name}",
-                        'class_name': 'unknown',
-                        'status': 'error',
-                        'error': '无法加载插件文件',
-                        'path': plugin_file,
-                        'is_hot_reload': False,
-                        'is_cold_load': True
-                    }
-                    plugins_info.append(plugin_info)
-            except Exception as e:
-                plugin_info = {
-                    'name': f"system/{plugin_name}",
-                    'class_name': 'unknown',
-                    'status': 'error',
-                    'error': str(e),
-                    'path': plugin_file,
-                    'is_hot_reload': False,
-                    'is_cold_load': True
-                }
-                plugins_info.append(plugin_info)
+            # 加载系统插件
+            plugin_info_list = load_plugin_module(plugin_file, plugin_name, is_system=True, is_cold_load=True)
+            plugins_info.extend(plugin_info_list)
     
     # 2. 处理非example和system目录下的插件 (仅main.py)
     for item in os.listdir(os.path.join(script_dir, 'plugins')):
         if item not in ['example', 'system'] and os.path.isdir(os.path.join(script_dir, 'plugins', item)):
             main_py = os.path.join(script_dir, 'plugins', item, 'main.py')
             if os.path.exists(main_py):
-                # 获取插件名称
-                plugin_name = item
-                class_name = f"{plugin_name}_plugin"
-                plugin_info = {
-                    'name': plugin_name,
-                    'class_name': class_name,
-                    'status': 'unknown',
-                    'error': '',
-                    'path': main_py,
-                    'is_hot_reload': False,
-                    'is_cold_load': True
-                }
-                
-                try:
-                    # 尝试导入模块检查状态
-                    spec = importlib.util.spec_from_file_location(f"plugins.{plugin_name}.main", main_py)
-                    if spec and spec.loader:
-                        module = importlib.util.module_from_spec(spec)
-                        
-                        try:
-                            spec.loader.exec_module(module)
-                            
-                            # 检查插件类是否存在
-                            if hasattr(module, class_name):
-                                plugin_class = getattr(module, class_name)
-                                # 检查是否实现了必要方法
-                                if hasattr(plugin_class, 'get_regex_handlers'):
-                                    plugin_info['status'] = 'loaded'
-                                    # 获取处理器数量
-                                    handlers = plugin_class.get_regex_handlers()
-                                    plugin_info['handlers'] = len(handlers) if handlers else 0
-                                    # 获取处理器列表
-                                    plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
-                                    # 获取插件优先级
-                                    plugin_info['priority'] = getattr(plugin_class, 'priority', 10)
-                                    # 获取处理器的owner_only属性
-                                    handlers_owner_only = {}
-                                    for pattern, handler_info in handlers.items():
-                                        if isinstance(handler_info, dict):
-                                            handlers_owner_only[pattern] = handler_info.get('owner_only', False)
-                                        else:
-                                            handlers_owner_only[pattern] = False
-                                    plugin_info['handlers_owner_only'] = handlers_owner_only
-                                else:
-                                    plugin_info['status'] = 'error'
-                                    plugin_info['error'] = '插件未实现必要的get_regex_handlers方法'
-                            else:
-                                plugin_info['status'] = 'error'
-                                plugin_info['error'] = f'未找到插件类 {class_name}'
-                        except Exception as e:
-                            plugin_info['status'] = 'error'
-                            plugin_info['error'] = str(e)
-                            plugin_info['traceback'] = traceback.format_exc()
-                    else:
-                        plugin_info['status'] = 'error'
-                        plugin_info['error'] = '无法加载插件文件'
-                except Exception as e:
-                    plugin_info['status'] = 'error'
-                    plugin_info['error'] = str(e)
-                
-                plugins_info.append(plugin_info)
+                # 加载标准插件
+                plugin_info_list = load_plugin_module(main_py, item, is_cold_load=True)
+                plugins_info.extend(plugin_info_list)
     
     # 3. 处理example目录下的所有py文件
     example_dir = os.path.join(script_dir, 'plugins', 'example')
@@ -609,217 +517,13 @@ def scan_plugins():
             module_name = os.path.splitext(py_file)[0]
             plugin_file = os.path.join(example_dir, py_file)
             
-            # 获取文件修改时间
-            last_modified = os.path.getmtime(plugin_file)
-            last_modified_str = datetime.fromtimestamp(last_modified).strftime('%Y-%m-%d %H:%M:%S')
-            
-            try:
-                # 动态导入模块
-                spec = importlib.util.spec_from_file_location(f"plugins.example.{module_name}", plugin_file)
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    
-                    # 搜索模块中所有可能的插件类
-                    plugin_classes_found = False
-                    
-                    for attr_name in dir(module):
-                        # 跳过特殊属性、内置函数和模块
-                        if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
-                            continue
-                            
-                        attr = getattr(module, attr_name)
-                        # 检查是否是类，并且不是从其他模块导入的类
-                        if isinstance(attr, type) and attr.__module__ == module.__name__:
-                            # 检查是否有get_regex_handlers方法
-                            if hasattr(attr, 'get_regex_handlers'):
-                                plugin_classes_found = True
-                                plugin_info = {
-                                    'name': f"example/{module_name}/{attr_name}",
-                                    'class_name': attr_name,
-                                    'status': 'loaded',
-                                    'error': '',
-                                    'path': plugin_file,
-                                    'is_hot_reload': True,
-                                    'last_modified': last_modified_str
-                                }
-                                
-                                # 获取处理器
-                                handlers = attr.get_regex_handlers()
-                                plugin_info['handlers'] = len(handlers) if handlers else 0
-                                plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
-                                # 获取插件优先级
-                                plugin_info['priority'] = getattr(attr, 'priority', 10)
-                                # 获取处理器的owner_only属性
-                                handlers_owner_only = {}
-                                for pattern, handler_info in handlers.items():
-                                    if isinstance(handler_info, dict):
-                                        handlers_owner_only[pattern] = handler_info.get('owner_only', False)
-                                    else:
-                                        handlers_owner_only[pattern] = False
-                                plugin_info['handlers_owner_only'] = handlers_owner_only
-                                
-                                plugins_info.append(plugin_info)
-                    
-                    if not plugin_classes_found:
-                        plugin_info = {
-                            'name': f"example/{module_name}",
-                            'class_name': 'unknown',
-                            'status': 'error',
-                            'error': '未在模块中找到有效的插件类',
-                            'path': plugin_file,
-                            'is_hot_reload': True,
-                            'last_modified': last_modified_str
-                        }
-                        plugins_info.append(plugin_info)
-            except Exception as e:
-                plugin_info = {
-                    'name': f"example/{module_name}",
-                    'class_name': 'unknown',
-                    'status': 'error',
-                    'error': str(e),
-                    'path': plugin_file,
-                    'is_hot_reload': True,
-                    'last_modified': last_modified_str
-                }
-                if 'traceback' in locals():
-                    plugin_info['traceback'] = traceback.format_exc()
-                plugins_info.append(plugin_info)
+            # 加载热更新插件
+            plugin_info_list = load_plugin_module(plugin_file, module_name, is_hot_reload=True)
+            plugins_info.extend(plugin_info_list)
     
     # 按状态排序：已加载的排在前面，然后按热更新排序
     plugins_info.sort(key=lambda x: (0 if x['status'] == 'loaded' else 1, 0 if x.get('is_hot_reload', False) else 1))
     return plugins_info
-
-@catch_error
-def save_logs_to_file():
-    """将内存中的日志保存到文件并清空内存日志"""
-    global received_messages, plugin_logs, framework_logs, error_logs
-    
-    # 当前日期
-    today = datetime.now().strftime('%Y-%m-%d')
-    current_time = datetime.now().strftime('%H-%M-%S')
-    
-    # 创建日期文件夹
-    date_dir = os.path.join(LOG_DIR, today)
-    if not os.path.exists(date_dir):
-        os.makedirs(date_dir)
-    
-    # 记录当前内存中的日志数量
-    received_count = len(received_messages)
-    plugin_count = len(plugin_logs)
-    framework_count = len(framework_logs)
-    error_count = len(error_logs)
-    total_count = received_count + plugin_count + framework_count + error_count
-    
-    # 如果没有日志，直接返回
-    if total_count == 0:
-        print(f"没有新日志需要保存")
-        return
-        
-    # 创建当前日志的本地副本
-    received_copy = list(received_messages)
-    plugin_copy = list(plugin_logs)
-    framework_copy = list(framework_logs)
-    error_copy = list(error_logs)
-    
-    # 1. 保存接收消息日志 - 仅保存格式化后的内容，不保存原始消息
-    if received_copy:
-        message_file = os.path.join(date_dir, f"messages.log")
-        with open(message_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n--- 接收消息日志 {today} {current_time} ---\n")
-            for msg in received_copy:
-                f.write(f"[{msg['timestamp']}] {msg['content']}\n")
-    
-    # 2. 保存插件日志
-    if plugin_copy:
-        plugin_file = os.path.join(date_dir, f"plugin.log")
-        with open(plugin_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n--- 插件日志 {today} {current_time} ---\n")
-            for log in plugin_copy:
-                f.write(f"[{log['timestamp']}] {log['content']}\n")
-    
-    # 3. 保存框架日志
-    if framework_copy:
-        framework_file = os.path.join(date_dir, f"framework.log")
-        with open(framework_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n--- 框架日志 {today} {current_time} ---\n")
-            for log in framework_copy:
-                f.write(f"[{log['timestamp']}] {log['content']}\n")
-    
-    # 4. 保存错误日志
-    if error_copy:
-        error_file = os.path.join(date_dir, f"error.log")
-        with open(error_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n--- 错误日志 {today} {current_time} ---\n")
-            for log in error_copy:
-                f.write(f"[{log['timestamp']}] {log['content']}\n")
-                if log.get('traceback'):
-                    f.write(f"调用栈信息:\n{log['traceback']}\n")
-                f.write("\n")
-    
-    # 清空内存中的日志
-    received_messages.clear()
-    plugin_logs.clear()
-    framework_logs.clear()
-    error_logs.clear()
-    
-    # 直接打印而不是使用add_framework_log避免循环引用
-    print(f"日志已保存到文件夹 {date_dir}，共 {total_count} 条日志")
-    
-    # 在清空后再添加一条新的记录
-    entry = {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'content': f"日志已保存到文件夹，共 {total_count} 条 (接收:{received_count}, 插件:{plugin_count}, 框架:{framework_count}, 错误:{error_count})"
-    }
-    framework_logs.append(entry)
-    if socketio:
-        socketio.emit('new_message', {
-            'type': 'framework',
-            'data': entry
-        }, namespace=PREFIX)
-
-@catch_error
-def log_saving_thread():
-    """每5分钟保存日志的线程函数"""
-    while True:
-        try:
-            # 获取当前时间
-            now = datetime.now()
-            
-            # 检查是否是5的倍数分钟
-            if now.minute % 5 == 0 and now.second < 10:  # 只在每5分钟的前10秒执行
-                print(f"定时保存日志：当前时间 {now.strftime('%H:%M:%S')}")
-                save_logs_to_file()
-                
-                # 等待50秒，确保不会在同一个分钟内多次保存
-                # 例如，5:00分保存后，休眠到5:00:50，下次检查时已经是5:01分，不会重复保存
-                time.sleep(50)
-            else:
-                # 计算距离下一个5分钟点还有多少秒
-                next_5min = 5 - (now.minute % 5)
-                if next_5min == 5:
-                    next_5min = 0
-                seconds_to_next = next_5min * 60 - now.second
-                
-                # 如果时间太短就增加一个周期
-                if seconds_to_next < 10:
-                    seconds_to_next += 300  # 增加5分钟
-                    
-                # 休眠时间不超过10秒，便于及时响应
-                sleep_time = min(seconds_to_next, 10)
-                time.sleep(sleep_time)
-        except Exception as e:
-            error_msg = f"日志保存线程出错: {str(e)}"
-            tb_info = traceback.format_exc()
-            print(error_msg)
-            print(tb_info)
-            
-            # 记录错误
-            if 'add_error_log' in globals() and 'socketio' in globals() and socketio is not None:
-                add_error_log(error_msg, tb_info)
-            
-            # 出错时等待10秒后继续
-            time.sleep(10)
 
 @catch_error
 def register_socketio_handlers(sio):
@@ -832,26 +536,25 @@ def register_socketio_handlers(sio):
         # 扫描插件状态
         scan_plugins()
         
-        # 发送初始数据 - 只发送最新的50条日志
-        logs_to_send = {
-            'received_messages': list(received_messages)[-50:],
-            'plugin_logs': list(plugin_logs)[-50:],
-            'framework_logs': list(framework_logs)[-50:],
-            'error_logs': list(error_logs)[-50:]  # 添加错误日志
-        }
-        
-        # 所有类型的日志都逆序排列，最新的在最上面
-        logs_to_send['received_messages'].reverse()
-        logs_to_send['plugin_logs'].reverse()
-        logs_to_send['framework_logs'].reverse()
-        logs_to_send['error_logs'].reverse()  # 错误日志也逆序
-        
-        sio.emit('initial_data', {
-            'logs': logs_to_send,
+        # 构建初始数据包
+        initial_data = {
+            'logs': {
+                'received_messages': list(received_handler.logs)[-50:],
+                'plugin_logs': list(plugin_handler.logs)[-50:],
+                'framework_logs': list(framework_handler.logs)[-50:],
+                'error_logs': list(error_handler.logs)[-50:]
+            },
             'system_info': get_system_info(),
             'plugins_info': plugins_info,
             'prefix': PREFIX
-        }, room=request.sid, namespace=PREFIX)
+        }
+        
+        # 所有类型的日志都逆序排列，最新的在最上面
+        for log_type in initial_data['logs']:
+            initial_data['logs'][log_type].reverse()
+        
+        # 发送初始数据
+        sio.emit('initial_data', initial_data, room=request.sid, namespace=PREFIX)
 
     @sio.on('disconnect', namespace=PREFIX)
     def handle_disconnect():
@@ -861,7 +564,14 @@ def register_socketio_handlers(sio):
     @sio.on('get_system_info', namespace=PREFIX)
     def handle_get_system_info():
         """处理客户端请求系统信息的事件"""
-        sio.emit('system_info_update', get_system_info(), 
+        global _last_gc_time
+        current_time = time.time()
+        
+        # 获取系统信息
+        system_info = get_system_info()
+        
+        # 发送系统信息更新
+        sio.emit('system_info_update', system_info, 
                 room=request.sid, namespace=PREFIX)
 
     @sio.on('refresh_plugins', namespace=PREFIX)
@@ -878,16 +588,15 @@ def register_socketio_handlers(sio):
         page = data.get('page', 1)
         page_size = data.get('page_size', 50)
         
-        if log_type == 'received':
-            logs = list(received_messages)
-        elif log_type == 'plugin':
-            logs = list(plugin_logs)
-        elif log_type == 'framework':
-            logs = list(framework_logs)
-        elif log_type == 'error':  # 添加处理错误日志的逻辑
-            logs = list(error_logs)
-        else:
-            return
+        # 获取对应类型的日志
+        logs_map = {
+            'received': received_handler.logs,
+            'plugin': plugin_handler.logs,
+            'framework': framework_handler.logs,
+            'error': error_handler.logs
+        }
+        
+        logs = list(logs_map.get(log_type, []))
         
         # 所有类型的日志都进行逆序排列，确保最新的在最上面
         logs.reverse()
@@ -897,6 +606,7 @@ def register_socketio_handlers(sio):
         end = start + page_size
         page_logs = logs[start:end] if start < len(logs) else []
         
+        # 发送日志更新
         sio.emit('logs_update', {
             'type': log_type,
             'logs': page_logs,
@@ -905,35 +615,21 @@ def register_socketio_handlers(sio):
             'page_size': page_size
         }, room=request.sid, namespace=PREFIX)
 
+# ===== 11. Web面板启动函数 =====
 def start_web_panel(main_app=None):
     """
-    集成web面板到主应用中
-    
-    Args:
-        main_app: 主Flask应用实例
-    
-    Returns:
-        如果提供main_app，则直接集成并返回None
-        否则创建新的Flask应用并返回，供外部挂载
+    集成web面板到主应用中，支持独立运行或集成到已有Flask应用。
+    自动初始化SocketIO、CORS、日志等。
+    :param main_app: 主Flask应用实例
+    :return: (app, socketio) 或 None
     """
     global socketio
-    
     print(f"初始化Web面板，URL前缀: {PREFIX}")
-    
-    # 启动日志保存线程
-    log_thread = threading.Thread(target=log_saving_thread, daemon=True)
-    log_thread.start()
-    print("日志自动保存功能已启动，每5分钟保存一次")
-    
+    print("Web面板已配置为使用数据库记录日志")
     if main_app is None:
-        # 没有提供主应用，创建新的Flask应用
         app = Flask(__name__)
         app.register_blueprint(web_panel, url_prefix=PREFIX)
-        
-        # 设置CORS允许所有来源
         CORS(app, resources={r"/*": {"origins": "*"}})
-        
-        # 初始化Socket.IO
         try:
             print(f"正在初始化独立Socket.IO，路径为: /socket.io")
             socketio = SocketIO(app, 
@@ -941,36 +637,31 @@ def start_web_panel(main_app=None):
                             path="/socket.io",
                             logger=True,
                             engineio_logger=True)
-            
-            # 注册Socket.IO处理函数
+            # 关键：注册Socket.IO处理函数
             register_socketio_handlers(socketio)
             print("Socket.IO处理函数注册成功")
         except Exception as e:
             print(f"Socket.IO初始化错误: {str(e)}")
-            import traceback
             error_tb = traceback.format_exc()
             print(error_tb)
-            # 此时还不能使用add_error_log，因为socketio还没初始化成功
-
+            add_log_to_db('error', {
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'content': f"Socket.IO初始化错误: {str(e)}",
+                'traceback': error_tb
+            })
         print("创建独立的Web面板应用")
         return app, socketio
     else:
-        # 已提供主应用，直接注册蓝图
         main_app.register_blueprint(web_panel, url_prefix=PREFIX)
-        
-        # 设置CORS允许所有来源
         try:
             CORS(main_app, resources={r"/*": {"origins": "*"}})
         except Exception as e:
             print(f"CORS设置错误: {str(e)}")
-        
-        # 检查主应用是否已有Socket.IO
         try:
             if hasattr(main_app, 'socketio'):
                 socketio = main_app.socketio
                 print("使用主应用已有的Socket.IO实例")
             else:
-                # 初始化Socket.IO
                 print(f"正在初始化Socket.IO，路径为: /socket.io")
                 socketio = SocketIO(main_app, 
                                 cors_allowed_origins="*",
@@ -979,28 +670,17 @@ def start_web_panel(main_app=None):
                                 engineio_logger=True)
                 main_app.socketio = socketio
                 print("Socket.IO实例创建成功")
-            
-            # 注册Socket.IO处理函数
+            # 关键：注册Socket.IO处理函数
             register_socketio_handlers(socketio)
             print("Socket.IO处理函数注册成功")
         except Exception as e:
             print(f"Socket.IO初始化错误: {str(e)}")
-            import traceback
             error_tb = traceback.format_exc()
             print(error_tb)
-            # 记录错误到日志文件，因为socketio可能未初始化
-            try:
-                today = datetime.now().strftime('%Y-%m-%d')
-                date_dir = os.path.join(LOG_DIR, today)
-                if not os.path.exists(date_dir):
-                    os.makedirs(date_dir)
-                error_file = os.path.join(date_dir, f"error.log")
-                with open(error_file, 'a', encoding='utf-8') as f:
-                    f.write(f"\n--- Socket.IO初始化错误 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-                    f.write(str(e) + "\n")
-                    f.write(error_tb + "\n")
-            except:
-                pass
-        
+            add_log_to_db('error', {
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'content': f"Socket.IO初始化错误: {str(e)}",
+                'traceback': error_tb
+            })
         print(f"Web面板已集成到主应用，URL前缀: {PREFIX}")
-        return None 
+        return None

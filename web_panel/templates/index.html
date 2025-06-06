@@ -290,6 +290,13 @@
             border-color: #cce5ff;
         }
         
+        /* 群聊专用命令样式：橙色 */
+        .handler-item-group {
+            background: #fff3e0;
+            color: #ff9800;
+            border-color: #ffe0b2;
+        }
+        
         .plugin-priority {
             display: inline-flex;
             align-items: center;
@@ -447,6 +454,57 @@
             text-align: center;
             color: #6c757d;
         }
+
+        /* 复制按钮样式 */
+        .log-copy-btn {
+            opacity: 0;
+            transition: opacity 0.2s;
+            cursor: pointer;
+            color: #6c757d;
+            margin-left: 8px;
+        }
+        
+        .log-entry:hover .log-copy-btn {
+            opacity: 1;
+        }
+        
+        .log-copy-btn:hover {
+            color: var(--primary-color);
+        }
+        
+        /* 自动滚动开关样式 */
+        .auto-scroll-toggle {
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+            color: #6c757d;
+            user-select: none;
+            cursor: pointer;
+        }
+        
+        .auto-scroll-toggle input {
+            margin-right: 5px;
+        }
+        
+        /* 内存信息卡片在插件页面的样式 */
+        .memory-info-sidebar {
+            border-left: 1px solid #eee;
+            padding-left: 20px;
+            margin-left: 20px;
+        }
+        
+        /* 两列布局 */
+        .plugins-container-wrapper {
+            display: flex;
+        }
+        
+        .plugins-main-content {
+            flex: 1;
+        }
+        
+        .plugins-sidebar {
+            width: 300px;
+        }
     </style>
 </head>
 <body>
@@ -511,65 +569,12 @@
                 <div class="card system-card">
                     <div class="card-body">
                         <div class="system-title">
-                            <i class="bi bi-gear-wide-connected"></i> 内存管理
+                            <i class="bi bi-alarm"></i> 运行时间
                         </div>
+                        <div class="system-value" id="uptime-text">0天 0小时</div>
                         <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted"><i class="bi bi-recycle me-1"></i>GC计数</span>
-                            <span id="gc-count" class="badge bg-secondary">0/0/0</span>
-                        </div>
-                        <div class="d-flex justify-content-between align-items-center mt-2">
-                            <span class="text-muted"><i class="bi bi-boxes me-1"></i>对象数</span>
-                            <span id="objects-count" class="badge bg-secondary">0</span>
-                        </div>
-                        <div class="mt-2">
-                            <button class="btn btn-sm btn-outline-primary w-100" id="refresh-memory">
-                                <i class="bi bi-arrow-repeat"></i> 刷新内存
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 内存分配卡片 -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0"><i class="bi bi-bar-chart-fill"></i> 内存分配详情</h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-3">
-                                <div class="d-flex justify-content-between mb-2">
-                                    <span><i class="bi bi-puzzle"></i> 插件</span>
-                                    <span id="plugins-memory" class="badge bg-primary">0 MB</span>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="d-flex justify-content-between mb-2">
-                                    <span><i class="bi bi-bricks"></i> 框架</span>
-                                    <span id="framework-memory" class="badge bg-info">0 MB</span>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="d-flex justify-content-between mb-2">
-                                    <span><i class="bi bi-window"></i> 面板</span>
-                                    <span id="webpanel-memory" class="badge bg-success">0 MB</span>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="d-flex justify-content-between mb-2">
-                                    <span><i class="bi bi-box"></i> 其他</span>
-                                    <span id="other-memory" class="badge bg-secondary">0 MB</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="mt-3">
-                            <h6 class="mb-2"><i class="bi bi-exclamation-diamond"></i> 大型内存对象 (>1MB)</h6>
-                            <ul class="list-group list-group-flush" id="large-objects-list">
-                                <li class="list-group-item text-center">暂无大型对象信息</li>
-                            </ul>
+                            <span class="text-muted"><i class="bi bi-clock-history me-1"></i>开机时间</span>
+                            <span id="start-time" class="badge bg-secondary">未知</span>
                         </div>
                     </div>
                 </div>
@@ -606,113 +611,11 @@
         </ul>
 
         <div class="tab-content">
-            <!-- 接收消息日志 -->
-            <div class="tab-pane fade show active" id="received" role="tabpanel">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0">接收到的消息</h5>
-                    <button class="btn-control" id="refresh-received">
-                        <i class="bi bi-arrow-clockwise"></i> 刷新
-                    </button>
-                </div>
-                <div class="logs-container" id="received-logs">
-                    <div class="empty-logs">
-                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                        暂无消息
-                    </div>
-                </div>
-                <div class="pagination-container" id="received-pagination">
-                    <div class="pagination-info">显示 <span id="received-range">0-0</span> 条，共 <span id="received-total">0</span> 条</div>
-                    <div class="pagination-controls">
-                        <button class="btn-control" id="received-prev" disabled>
-                            <i class="bi bi-chevron-left"></i> 上一页
-                        </button>
-                        <button class="btn-control" id="received-next" disabled>
-                            下一页 <i class="bi bi-chevron-right"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 插件日志 -->
-            <div class="tab-pane fade" id="plugin" role="tabpanel">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0">插件日志</h5>
-                    <button class="btn-control" id="refresh-plugin">
-                        <i class="bi bi-arrow-clockwise"></i> 刷新
-                    </button>
-                </div>
-                <div class="logs-container" id="plugin-logs">
-                    <div class="empty-logs">
-                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                        暂无日志
-                    </div>
-                </div>
-                <div class="pagination-container" id="plugin-pagination">
-                    <div class="pagination-info">显示 <span id="plugin-range">0-0</span> 条，共 <span id="plugin-total">0</span> 条</div>
-                    <div class="pagination-controls">
-                        <button class="btn-control" id="plugin-prev" disabled>
-                            <i class="bi bi-chevron-left"></i> 上一页
-                        </button>
-                        <button class="btn-control" id="plugin-next" disabled>
-                            下一页 <i class="bi bi-chevron-right"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 框架日志 -->
-            <div class="tab-pane fade" id="framework" role="tabpanel">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0">框架日志</h5>
-                    <button class="btn-control" id="refresh-framework">
-                        <i class="bi bi-arrow-clockwise"></i> 刷新
-                    </button>
-                </div>
-                <div class="logs-container" id="framework-logs">
-                    <div class="empty-logs">
-                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                        暂无日志
-                    </div>
-                </div>
-                <div class="pagination-container" id="framework-pagination">
-                    <div class="pagination-info">显示 <span id="framework-range">0-0</span> 条，共 <span id="framework-total">0</span> 条</div>
-                    <div class="pagination-controls">
-                        <button class="btn-control" id="framework-prev" disabled>
-                            <i class="bi bi-chevron-left"></i> 上一页
-                        </button>
-                        <button class="btn-control" id="framework-next" disabled>
-                            下一页 <i class="bi bi-chevron-right"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 错误日志 -->
-            <div class="tab-pane fade" id="error" role="tabpanel">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0">错误日志</h5>
-                    <button class="btn-control" id="refresh-error">
-                        <i class="bi bi-arrow-clockwise"></i> 刷新
-                    </button>
-                </div>
-                <div class="logs-container" id="error-logs">
-                    <div class="empty-logs">
-                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                        暂无错误日志
-                    </div>
-                </div>
-                <div class="pagination-container" id="error-pagination">
-                    <div class="pagination-info">显示 <span id="error-range">0-0</span> 条，共 <span id="error-total">0</span> 条</div>
-                    <div class="pagination-controls">
-                        <button class="btn-control" id="error-prev" disabled>
-                            <i class="bi bi-chevron-left"></i> 上一页
-                        </button>
-                        <button class="btn-control" id="error-next" disabled>
-                            下一页 <i class="bi bi-chevron-right"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <!-- 使用JS动态生成的日志面板容器 -->
+            <div class="tab-pane fade show active" id="received" role="tabpanel"></div>
+            <div class="tab-pane fade" id="plugin" role="tabpanel"></div>
+            <div class="tab-pane fade" id="framework" role="tabpanel"></div>
+            <div class="tab-pane fade" id="error" role="tabpanel"></div>
             
             <!-- 插件列表 -->
             <div class="tab-pane fade" id="plugins" role="tabpanel">
@@ -723,21 +626,79 @@
                     </button>
                 </div>
                 
-                <div class="hot-reload-info mb-4">
-                    <h6><i class="bi bi-lightning-charge"></i> 热更新插件说明</h6>
-                    <p class="mb-1">位于 <code>plugins/example/</code> 目录下的插件支持基于文件修改时间的热更新。</p>
-                    <p class="mb-0"><strong>优化：</strong> 系统会检测文件是否变更，只有文件发生变化时才会重新加载，大幅提升性能。</p>
-                </div>
+                <div class="plugins-container-wrapper">
+                    <div class="plugins-main-content">
+                        <div class="plugins-loading" id="plugins-loading">
+                            <div class="d-flex justify-content-center py-5">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">加载中...</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="plugins-container"></div>
+                    </div>
+                    
+                    <!-- 内存分配详情侧边栏 -->
+                    <div class="plugins-sidebar memory-info-sidebar">
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="bi bi-bar-chart-fill"></i> 内存分配详情</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-12 mb-2">
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span><i class="bi bi-puzzle"></i> 插件</span>
+                                            <span id="plugins-memory" class="badge bg-primary">0 MB</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 mb-2">
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span><i class="bi bi-bricks"></i> 框架</span>
+                                            <span id="framework-memory" class="badge bg-info">0 MB</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 mb-2">
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span><i class="bi bi-window"></i> 面板</span>
+                                            <span id="webpanel-memory" class="badge bg-success">0 MB</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 mb-2">
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span><i class="bi bi-box"></i> 其他</span>
+                                            <span id="other-memory" class="badge bg-secondary">0 MB</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-                <div class="plugins-loading" id="plugins-loading">
-                    <div class="d-flex justify-content-center py-5">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">加载中...</span>
+                        <!-- 内存管理卡片 -->
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="bi bi-gear-wide-connected"></i> 内存管理</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-12 mb-2">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span><i class="bi bi-recycle me-1"></i>GC计数</span>
+                                            <span id="gc-count" class="badge bg-secondary">0/0/0</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 mb-2">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span><i class="bi bi-boxes me-1"></i>对象数</span>
+                                            <span id="objects-count" class="badge bg-secondary">0</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-                
-                <div id="plugins-container"></div>
             </div>
         </div>
     </div>
@@ -753,80 +714,131 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
     <script>
-        // 从服务器获取URL前缀
+        // =====================
+        // 1. 全局变量与配置
+        // =====================
         const URL_PREFIX = "{{ prefix }}";
-        
-        // 页面元素
-        const connectionIndicator = document.getElementById('connection-indicator');
-        const connectionText = document.getElementById('connection-text');
-        
-        // 日志容器
-        const receivedLogs = document.getElementById('received-logs');
-        const pluginLogs = document.getElementById('plugin-logs');
-        const frameworkLogs = document.getElementById('framework-logs');
-        const errorLogs = document.getElementById('error-logs');
+        const PAGE_SIZE = 50;
+        let socket;
+        let autoRefreshTimer = null;
+        const logPanelConfig = {
+            received: { title: '接收到的消息', icon: 'chat-dots', emptyText: '暂无消息' },
+            plugin: { title: '插件日志', icon: 'puzzle', emptyText: '暂无日志' },
+            framework: { title: '框架日志', icon: 'gear', emptyText: '暂无日志' },
+            error: { title: '错误日志', icon: 'exclamation-triangle', emptyText: '暂无错误日志' }
+        };
+        const logContainers = {};
+        const autoScrollCheckboxes = {};
+        let receivedLogs, pluginLogs, frameworkLogs, errorLogs;
         const pluginsContainer = document.getElementById('plugins-container');
         const pluginsLoading = document.getElementById('plugins-loading');
-        
-        // 分页控制
-        const logContainers = {
-            received: {
-                container: receivedLogs,
-                pagination: {
-                    range: document.getElementById('received-range'),
-                    total: document.getElementById('received-total'),
-                    prev: document.getElementById('received-prev'),
-                    next: document.getElementById('received-next')
-                },
-                currentPage: 1,
-                totalPages: 1,
-                totalLogs: 0
-            },
-            plugin: {
-                container: pluginLogs,
-                pagination: {
-                    range: document.getElementById('plugin-range'),
-                    total: document.getElementById('plugin-total'),
-                    prev: document.getElementById('plugin-prev'),
-                    next: document.getElementById('plugin-next')
-                },
-                currentPage: 1,
-                totalPages: 1,
-                totalLogs: 0
-            },
-            framework: {
-                container: frameworkLogs,
-                pagination: {
-                    range: document.getElementById('framework-range'),
-                    total: document.getElementById('framework-total'),
-                    prev: document.getElementById('framework-prev'),
-                    next: document.getElementById('framework-next')
-                },
-                currentPage: 1,
-                totalPages: 1,
-                totalLogs: 0
-            },
-            error: {
-                container: errorLogs,
-                pagination: {
-                    range: document.getElementById('error-range'),
-                    total: document.getElementById('error-total'),
-                    prev: document.getElementById('error-prev'),
-                    next: document.getElementById('error-next')
-                },
-                currentPage: 1,
-                totalPages: 1,
-                totalLogs: 0
-            }
-        };
-        
-        // 页面大小
-        const PAGE_SIZE = 50;
-        
-        // 刷新计时器
-        let autoRefreshTimer = null;
-        
-        // 设置连接状态
+        const connectionIndicator = document.getElementById('connection-indicator');
+        const connectionText = document.getElementById('connection-text');
+
+        // =====================
+        // 2. 日志面板初始化与分页
+        // =====================
+        function initLogPanels() {
+            // 为每个日志类型创建面板
+            Object.keys(logPanelConfig).forEach(type => {
+                const config = logPanelConfig[type];
+                const container = document.getElementById(type);
+                if (container) {
+                    container.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div class="d-flex align-items-center">
+                                <h5 class="mb-0 me-3">${config.title}</h5>
+                                <label class="auto-scroll-toggle mb-0">
+                                    <input type="checkbox" id="auto-scroll-${type}" checked>
+                                    自动滚动
+                                </label>
+                            </div>
+                            <button class="btn-control" id="refresh-${type}">
+                                <i class="bi bi-arrow-clockwise"></i> 刷新
+                            </button>
+                        </div>
+                        <div class="logs-container" id="${type}-logs">
+                            <div class="empty-logs">
+                                <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                ${config.emptyText}
+                            </div>
+                        </div>
+                        <div class="pagination-container" id="${type}-pagination">
+                            <div class="pagination-info">显示 <span id="${type}-range">0-0</span> 条，共 <span id="${type}-total">0</span> 条</div>
+                            <div class="pagination-controls">
+                                <button class="btn-control" id="${type}-prev" disabled>
+                                    <i class="bi bi-chevron-left"></i> 上一页
+                                </button>
+                                <button class="btn-control" id="${type}-next" disabled>
+                                    下一页 <i class="bi bi-chevron-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    switch(type) {
+                        case 'received': receivedLogs = document.getElementById('received-logs'); break;
+                        case 'plugin': pluginLogs = document.getElementById('plugin-logs'); break;
+                        case 'framework': frameworkLogs = document.getElementById('framework-logs'); break;
+                        case 'error': errorLogs = document.getElementById('error-logs'); break;
+                    }
+                    autoScrollCheckboxes[type] = document.getElementById(`auto-scroll-${type}`);
+                    logContainers[type] = {
+                        container: document.getElementById(`${type}-logs`),
+                        pagination: {
+                            range: document.getElementById(`${type}-range`),
+                            total: document.getElementById(`${type}-total`),
+                            prev: document.getElementById(`${type}-prev`),
+                            next: document.getElementById(`${type}-next`)
+                        },
+                        currentPage: 1,
+                        totalPages: 1,
+                        totalLogs: 0,
+                        autoScroll: true
+                    };
+                }
+            });
+        }
+
+        // =====================
+        // 3. 事件监听与交互逻辑
+        // =====================
+        function initEventListeners() {
+            // 自动滚动开关
+            Object.keys(autoScrollCheckboxes).forEach(type => {
+                const checkbox = autoScrollCheckboxes[type];
+                if (checkbox) {
+                    checkbox.checked = logContainers[type].autoScroll;
+                    checkbox.addEventListener('change', function() {
+                        logContainers[type].autoScroll = this.checked;
+                    });
+                }
+            });
+            // 分页按钮
+            Object.keys(logContainers).forEach(type => {
+                const info = logContainers[type];
+                info.pagination.prev.addEventListener('click', () => {
+                    if (info.currentPage > 1) goToPage(type, info.currentPage - 1);
+                });
+                info.pagination.next.addEventListener('click', () => {
+                    if (info.currentPage < info.totalPages) goToPage(type, info.currentPage + 1);
+                });
+                document.getElementById(`refresh-${type}`).addEventListener('click', () => {
+                    goToPage(type, 1);
+                });
+            });
+            // 刷新插件按钮
+            document.getElementById('refresh-plugins').addEventListener('click', function() {
+                if (socket && socket.connected) {
+                    pluginsLoading.style.display = 'block';
+                    pluginsContainer.innerHTML = '';
+                    socket.emit('refresh_plugins');
+                }
+            });
+        }
+
+        // =====================
+        // 4. SocketIO连接与状态指示
+        // =====================
         function setConnectionStatus(connected) {
             if (connected) {
                 connectionIndicator.classList.remove('disconnected');
@@ -838,105 +850,65 @@
                 connectionText.textContent = '未连接';
             }
         }
-        
-        // 初始化Socket连接
-        let socket;
         function initSocket() {
             try {
-                // 获取当前页面的URL信息以自动处理不同的部署环境
+                // 自动适配协议和端口
                 const currentUrl = new URL(window.location.href);
                 const host = currentUrl.hostname;
                 const port = currentUrl.port || (currentUrl.protocol === 'https:' ? '443' : '80');
                 const protocol = currentUrl.protocol === 'https:' ? 'https' : 'http';
-                
-                console.log(`正在连接Socket.IO: ${protocol}://${host}:${port}, 命名空间: ${URL_PREFIX}`);
-                
-                // 使用与页面URL相同的主机和端口连接Socket.IO，修改socket.io路径
                 socket = io(`${protocol}://${host}:${port}${URL_PREFIX}`, {
-                    path: "/socket.io",  // 直接使用根路径的socket.io
+                    path: "/socket.io",
                     reconnectionAttempts: 10,
                     reconnectionDelay: 1000,
                     timeout: 20000,
                     forceNew: true,
-                    transports: ['polling', 'websocket']  // 优先使用polling，然后再尝试websocket
+                    transports: ['polling', 'websocket']
                 });
-                
-                // 添加调试信息
                 socket.on('connect_error', (error) => {
-                    console.error('连接错误:', error);
-                    console.log('错误详情:', {
-                        message: error.message,
-                        description: error.description,
-                        context: {
-                            url: `${protocol}://${host}:${port}${URL_PREFIX}`,
-                            path: "/socket.io",
-                            transports: ['polling', 'websocket']
-                        }
-                    });
                     setConnectionStatus(false);
                     stopAutoRefresh();
                     connectionText.textContent = `未连接 (${error.message})`;
                 });
-                
-                // 处理连接事件
                 socket.on('connect', () => {
-                    console.log('已连接到服务器');
                     setConnectionStatus(true);
                     startAutoRefresh();
                 });
-                
                 socket.on('disconnect', () => {
-                    console.log('已断开连接');
                     setConnectionStatus(false);
                     stopAutoRefresh();
                 });
-                
                 // 初始数据
                 socket.on('initial_data', (data) => {
-                    // 处理系统信息
                     updateSystemInfo(data.system_info);
-                    
-                    // 处理日志数据
                     if (data.logs) {
                         updateLogDisplay('received', data.logs.received_messages);
                         updateLogDisplay('plugin', data.logs.plugin_logs);
                         updateLogDisplay('framework', data.logs.framework_logs);
                         updateLogDisplay('error', data.logs.error_logs);
                     }
-                    
-                    // 更新插件信息
                     updatePluginsInfo(data.plugins_info);
                 });
-                
                 // 新消息
                 socket.on('new_message', (data) => {
-                    // 如果是当前页面第一页，直接添加日志
                     const logType = data.type;
                     if (logContainers[logType] && logContainers[logType].currentPage === 1) {
-                        // 使用prepend=true始终将新消息添加到顶部
                         addLogEntry(logContainers[logType].container, data.data, true);
-                        
-                        // 更新分页信息
                         logContainers[logType].totalLogs++;
                         updatePaginationInfo(logType);
                     }
                 });
-                
                 // 系统信息更新
                 socket.on('system_info_update', (data) => {
                     updateSystemInfo(data);
                 });
-                
                 // 插件信息更新
                 socket.on('plugins_update', (data) => {
                     updatePluginsInfo(data);
                 });
-                
                 // 日志更新
                 socket.on('logs_update', (data) => {
                     updateLogDisplay(data.type, data.logs);
-                    
-                    // 更新分页信息
                     if (logContainers[data.type]) {
                         logContainers[data.type].totalLogs = data.total;
                         logContainers[data.type].totalPages = Math.ceil(data.total / PAGE_SIZE);
@@ -944,16 +916,16 @@
                     }
                 });
             } catch (error) {
-                console.error('连接错误:', error);
                 setConnectionStatus(false);
                 stopAutoRefresh();
                 connectionText.textContent = '未连接';
             }
         }
-        
-        // 启动自动刷新
+
+        // =====================
+        // 5. 自动刷新与系统时间
+        // =====================
         function startAutoRefresh() {
-            // 每5秒刷新一次系统信息
             if (autoRefreshTimer === null) {
                 autoRefreshTimer = setInterval(() => {
                     if (socket && socket.connected) {
@@ -962,131 +934,123 @@
                 }, 5000);
             }
         }
-        
-        // 停止自动刷新
         function stopAutoRefresh() {
             if (autoRefreshTimer !== null) {
                 clearInterval(autoRefreshTimer);
                 autoRefreshTimer = null;
             }
         }
-        
-        // 更新系统时间
         function updateTime() {
             const now = new Date();
             document.getElementById('current-time').textContent = now.toLocaleString('zh-CN');
             document.getElementById('current-year').textContent = now.getFullYear();
         }
-        
-        // 更新系统信息
+
+        // =====================
+        // 6. 系统信息展示
+        // =====================
         function updateSystemInfo(info) {
-            const cpuPercent = info.cpu_percent;
-            const memPercent = info.memory_percent;
-            
-            // 重置CPU进度条的类
-            const cpuProgress = document.getElementById('cpu-progress');
-            cpuProgress.classList.remove('bg-warning', 'bg-danger');
-            
-            // 更新CPU信息
-            cpuProgress.style.width = cpuPercent + '%';
-            document.getElementById('cpu-text').textContent = cpuPercent.toFixed(1) + '%';
-            
-            // 根据CPU使用率改变颜色
-            if (cpuPercent > 80) {
-                cpuProgress.classList.add('bg-danger');
-            } else if (cpuPercent > 50) {
-                cpuProgress.classList.add('bg-warning');
+            if (!info) return;
+            const cpuPercent = info.cpu_percent || 0;
+            const memPercent = info.memory_percent || 0;
+            function updateProgressBar(id, value, warningThreshold = 50, dangerThreshold = 80) {
+                const element = document.getElementById(id);
+                if (!element) return;
+                element.classList.remove('bg-warning', 'bg-danger');
+                element.style.width = value + '%';
+                if (value > dangerThreshold) {
+                    element.classList.add('bg-danger');
+                } else if (value > warningThreshold) {
+                    element.classList.add('bg-warning');
+                }
             }
-            
-            // 重置内存进度条的类
-            const memProgress = document.getElementById('memory-progress');
-            memProgress.classList.remove('bg-warning', 'bg-danger');
-            
-            // 更新内存信息
-            memProgress.style.width = memPercent + '%';
-            document.getElementById('memory-text').textContent = memPercent.toFixed(1) + '%';
-            
-            // 根据内存使用率改变颜色
-            if (memPercent > 80) {
-                memProgress.classList.add('bg-danger');
-            } else if (memPercent > 50) {
-                memProgress.classList.add('bg-warning');
+            function updateTextElement(id, value, suffix = '', decimals = 1) {
+                const element = document.getElementById(id);
+                if (!element) return;
+                if (typeof value === 'number') {
+                    element.textContent = value.toFixed(decimals) + suffix;
+                } else {
+                    element.textContent = value + suffix;
+                }
             }
-            
-            // 更新详细内存使用情况
-            document.getElementById('total-memory').textContent = info.memory_info.total_mb.toFixed(1) + ' MB';
-            document.getElementById('plugins-memory').textContent = info.memory_info.plugins_mb.toFixed(1) + ' MB';
-            document.getElementById('framework-memory').textContent = info.memory_info.framework_mb.toFixed(1) + ' MB';
-            document.getElementById('webpanel-memory').textContent = info.memory_info.web_panel_mb.toFixed(1) + ' MB';
-            document.getElementById('other-memory').textContent = info.memory_info.other_mb.toFixed(1) + ' MB';
-            
-            // 更新内存回收信息
-            if (info.memory_collection) {
-                document.getElementById('gc-count').textContent = info.memory_collection.collected_count.join('/');
-                document.getElementById('objects-count').textContent = info.memory_collection.objects_count;
+            updateProgressBar('cpu-progress', cpuPercent);
+            updateTextElement('cpu-text', cpuPercent, '%');
+            updateProgressBar('memory-progress', memPercent);
+            updateTextElement('memory-text', memPercent, '%');
+            if (info.memory_info) {
+                if (info.memory_info.total_mb !== undefined) {
+                    updateTextElement('total-memory', info.memory_info.total_mb, ' MB');
+                }
+                const memoryElements = {
+                    'plugins-memory': info.memory_info.plugins_mb,
+                    'framework-memory': info.memory_info.framework_mb,
+                    'webpanel-memory': info.memory_info.web_panel_mb,
+                    'other-memory': info.memory_info.other_mb
+                };
+                Object.entries(memoryElements).forEach(([id, value]) => {
+                    if (value !== undefined) {
+                        updateTextElement(id, value, ' MB');
+                    }
+                });
+                if (info.memory_collection) {
+                    const gcCount = document.getElementById('gc-count');
+                    if (gcCount && info.memory_collection.collected_count) {
+                        gcCount.textContent = Array.isArray(info.memory_collection.collected_count) ? info.memory_collection.collected_count.join('/') : info.memory_collection.collected_count;
+                    }
+                    updateTextElement('objects-count', info.memory_collection.objects_count, '', 0);
+                }
             }
-            
-            // 如果有最大对象信息，更新大对象列表
-            if (info.memory_info.largest_objects && info.memory_info.largest_objects.length > 0) {
-                const objectsList = document.getElementById('large-objects-list');
-                if (objectsList) {
-                    objectsList.innerHTML = '';
-                    info.memory_info.largest_objects.forEach(obj => {
-                        const li = document.createElement('li');
-                        li.className = 'list-group-item';
-                        li.textContent = `${obj.type}: ${obj.size_mb.toFixed(1)} MB`;
-                        objectsList.appendChild(li);
+            if (info.uptime) {
+                const uptime = info.uptime;
+                let uptimeText = '';
+                if (uptime.days > 0) uptimeText += `${uptime.days}天 `;
+                uptimeText += `${uptime.hours}小时 ${uptime.minutes}分钟`;
+                const uptimeElement = document.getElementById('uptime-text');
+                if (uptimeElement) uptimeElement.textContent = uptimeText;
+                const startTimeElement = document.getElementById('start-time');
+                if (startTimeElement) {
+                    const now = new Date();
+                    const startTime = new Date(now.getTime() - uptime.total_seconds * 1000);
+                    startTimeElement.textContent = startTime.toLocaleString('zh-CN', {
+                        year: 'numeric', month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
                     });
                 }
             }
         }
-        
-        // 更新日志显示
+
+        // =====================
+        // 7. 日志展示与分页
+        // =====================
         function updateLogDisplay(type, logs) {
             const logInfo = logContainers[type];
             if (!logInfo) return;
-            
             const container = logInfo.container;
-            
-            // 清空容器
             container.innerHTML = '';
-            
-            // 检查是否有日志
             if (!logs || logs.length === 0) {
-                container.innerHTML = `
-                <div class="empty-logs">
-                    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                    暂无日志
-                </div>`;
+                container.innerHTML = `<div class="empty-logs"><i class="bi bi-inbox fs-1 d-block mb-2"></i> 暂无日志</div>`;
                 return;
             }
-            
-            // 添加日志条目（从前往后遍历，因为后端已经将最新的排在前面）
             logs.forEach(log => {
                 addLogEntry(container, log, false);
             });
         }
-        
-        // 添加单个日志条目
         function addLogEntry(container, log, prepend = false) {
-            // 检查容器是否有空日志提示
             const emptyLog = container.querySelector('.empty-logs');
-            if (emptyLog) {
-                container.removeChild(emptyLog);
-            }
-            
+            if (emptyLog) container.removeChild(emptyLog);
             const entry = document.createElement('div');
             entry.className = 'log-entry animated-fade';
-            
             const timestamp = log.timestamp || new Date().toLocaleString('zh-CN');
             const content = log.content || log;
-            
             let entryHtml = `
-                <span class="timestamp">[${timestamp}]</span>
-                <span class="message-content">${content}</span>
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <span class="timestamp">[${timestamp}]</span>
+                        <span class="message-content">${content}</span>
+                    </div>
+                    <i class="bi bi-clipboard log-copy-btn" title="复制日志内容" onclick="copyLogContent(this)"></i>
+                </div>
             `;
-            
-            // 如果是错误日志并且有调用栈信息，显示可展开的调用栈
             if (log.traceback) {
                 entryHtml += `
                 <div class="mt-2">
@@ -1097,50 +1061,63 @@
                     <pre class="plugin-error d-none">${log.traceback}</pre>
                 </div>`;
             }
-            
             entry.innerHTML = entryHtml;
-            
-            // 对于历史日志，按顺序添加（最新的会在顶部，因为后端已排序）
-            // 对于实时接收的新日志，也添加到顶部
             if (prepend || container.firstChild) {
                 container.insertBefore(entry, container.firstChild);
             } else {
                 container.appendChild(entry);
             }
-            
-            // 限制显示的日志数量，防止DOM过大
+            const logType = Object.keys(logContainers).find(key => logContainers[key].container === container);
+            if (prepend && logType && logContainers[logType].autoScroll) {
+                container.scrollTop = 0;
+            }
             const maxEntries = 200;
             while (container.children.length > maxEntries) {
                 container.removeChild(container.lastChild);
             }
         }
-        
-        // 更新分页信息
+        function copyLogContent(button) {
+            try {
+                const contentElement = button.parentNode.parentNode.querySelector('.message-content');
+                const content = contentElement ? contentElement.textContent.trim() : '';
+                if (!content) return;
+                const textarea = document.createElement('textarea');
+                textarea.value = content;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    const originalIcon = button.className;
+                    button.className = 'bi bi-check-circle log-copy-btn copy-success';
+                    button.style.color = '#28a745';
+                    setTimeout(() => { button.className = originalIcon; button.style.color = ''; }, 2000);
+                } else {
+                    const originalIcon = button.className;
+                    button.className = 'bi bi-exclamation-circle log-copy-btn copy-fail';
+                    button.style.color = '#dc3545';
+                    setTimeout(() => { button.className = originalIcon; button.style.color = ''; }, 2000);
+                }
+                document.body.removeChild(textarea);
+            } catch (err) {
+                alert('复制失败，请手动选择文本并复制');
+            }
+        }
         function updatePaginationInfo(type) {
             const logInfo = logContainers[type];
             if (!logInfo) return;
-            
             const start = (logInfo.currentPage - 1) * PAGE_SIZE + 1;
             const end = Math.min(start + PAGE_SIZE - 1, logInfo.totalLogs);
-            
-            // 更新显示范围
             logInfo.pagination.range.textContent = logInfo.totalLogs > 0 ? `${start}-${end}` : '0-0';
             logInfo.pagination.total.textContent = logInfo.totalLogs;
-            
-            // 更新按钮状态
             logInfo.pagination.prev.disabled = logInfo.currentPage <= 1;
             logInfo.pagination.next.disabled = logInfo.currentPage >= logInfo.totalPages;
         }
-        
-        // 切换到指定页面
         function goToPage(type, page) {
             const logInfo = logContainers[type];
             if (!logInfo) return;
-            
-            // 更新当前页码
             logInfo.currentPage = page;
-            
-            // 请求新数据
             if (socket && socket.connected) {
                 socket.emit('request_logs', {
                     type: type,
@@ -1149,41 +1126,33 @@
                 });
             }
         }
-        
-        // 更新插件信息
+
+        // =====================
+        // 8. 插件信息展示
+        // =====================
         function updatePluginsInfo(plugins) {
-            // 隐藏加载动画
             pluginsLoading.style.display = 'none';
-            
-            // 清空插件容器
             if (!plugins || plugins.length === 0) {
                 pluginsContainer.innerHTML = '<div class="alert alert-info">未发现任何插件</div>';
                 return;
             }
-            
-            // 生成插件卡片
             let html = '';
             plugins.forEach(plugin => {
                 const statusClass = plugin.status === 'loaded' ? 'loaded' : 'error';
                 let statusBadge = plugin.status === 'loaded' 
                     ? `<span class="badge bg-success plugin-badge"><i class="bi bi-check-circle-fill"></i> 已加载</span>` 
                     : `<span class="badge bg-danger plugin-badge"><i class="bi bi-exclamation-triangle-fill"></i> 错误</span>`;
-                
-                // 添加处理器数量
                 let handlerCountBadge = '';
                 if (plugin.status === 'loaded') {
                     const handlerCount = plugin.handlers || 0;
                     handlerCountBadge = `<span class="badge bg-secondary plugin-badge"><i class="bi bi-code-slash"></i> ${handlerCount}个处理器</span>`;
                 }
-                
-                // 添加热更新/冷加载标记
                 let loadTypeBadge = '';
                 if (plugin.is_hot_reload) {
                     loadTypeBadge = `<span class="badge bg-danger plugin-badge"><i class="bi bi-lightning-charge"></i> 热更新</span>`;
                 } else if (plugin.is_cold_load) {
                     loadTypeBadge = `<span class="badge bg-info plugin-badge"><i class="bi bi-snow"></i> 冷加载</span>`;
                 }
-                
                 let errorHtml = '';
                 if (plugin.status === 'error' && plugin.error) {
                     errorHtml = `<div class="plugin-error">${plugin.error}</div>`;
@@ -1191,33 +1160,45 @@
                         errorHtml += `<div class="plugin-error mt-2">${plugin.traceback}</div>`;
                     }
                 }
-                
                 let handlersHtml = '';
                 if (plugin.status === 'loaded' && plugin.handlers_list && plugin.handlers_list.length > 0) {
-                    // 获取处理器的owner_only属性
                     const handlers_owner_only = plugin.handlers_owner_only || {};
-                    
+                    const handlers_group_only = plugin.handlers_group_only || {};
                     handlersHtml = `
                     <div class="plugin-handlers">
                         <div class="handlers-container">
                             ${plugin.handlers_list.map(handler => {
-                                // 检查是否为主人专属命令
                                 const isOwnerOnly = handlers_owner_only[handler] === true;
-                                const handlerClass = isOwnerOnly ? 'handler-item handler-item-owner' : 'handler-item handler-item-public';
-                                const ownerIcon = isOwnerOnly ? '<i class="bi bi-shield-lock-fill"></i> ' : '';
-                                
-                                return `<span class="${handlerClass}" title="${isOwnerOnly ? '主人专属命令' : '所有人可用'}">${ownerIcon}${handler}</span>`;
+                                const isGroupOnly = handlers_group_only[handler] === true;
+                                let handlerClass = 'handler-item handler-item-public';
+                                let handlerIcon = '';
+                                if (isOwnerOnly) {
+                                    handlerClass = 'handler-item handler-item-owner';
+                                    handlerIcon = '<i class="bi bi-shield-lock-fill"></i> ';
+                                }
+                                if (isGroupOnly) {
+                                    handlerClass = 'handler-item handler-item-group';
+                                    handlerIcon = '<i class="bi bi-people-fill"></i> ';
+                                }
+                                if (isOwnerOnly && isGroupOnly) {
+                                    handlerIcon = '<i class="bi bi-shield-lock-fill"></i> <i class="bi bi-people-fill"></i> ';
+                                }
+                                let titleText = '所有人可用';
+                                if (isOwnerOnly && isGroupOnly) {
+                                    titleText = '主人专属且仅限群聊';
+                                } else if (isOwnerOnly) {
+                                    titleText = '主人专属命令';
+                                } else if (isGroupOnly) {
+                                    titleText = '仅限群聊使用';
+                                }
+                                return `<span class="${handlerClass}" title="${titleText}">${handlerIcon}${handler}</span>`;
                             }).join('')}
                         </div>
                     </div>`;
                 }
-                
-                // 格式化插件名称，为不同类型的插件添加更明确的标识
                 let displayName = plugin.name;
-                
                 if (displayName.startsWith('example/')) {
                     const parts = displayName.split('/');
-                    // 显示格式: 文件名 (类名)
                     if (parts.length >= 3) {
                         displayName = `${parts[1]} <span class="text-secondary">(${parts[2]})</span>`;
                     } else {
@@ -1231,18 +1212,12 @@
                         displayName = parts[1];
                     }
                 }
-                
-                // 显示插件优先级
                 let priorityDisplay = '';
                 if (plugin.status === 'loaded') {
-                    // 从handler_info中提取优先级（如果有）
                     const priority = plugin.priority !== undefined ? plugin.priority : 10;
                     priorityDisplay = `<span class="plugin-priority"><i class="bi bi-sort-numeric-down"></i> ${priority}</span>`;
                 }
-                
-                // 简化文件路径显示
                 let pathDisplay = `<small class="text-muted d-block mt-1">${plugin.path.split('/').slice(-3).join('/')}</small>`;
-                
                 html += `
                 <div class="card plugin-card ${statusClass}">
                     <div class="plugin-content">
@@ -1265,82 +1240,22 @@
                     </div>
                 </div>`;
             });
-            
             pluginsContainer.innerHTML = html;
         }
-        
-        // 页面加载完成后执行
+
+        // =====================
+        // 9. 页面初始化
+        // =====================
         document.addEventListener('DOMContentLoaded', function() {
-            // 更新时间
+            initLogPanels();
             updateTime();
             setInterval(updateTime, 1000);
-            
-            // 初始化Socket连接
             initSocket();
-            
-            // 初始化分页事件监听
-            Object.keys(logContainers).forEach(type => {
-                const info = logContainers[type];
-                
-                // 上一页按钮
-                info.pagination.prev.addEventListener('click', () => {
-                    if (info.currentPage > 1) {
-                        goToPage(type, info.currentPage - 1);
-                    }
-                });
-                
-                // 下一页按钮
-                info.pagination.next.addEventListener('click', () => {
-                    if (info.currentPage < info.totalPages) {
-                        goToPage(type, info.currentPage + 1);
-                    }
-                });
-                
-                // 刷新按钮
-                document.getElementById(`refresh-${type}`).addEventListener('click', () => {
-                    goToPage(type, 1);
-                });
-            });
-            
-            // 刷新插件按钮
-            document.getElementById('refresh-plugins').addEventListener('click', function() {
-                if (socket && socket.connected) {
-                    // 显示加载动画
-                    pluginsLoading.style.display = 'block';
-                    pluginsContainer.innerHTML = '';
-                    
-                    // 请求更新插件信息
-                    socket.emit('refresh_plugins');
-                }
-            });
-            
-            // 添加刷新内存按钮事件监听
-            document.getElementById('refresh-memory').addEventListener('click', function() {
-                refreshMemoryInfo();
-            });
-            
-            // 加载初始页面
+            initEventListeners();
             Object.keys(logContainers).forEach(type => {
                 goToPage(type, 1);
             });
         });
-
-        // 刷新内存信息
-        function refreshMemoryInfo() {
-            if (socket && socket.connected) {
-                socket.emit('get_system_info');
-                // 显示刷新动画
-                const refreshBtn = document.getElementById('refresh-memory');
-                refreshBtn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> 刷新中...';
-                refreshBtn.disabled = true;
-                
-                // 2秒后恢复按钮状态
-                setTimeout(() => {
-                    refreshBtn.innerHTML = '<i class="bi bi-arrow-repeat"></i> 刷新内存';
-                    refreshBtn.disabled = false;
-                }, 2000);
-            }
-        }
     </script>
 </body>
 </html> 

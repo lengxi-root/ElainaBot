@@ -46,8 +46,8 @@ IMAGE_BED = {
     'qq_share': {
         'enabled': False,       # 默认关闭QQ互联图床
         'priority': 2,          # 优先级，数字越小优先级越高
-        'p_uin': '2218872014',  # QQ号
-        'p_skey': 'vajXJFahJLaQrIby2tA611SwnmEtM6TkqCj38fO*Beg_'  # p_skey值
+        'p_uin': ' ',  # QQ号
+        'p_skey': ' '  # p_skey值
     }
 }
 """

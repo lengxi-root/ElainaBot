@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from core.plugin.PluginManager import Plugin
-from db_pool import DatabaseService
+from function.db_pool import DatabaseService
 import json
 import logging
 import time

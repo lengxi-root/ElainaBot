@@ -12,9 +12,8 @@ import requests
 import subprocess
 import re
 from core.plugin.PluginManager import Plugin
-from db_pool import DatabaseService
+from function.db_pool import DatabaseService
 from function.log_db import LogDatabasePool
-from plugins.example.专属测试工具 import render_website_to_image
 from PIL import Image
 
 # 主题模式配置（auto/day/night）
@@ -37,6 +36,33 @@ SPEED_TEST_URLS = {
     "网易": "https://www.163.com",
     "Bing": "https://www.bing.com",
 }
+
+# 添加从专属测试工具插件复制的render_website_to_image函数
+async def render_website_to_image(website_url, output_path):
+    """使用Playwright将网站渲染为图片"""
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        raise ImportError("未安装playwright库，请先安装: pip install playwright")
+    
+    async with async_playwright() as p:
+        # 启动浏览器，增加超时设置
+        browser = await p.chromium.launch(timeout=60000)  # 60秒超时
+        
+        # 创建新页面
+        page = await browser.new_page(viewport={"width": 1200, "height": 800})
+        
+        # 导航到网站URL
+        await page.goto(website_url, wait_until="networkidle")
+        
+        # 等待JavaScript执行完毕
+        await page.wait_for_timeout(2000)  # 额外等待2秒确保JS执行完成
+        
+        # 截图
+        await page.screenshot(path=output_path, full_page=True)
+        
+        # 关闭浏览器
+        await browser.close()
 
 class system_plugin(Plugin):
     priority = 10

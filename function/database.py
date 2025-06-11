@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 
 # 导入优化后的数据库连接池
-from db_pool import ConnectionManager, DatabaseService
+from function.db_pool import ConnectionManager, DatabaseService
 
 # 配置日志
 logger = logging.getLogger('database')

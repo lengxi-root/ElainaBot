@@ -118,7 +118,9 @@ def handle_request():
             type_param = request.args.get('type')
             if type_param:
                 return "Type handled"
-            return "MBot 服务已启动"
+            # 修改返回内容为JSON格式的"The service is temporarily unavailable"
+            response = make_response(jsonify({"message": "The service is temporarily unavailable"}), 200)
+            return response
         data = request.get_data()
         if not data:
             return "No data received", 400

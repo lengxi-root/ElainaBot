@@ -20,18 +20,11 @@ import requests
 # ===== 3. 自定义模块导入 =====
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
-from config import USE_MARKDOWN, IMAGE_BED, ENABLE_NEW_USER_WELCOME
+from config import USE_MARKDOWN, IMAGE_BED, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE
 from function.log_db import add_log_to_db
+from core.plugin.message_templates import MessageTemplate, MSG_TYPE_WELCOME, MSG_TYPE_USER_WELCOME, MSG_TYPE_API_ERROR
 
 # ===== 4. 可选模块导入（带异常处理）=====
-try:
-    from core.plugin.welcome_reply_template import WelcomeReplyTemplate
-except ImportError:
-    class WelcomeReplyTemplate:
-        @staticmethod
-        def send_reply(event, user_count):
-            pass
-
 try:
     from web_panel.app import add_error_log
 except ImportError:
@@ -233,6 +226,7 @@ class MessageEvent:
     def _parse_group_add_robot(self):
         """
         解析被拉进群事件，提取邀请人ID、群ID。
+        并直接处理欢迎消息，不传递给插件处理。
         """
         self.message_type = self.GROUP_ADD_ROBOT
         self.content = ""
@@ -244,6 +238,22 @@ class MessageEvent:
         self.is_private = False
         self.timestamp = self.get('d/timestamp')
         self.id = self.get('id')
+        
+        # 直接处理欢迎消息，不传递给插件
+        self.msg_type = 'group_welcome_robot'  # 设置特殊标记
+        
+        # 如果启用了欢迎消息，直接发送
+        if ENABLE_WELCOME_MESSAGE:
+            try:
+                # 使用消息模板系统发送欢迎消息
+                MessageTemplate.send(self, MSG_TYPE_WELCOME)
+                # 标记该消息已处理，避免传递到插件系统
+                self.handled = True
+            except Exception as e:
+                self._log_error(f"发送群欢迎消息失败: {str(e)}", traceback.format_exc())
+        else:
+            # 即使不发送欢迎消息，也标记为已处理，避免传递到插件系统
+            self.handled = True
 
     # --- API交互相关 ---
     def reply(self, content='', buttons=None, media=None):
@@ -255,7 +265,7 @@ class MessageEvent:
         :return: 消息ID或错误提示
         """
         # 如果消息被标记为忽略，直接返回而不执行任何操作
-        if self.ignore:
+        if self.ignore or getattr(self, 'handled', False):
             return None
             
         if self.message_type not in self._API_ENDPOINTS:
@@ -305,62 +315,9 @@ class MessageEvent:
                 # 记录错误日志（除了特定错误码外）
                 self._log_error(f"消息发送失败：{resp_obj.get('message')} code：{error_code} trace_id：{resp_obj.get('trace_id')}", f"resp_obj: {str(resp_obj)}\nsend_payload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}")
                 
-                # 根据不同错误码定制错误提示
-                if error_code == 40034006:
-                    user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{resp_obj.get('trace_id')}\n注：消息违规，请截图选一种方式反馈"
-                    show_feedback_buttons = True
-                elif error_code == 40054017:
-                    user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{resp_obj.get('trace_id')}\n注：消息被拦截，可能因你的群昵称导致，请更换群昵称尝试，如果还是不可用则截图反馈"
-                    show_feedback_buttons = True
-                elif error_code == 50015006:
-                    user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{resp_obj.get('trace_id')}\n注：系统繁忙，稍后重试"
-                    show_feedback_buttons = False
-                elif error_code == 40054010:
-                    user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{resp_obj.get('trace_id')}\n注：禁止发送url，请截图选一种方式反馈"
-                    show_feedback_buttons = True
-                else:
-                    user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{resp_obj.get('trace_id')}\n注：出现错误，请截图进行反馈"
-                    show_feedback_buttons = True
-                
-                try:
-                    error_payload = {
-                        "msg_type": 2,
-                        "msg_seq": random.randint(10000, 999999),
-                        "markdown": {
-                            "content": user_tip
-                        }
-                    }
-                    
-                    # 只在需要时添加反馈按钮
-                    if show_feedback_buttons:
-                        feedback_button = self.button([
-                            self.rows([
-                                {
-                                    'text': '加群(推荐)',
-                                    'link': 'https://qm.qq.com/q/w5kFw95zDq',
-                                    'type': 0,
-                                    'style': 1
-                                },
-                                {
-                                    'text': '问卷(较慢)',
-                                    'link': 'https://www.wjx.cn/vm/rJ1ZKHn.aspx',
-                                    'type': 0,
-                                    'style': 1
-                                },
-                            ])
-                        ])
-                        error_payload["keyboard"] = feedback_button
-                    
-                    if self.message_type == self.GROUP_MESSAGE or self.message_type == self.DIRECT_MESSAGE:
-                        error_payload["msg_id"] = self.message_id
-                    elif self.message_type == self.INTERACTION or self.message_type == self.GROUP_ADD_ROBOT:
-                        error_payload["event_id"] = self.get('id') or self.get('d/id') or ""
-                    elif self.message_type == self.CHANNEL_MESSAGE:
-                        error_payload["msg_id"] = self.get('d/id')
-                    BOTAPI(endpoint, "POST", Json(error_payload))
-                except Exception:
-                    pass
-                return user_tip
+                # 使用模板系统处理API错误
+                return MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, 
+                                          trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
         except Exception:
             pass
         return self._extract_message_id(response)
@@ -371,6 +328,10 @@ class MessageEvent:
         :param message_id: 要撤回的消息ID
         :return: 撤回结果
         """
+        # 首先检查message_id是否为None
+        if message_id is None:
+            return None
+            
         if self.message_type not in self._API_ENDPOINTS:
             return None
         try:
@@ -382,8 +343,6 @@ class MessageEvent:
                 return None
             endpoint = self._fill_endpoint_template(endpoint_template)
             # 确保message_id是字符串类型
-            if message_id is None:
-                return None
             endpoint = endpoint.replace('{message_id}', str(message_id))
             response = BOTAPI(endpoint, "DELETE", None)
             return response
@@ -615,7 +574,8 @@ class MessageEvent:
         if user_is_new and self.is_group and ENABLE_NEW_USER_WELCOME:
             try:
                 user_count = self.db.get_user_count()
-                WelcomeReplyTemplate.send_reply(self, user_count)
+                # 使用消息模板系统发送新用户欢迎
+                MessageTemplate.send(self, MSG_TYPE_USER_WELCOME, user_count=user_count)
             except Exception as e:
                 self._log_error(f'新用户欢迎消息发送失败: {str(e)}')
 

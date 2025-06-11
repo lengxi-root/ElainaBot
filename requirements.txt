@@ -9,5 +9,3 @@ python-engineio==4.12.1
 eventlet==0.40.0
 blueprint==3.4.2
 flask-cors==5.0.1
-Pillow==10.3.0
-flask-socketio==5.4.0

@@ -2,11 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import json
-import binascii
-import nacl.signing
-from nacl.encoding import RawEncoder
 import os
 import sys
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 # 从配置中导入应用凭证
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,7 +20,7 @@ class Signs:
             json_data = json.loads(data)
             
         bot_secret = secret
-        event_ts = json_data['d']['event_ts']
+        event_ts = str(json_data['d']['event_ts'])
         plain_token = json_data['d']['plain_token']
         
         # 使用统一的签名生成函数
@@ -43,20 +41,19 @@ class Signs:
         返回:
             包含plain_token和signature的字典
         """
-        # 生成seed
-        seed = bot_secret
-        while len(seed.encode()) < nacl.signing.SEED_SIZE:
-            seed += seed
+        # 重复secret直到长度达到32字节
+        while len(bot_secret) < 32:
+            bot_secret = (bot_secret + bot_secret)[:32]
         
         # 生成私钥
-        private_key = nacl.signing.SigningKey(seed[:nacl.signing.SEED_SIZE].encode())
+        private_key = ed25519.Ed25519PrivateKey.from_private_bytes(bot_secret.encode())
         
         # 构造消息并签名
         message = f"{event_ts}{plain_token}".encode()
-        signature = private_key.sign(message, encoder=RawEncoder)
+        signature = private_key.sign(message).hex()
         
         # 返回签名结果
         return {
             "plain_token": plain_token,
-            "signature": binascii.hexlify(signature.signature).decode()
+            "signature": signature
         } 

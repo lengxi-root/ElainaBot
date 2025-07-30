@@ -10,6 +10,8 @@ import traceback
 import time
 import gc  # 垃圾回收
 import weakref
+import asyncio  # 异步IO支持
+import json
 
 # ===== 2. 第三方库导入 =====
 # （本文件暂未用到第三方库）
@@ -17,14 +19,24 @@ import weakref
 # ===== 3. 自定义模块导入 =====
 from config import (
     SEND_DEFAULT_RESPONSE, OWNER_IDS, MAINTENANCE_MODE,
-    DEFAULT_RESPONSE_EXCLUDED_REGEX, ENABLE_WELCOME_MESSAGE
+    DEFAULT_RESPONSE_EXCLUDED_REGEX
 )
-from core.plugin.message_templates import MessageTemplate, MSG_TYPE_WELCOME, MSG_TYPE_MAINTENANCE, MSG_TYPE_GROUP_ONLY, MSG_TYPE_OWNER_ONLY, MSG_TYPE_DEFAULT
+from core.plugin.message_templates import MessageTemplate, MSG_TYPE_MAINTENANCE, MSG_TYPE_GROUP_ONLY, MSG_TYPE_OWNER_ONLY, MSG_TYPE_DEFAULT, MSG_TYPE_BLACKLIST
 from web_panel.app import add_plugin_log, add_framework_log, add_error_log
+from function.log_db import add_log_to_db
 
 # ===== 4. 全局变量与常量 =====
 _last_plugin_gc_time = 0  # 上次插件垃圾回收时间
 _plugin_gc_interval = 30  # 垃圾回收间隔(秒)
+_blacklist_cache = {}     # 黑名单缓存
+_blacklist_last_load = 0  # 上次加载黑名单的时间
+_blacklist_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "blacklist.json")
+
+# 新增：插件加载优化相关全局变量
+_last_quick_check_time = 0  # 上次快速检查时间
+_quick_check_interval = 2   # 快速检查间隔(秒)，大大减少检查频率
+_plugin_dirs_mtime = {}     # 插件目录修改时间缓存
+_plugins_loaded = False     # 插件是否已加载标记
 
 # ===== 5. 插件接口类 =====
 class Plugin:
@@ -49,41 +61,152 @@ class PluginManager:
     """
     _regex_handlers = {}      # 正则处理器表
     _plugins = {}            # 插件类及优先级
-    _non_example_plugins_loaded = False
-    _file_last_modified = {} # 热更新插件文件修改时间
+    _file_last_modified = {} # 插件文件修改时间
     _unloaded_modules = []   # 待回收模块
     _regex_cache = {}        # 预编译正则缓存
-    _hot_reload_dirs = ['example', 'system', 'alone']  # 热加载目录列表
+    _sorted_handlers = []    # 按优先级排序的处理器列表，避免每次重新排序
+
+    # ===== 黑名单相关 =====
+    @classmethod
+    def load_blacklist(cls):
+        """
+        加载黑名单数据
+        """
+        global _blacklist_cache, _blacklist_last_load, _blacklist_file
+        
+        # 确保data目录存在
+        data_dir = os.path.dirname(_blacklist_file)
+        if not os.path.exists(data_dir):
+            try:
+                os.makedirs(data_dir)
+                add_framework_log("创建数据目录: data")
+            except Exception as e:
+                add_error_log(f"创建数据目录失败: {str(e)}")
+                
+        # 检查黑名单文件是否存在，不存在则创建空文件
+        if not os.path.exists(_blacklist_file):
+            try:
+                with open(_blacklist_file, 'w', encoding='utf-8') as f:
+                    json.dump({}, f, ensure_ascii=False, indent=2)
+                add_framework_log(f"创建黑名单文件: {_blacklist_file}")
+            except Exception as e:
+                add_error_log(f"创建黑名单文件失败: {str(e)}")
+                return {}
+                
+        # 检查是否需要重新加载
+        current_time = time.time()
+        if _blacklist_last_load == 0 or (current_time - _blacklist_last_load > 60):  # 每60秒重新加载一次
+            try:
+                # 检查文件修改时间
+                if os.path.exists(_blacklist_file):
+                    mtime = os.path.getmtime(_blacklist_file)
+                    # 如果文件已更新或缓存为空，则重新加载
+                    if not _blacklist_cache or mtime > _blacklist_last_load:
+                        with open(_blacklist_file, 'r', encoding='utf-8') as f:
+                            _blacklist_cache = json.load(f)
+                            _blacklist_last_load = current_time
+                            add_framework_log(f"已加载黑名单数据，共 {len(_blacklist_cache)} 条记录")
+            except Exception as e:
+                add_error_log(f"加载黑名单数据失败: {str(e)}", traceback.format_exc())
+                
+        return _blacklist_cache
+    
+    @classmethod
+    def is_blacklisted(cls, user_id):
+        """
+        检查用户是否在黑名单中
+        @return: (是否在黑名单中, 原因)
+        """
+        if not user_id:
+            return False, ""
+            
+        blacklist = cls.load_blacklist()
+        user_id = str(user_id)  # 确保用户ID为字符串
+        
+        if user_id in blacklist:
+            return True, blacklist[user_id]
+            
+        return False, ""
 
     # ===== 插件加载相关 =====
     @classmethod
     def load_plugins(cls):
         """
-        加载所有插件（主目录、system、alone、example 热更新）。
+        优化的插件加载方法：只在文件真正变化时才重新加载插件。
+        大大减少不必要的文件系统操作，提升消息处理速度。
         """
-        global _last_plugin_gc_time
+        global _last_plugin_gc_time, _last_quick_check_time, _plugin_dirs_mtime, _plugins_loaded
+        
+        current_time = time.time()
+        
+        # 快速检查：如果距离上次检查时间太短，直接返回已加载的插件数
+        if (current_time - _last_quick_check_time < _quick_check_interval and 
+            _plugins_loaded and cls._regex_handlers):
+            return len(cls._plugins)
+        
+        _last_quick_check_time = current_time
         script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        plugins_dir = os.path.join(script_dir, 'plugins')
+        
+        # 确保插件目录存在
+        if not os.path.exists(plugins_dir):
+            try:
+                os.makedirs(plugins_dir)
+                add_framework_log("创建插件目录: plugins")
+            except Exception as e:
+                add_error_log(f"创建插件目录失败: {str(e)}")
+                return 0
+        
+        # 快速目录变化检查：比较目录修改时间
+        need_reload = False
+        try:
+            for dir_name in os.listdir(plugins_dir):
+                dir_path = os.path.join(plugins_dir, dir_name)
+                if os.path.isdir(dir_path):
+                    try:
+                        current_mtime = os.path.getmtime(dir_path)
+                        cached_mtime = _plugin_dirs_mtime.get(dir_path, 0)
+                        if current_mtime > cached_mtime:
+                            need_reload = True
+                            _plugin_dirs_mtime[dir_path] = current_mtime
+                    except OSError:
+                        # 目录可能被删除，需要重新加载
+                        need_reload = True
+                        if dir_path in _plugin_dirs_mtime:
+                            del _plugin_dirs_mtime[dir_path]
+        except OSError:
+            # 插件目录访问失败，强制重新加载
+            need_reload = True
+        
+        # 如果目录没有变化且插件已加载，直接返回
+        if not need_reload and _plugins_loaded and cls._regex_handlers:
+            return len(cls._plugins)
+        
+        # 检查已加载插件的文件是否被删除
+        deleted_files = []
+        for file_path in list(cls._file_last_modified.keys()):
+            if not os.path.exists(file_path):
+                deleted_files.append(file_path)
+        
+        # 处理已删除的文件
+        for file_path in deleted_files:
+            try:
+                dir_name = os.path.basename(os.path.dirname(file_path))
+                module_name = os.path.splitext(os.path.basename(file_path))[0]
+                removed_count = cls._unregister_file_plugins(file_path)
+                if file_path in cls._file_last_modified:
+                    del cls._file_last_modified[file_path]
+                if removed_count > 0:
+                    add_framework_log(f"插件更新：检测到文件已删除 {dir_name}/{module_name}.py，已注销 {removed_count} 个处理器")
+            except Exception as e:
+                add_error_log(f"处理已删除插件文件时出错: {str(e)}", traceback.format_exc())
+        
+        # 直接扫描并加载所有插件目录
         loaded_count = 0
-        
-        # 创建热更新目录（如果不存在）
-        for hot_dir in cls._hot_reload_dirs:
-            hot_dir_path = os.path.join(script_dir, 'plugins', hot_dir)
-            if not os.path.exists(hot_dir_path):
-                try:
-                    os.makedirs(hot_dir_path)
-                    add_framework_log(f"创建热更新目录: {hot_dir}")
-                except Exception as e:
-                    add_error_log(f"创建热更新目录 {hot_dir} 失败: {str(e)}")
-        
-        if not cls._non_example_plugins_loaded:
-            cls._load_non_example_plugins(script_dir)
-            cls._non_example_plugins_loaded = True
-            loaded_count = len(cls._plugins)
-            
-        # 加载所有热更新目录的插件
-        hot_reload_loaded = 0
-        for hot_dir in cls._hot_reload_dirs:
-            hot_reload_loaded += cls._check_and_load_hot_reload_plugins(script_dir, hot_dir)
+        for dir_name in os.listdir(plugins_dir):
+            dir_path = os.path.join(plugins_dir, dir_name)
+            if os.path.isdir(dir_path):
+                loaded_count += cls._load_plugins_from_directory(script_dir, dir_name)
         
         # 导入主模块插件实例
         main_module_loaded = cls._import_main_module_instances()
@@ -101,7 +224,11 @@ class PluginManager:
             cls._unloaded_modules.clear()
             gc.collect()
             _last_plugin_gc_time = current_time
-        return loaded_count + hot_reload_loaded + main_module_loaded
+        
+        # 标记插件已加载
+        _plugins_loaded = True
+            
+        return loaded_count + main_module_loaded
         
     @classmethod
     def _import_main_module_instances(cls):
@@ -114,7 +241,7 @@ class PluginManager:
                 try:
                     # 找到主模块实例
                     module_name = plugin_class.__module__
-                    if module_name.startswith('plugins.') and '.main' in module_name:
+                    if module_name.startswith('plugins.'):
                         try:
                             module = sys.modules.get(module_name)
                             if not module:
@@ -188,7 +315,7 @@ class PluginManager:
                     enhanced_pattern = f"^{pattern}"
                 
                 try:
-                    compiled_regex = re.compile(enhanced_pattern)
+                    compiled_regex = re.compile(enhanced_pattern, re.DOTALL)
                     cls._regex_cache[enhanced_pattern] = compiled_regex
                 except Exception as e:
                     add_error_log(f"实例处理器正则表达式 '{enhanced_pattern}' 编译失败: {str(e)}")
@@ -211,103 +338,108 @@ class PluginManager:
             return 0
 
     @classmethod
-    def _load_non_example_plugins(cls, script_dir):
+    def _load_plugins_from_directory(cls, script_dir, dir_name):
         """
-        加载主 plugins 目录下除热更新目录外的所有标准插件。
-        只加载main.py文件。
+        加载指定目录下的插件文件。
         """
-        for item in os.listdir(os.path.join(script_dir, 'plugins')):
-            if item not in cls._hot_reload_dirs and os.path.isdir(os.path.join(script_dir, 'plugins', item)):
-                plugin_dir = os.path.join(script_dir, 'plugins', item)
-                main_py = os.path.join(plugin_dir, 'main.py')
-                if os.path.exists(main_py):
-                    cls._load_standard_plugin(main_py)
-
-    @classmethod
-    def _load_standard_plugin(cls, plugin_file):
-        """
-        加载标准插件（main.py）。
-        """
-        plugin_name = os.path.basename(os.path.dirname(plugin_file))
-        class_name = f"{plugin_name}_plugin"
-        try:
-            spec = importlib.util.spec_from_file_location(f"plugins.{plugin_name}.main", plugin_file)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                sys.modules[f"plugins.{plugin_name}.main"] = module
-                if hasattr(module, class_name):
-                    plugin_class = getattr(module, class_name)
-                    plugin_class._source_file = plugin_file
-                    plugin_class._is_standard = True
-                    cls.register_plugin(plugin_class)
-                    add_framework_log(f"标准插件 {plugin_name} 加载成功")
-                else:
-                    error_msg = f"插件 {plugin_name} 加载失败：未找到插件类 {class_name}"
-                    add_error_log(error_msg)
-                    add_framework_log(error_msg)
-        except Exception as e:
-            error_msg = f"插件 {plugin_name} 加载失败：{str(e)}"
-            add_error_log(error_msg, traceback.format_exc())
-            add_framework_log(error_msg)
-
-    @classmethod
-    def _check_and_load_hot_reload_plugins(cls, script_dir, dir_name):
-        """
-        检查并加载指定热更新目录下的插件文件（支持热更新）。
-        """
-        hot_dir = os.path.join(script_dir, 'plugins', dir_name)
-        if not os.path.exists(hot_dir) or not os.path.isdir(hot_dir):
+        plugin_dir = os.path.join(script_dir, 'plugins', dir_name)
+        if not os.path.exists(plugin_dir) or not os.path.isdir(plugin_dir):
+            # 如果目录不存在，注销该目录下所有已加载的插件
+            cls._unregister_directory_plugins(plugin_dir)
             return 0
             
-        py_files = [f for f in os.listdir(hot_dir) if f.endswith('.py') and f != '__init__.py']
+        py_files = [f for f in os.listdir(plugin_dir) if f.endswith('.py') and f != '__init__.py']
         loaded_count = 0
         
         # 记录当前目录下的所有插件文件的绝对路径
-        current_files = {os.path.join(hot_dir, py_file) for py_file in py_files}
+        current_files = {os.path.join(plugin_dir, py_file) for py_file in py_files}
+        
+        # 处理已删除的文件
+        dir_files_to_delete = []
+        for file_path in list(cls._file_last_modified.keys()):
+            # 只处理当前目录下的文件
+            if file_path.startswith(plugin_dir):
+                # 如果文件不在当前目录中或文件不存在，则需要注销
+                if file_path not in current_files or not os.path.exists(file_path):
+                    dir_files_to_delete.append(file_path)
+        
+        # 注销已删除的文件插件
+        for file_path in dir_files_to_delete:
+            removed_count = cls._unregister_file_plugins(file_path)
+            if file_path in cls._file_last_modified:
+                del cls._file_last_modified[file_path]
+            module_name = os.path.splitext(os.path.basename(file_path))[0]
+            add_framework_log(f"插件更新：检测到文件已删除 {dir_name}/{module_name}.py，已注销 {removed_count} 个处理器")
         
         # 加载或更新现有文件
         for py_file in py_files:
-            file_path = os.path.join(hot_dir, py_file)
-            last_modified = os.path.getmtime(file_path)
-            if file_path not in cls._file_last_modified or cls._file_last_modified[file_path] < last_modified:
-                cls._file_last_modified[file_path] = last_modified
-                loaded_count += cls._load_hot_reload_plugin_file(file_path, dir_name)
+            file_path = os.path.join(plugin_dir, py_file)
+            if not os.path.exists(file_path):
+                continue
                 
-        # 处理已删除的文件（仅处理当前目录内不存在的文件）
-        dir_files_to_delete = []
-        for file_path in list(cls._file_last_modified.keys()):
-            # 只处理当前热更新目录下不存在的文件
-            if file_path.startswith(hot_dir) and file_path not in current_files:
-                dir_files_to_delete.append(file_path)
-                
-        for file_path in dir_files_to_delete:
-            removed_count = cls._unregister_file_plugins(file_path)
-            del cls._file_last_modified[file_path]
-            add_framework_log(f"热更新：检测到文件已删除 {dir_name}/{os.path.basename(file_path)}，已注销 {removed_count} 个处理器")
+            try:
+                last_modified = os.path.getmtime(file_path)
+                if file_path not in cls._file_last_modified or cls._file_last_modified[file_path] < last_modified:
+                    cls._file_last_modified[file_path] = last_modified
+                    loaded_count += cls._load_plugin_file(file_path, dir_name)
+            except (OSError, IOError) as e:
+                add_error_log(f"获取文件修改时间失败: {file_path}, 错误: {str(e)}")
                 
         return loaded_count
+        
+    @classmethod
+    def _unregister_directory_plugins(cls, plugin_dir):
+        """
+        注销指定目录下的所有插件。
+        """
+        removed_count = 0
+        dir_files_to_delete = []
+        
+        # 找出需要删除的文件
+        for file_path in list(cls._file_last_modified.keys()):
+            if file_path.startswith(plugin_dir):
+                dir_files_to_delete.append(file_path)
+        
+        # 注销每个文件的插件
+        for file_path in dir_files_to_delete:
+            removed_count += cls._unregister_file_plugins(file_path)
+            if file_path in cls._file_last_modified:
+                del cls._file_last_modified[file_path]
+        
+        if removed_count > 0:
+            dir_name = os.path.basename(plugin_dir)
+            add_framework_log(f"插件更新：检测到目录已删除 {dir_name}，已注销 {removed_count} 个处理器")
+            
+        return removed_count
 
     @classmethod
-    def _load_hot_reload_plugin_file(cls, plugin_file, dir_name):
+    def _load_plugin_file(cls, plugin_file, dir_name):
         """
-        加载热更新目录下单个插件文件。
+        加载单个插件文件。
         """
         plugin_name = os.path.basename(plugin_file)
         module_name = os.path.splitext(plugin_name)[0]
         loaded_count = 0
         
         try:
+            # 检查是否为热更新
+            module_fullname = f"plugins.{dir_name}.{module_name}"
+            is_hot_reload = module_fullname in sys.modules
+            
+            # 注销旧插件
             cls._unregister_file_plugins(plugin_file)
+            
+            # 更新文件修改时间
             last_modified = os.path.getmtime(plugin_file)
             cls._file_last_modified[plugin_file] = last_modified
-            old_module = None
-            module_fullname = f"plugins.{dir_name}.{module_name}"
             
+            # 保存旧模块引用
+            old_module = None
             if module_fullname in sys.modules:
                 old_module = sys.modules[module_fullname]
                 del sys.modules[module_fullname]
                 
+            # 加载新模块
             spec = importlib.util.spec_from_file_location(module_fullname, plugin_file)
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
@@ -316,15 +448,18 @@ class PluginManager:
                 try:
                     spec.loader.exec_module(module)
                 except Exception as e:
+                    # 恢复旧模块
                     if old_module:
                         sys.modules[module_fullname] = old_module
                     else:
                         del sys.modules[module_fullname]
                     raise e
                     
+                # 将旧模块添加到待回收列表
                 if old_module:
                     cls._unloaded_modules.append(old_module)
                     
+                # 处理模块中的插件类
                 plugin_load_results = []
                 plugin_classes_found = False
                 
@@ -349,14 +484,22 @@ class PluginManager:
                             add_error_log(error_msg, traceback.format_exc())
                             
                 if plugin_classes_found:
-                    if plugin_load_results:
-                        add_framework_log(f"热更新: {dir_name}/{plugin_name} 加载成功: {', '.join(plugin_load_results)}")
+                    # 热更新成功日志
+                    if is_hot_reload:
+                        if plugin_load_results:
+                            add_framework_log(f"插件热更新成功: {dir_name}/{plugin_name} 已重新加载: {', '.join(plugin_load_results)}")
+                        else:
+                            add_framework_log(f"插件热更新成功: {dir_name}/{plugin_name} 已重新加载")
+                    # 首次加载日志
                     else:
-                        add_framework_log(f"热更新: {dir_name}/{plugin_name} 加载成功")
+                        if plugin_load_results:
+                            add_framework_log(f"插件加载: {dir_name}/{plugin_name} 加载成功: {', '.join(plugin_load_results)}")
+                        else:
+                            add_framework_log(f"插件加载: {dir_name}/{plugin_name} 加载成功")
                 else:
-                    add_framework_log(f"热更新: {dir_name}/{plugin_name} 中未找到有效的插件类")
+                    add_framework_log(f"插件{'热更新' if is_hot_reload else '加载'}: {dir_name}/{plugin_name} 中未找到有效的插件类")
         except Exception as e:
-            error_msg = f"热更新: {dir_name}/{plugin_name} 加载失败: {str(e)}"
+            error_msg = f"插件{'热更新' if module_fullname in sys.modules else '加载'}: {dir_name}/{plugin_name} 失败: {str(e)}"
             add_error_log(error_msg, traceback.format_exc())
             add_framework_log(error_msg)
             
@@ -366,32 +509,150 @@ class PluginManager:
     def _unregister_file_plugins(cls, plugin_file):
         """
         注销指定文件中的所有插件，返回注销的处理器数量。
+        清理插件相关的所有资源，包括线程池、连接池等。
         """
         global _last_plugin_gc_time
         removed = []
         plugin_classes_to_remove = []
         
-        for pattern, handler_info in list(cls._regex_handlers.items()):
-            plugin_class = handler_info.get('class') if isinstance(handler_info, dict) else handler_info[0]
-            if hasattr(plugin_class, '_source_file') and plugin_class._source_file == plugin_file:
-                removed.append((plugin_class.__name__, pattern))
-                del cls._regex_handlers[pattern]
-                if pattern in cls._regex_cache:
-                    del cls._regex_cache[pattern]
-                if plugin_class not in plugin_classes_to_remove:
-                    plugin_classes_to_remove.append(plugin_class)
-                    
-        for plugin_class in plugin_classes_to_remove:
-            if plugin_class in cls._plugins:
-                del cls._plugins[plugin_class]
-                
-        if plugin_file and os.path.exists(plugin_file):
+        # 获取插件所在目录和模块名，用于日志
+        if plugin_file:
             module_name = os.path.splitext(os.path.basename(plugin_file))[0]
             dir_name = os.path.basename(os.path.dirname(plugin_file))
             module_fullname = f"plugins.{dir_name}.{module_name}"
-            if module_fullname in sys.modules:
-                cls._unloaded_modules.append(sys.modules[module_fullname])
+            is_hot_reload = module_fullname in sys.modules
+            file_exists = os.path.exists(plugin_file)
+        else:
+            module_name = "未知模块"
+            dir_name = "未知目录"
+            module_fullname = "unknown"
+            is_hot_reload = False
+            file_exists = False
+        
+        # 1. 查找所有需要移除的插件类
+        for pattern, handler_info in list(cls._regex_handlers.items()):
+            try:
+                plugin_class = handler_info.get('class') if isinstance(handler_info, dict) else handler_info[0]
+                # 检查插件类是否来自指定文件
+                if hasattr(plugin_class, '_source_file') and plugin_class._source_file == plugin_file:
+                    removed.append((plugin_class.__name__, pattern))
+                    if plugin_class not in plugin_classes_to_remove:
+                        plugin_classes_to_remove.append(plugin_class)
+            except Exception as e:
+                add_error_log(f"查找插件类时出错: {str(e)}", traceback.format_exc())
+        
+        # 2. 清理正则处理器表中的插件处理器
+        for pattern, handler_info in list(cls._regex_handlers.items()):
+            try:
+                plugin_class = handler_info.get('class') if isinstance(handler_info, dict) else handler_info[0]
+                if plugin_class in plugin_classes_to_remove:
+                    del cls._regex_handlers[pattern]
+                    if pattern in cls._regex_cache:
+                        del cls._regex_cache[pattern]
+            except Exception as e:
+                add_error_log(f"清理正则处理器时出错: {str(e)}", traceback.format_exc())
+        
+        # 3. 清理插件类实例和资源
+        for plugin_class in plugin_classes_to_remove:
+            try:
+                # 移除插件类
+                if plugin_class in cls._plugins:
+                    del cls._plugins[plugin_class]
                 
+                # 尝试调用插件的清理方法（如果存在）
+                if hasattr(plugin_class, 'cleanup') and callable(getattr(plugin_class, 'cleanup')):
+                    try:
+                        plugin_class.cleanup()
+                    except Exception as e:
+                        add_error_log(f"插件 {plugin_class.__name__} 清理资源失败: {str(e)}", traceback.format_exc())
+                
+                # 查找并清理插件类的线程池
+                for attr_name in dir(plugin_class):
+                    if attr_name.startswith('__'):
+                        continue
+                        
+                    try:
+                        attr = getattr(plugin_class, attr_name)
+                        # 清理线程池
+                        if attr_name.endswith('_pool') or attr_name.endswith('_thread_pool'):
+                            if hasattr(attr, 'shutdown') and callable(getattr(attr, 'shutdown')):
+                                try:
+                                    attr.shutdown(wait=False)
+                                    add_framework_log(f"插件热更新：关闭 {plugin_class.__name__} 的线程池 {attr_name}")
+                                except Exception:
+                                    pass
+                        # 清理连接池
+                        elif attr_name.endswith('_conn_pool') or attr_name.endswith('_connection_pool'):
+                            if hasattr(attr, 'close') and callable(getattr(attr, 'close')):
+                                try:
+                                    attr.close()
+                                    add_framework_log(f"插件热更新：关闭 {plugin_class.__name__} 的连接池 {attr_name}")
+                                except Exception:
+                                    pass
+                        # 清理事件循环
+                        elif attr_name.endswith('_loop') and hasattr(attr, 'is_running') and hasattr(attr, 'stop'):
+                            if attr.is_running():
+                                try:
+                                    attr.stop()
+                                    add_framework_log(f"插件热更新：停止 {plugin_class.__name__} 的事件循环 {attr_name}")
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+            except Exception as e:
+                add_error_log(f"清理插件类资源时出错: {str(e)}", traceback.format_exc())
+        
+        # 4. 清理模块
+        if module_fullname != "unknown" and module_fullname in sys.modules:
+            try:
+                module = sys.modules[module_fullname]
+                
+                # 尝试调用模块级别的清理函数
+                if hasattr(module, 'cleanup') and callable(module.cleanup):
+                    try:
+                        module.cleanup()
+                    except Exception as e:
+                        add_error_log(f"模块 {module_fullname} 清理函数执行失败: {str(e)}")
+                
+                # 检查模块中的全局线程池或连接池
+                for attr_name in dir(module):
+                    if attr_name.startswith('__'):
+                        continue
+                        
+                    try:
+                        attr = getattr(module, attr_name)
+                        # 清理线程池
+                        if (attr_name.endswith('_pool') or attr_name.endswith('_thread_pool')) and not isinstance(attr, type):
+                            if hasattr(attr, 'shutdown') and callable(getattr(attr, 'shutdown')):
+                                try:
+                                    attr.shutdown(wait=False)
+                                except Exception:
+                                    pass
+                        # 清理连接池
+                        elif (attr_name.endswith('_conn_pool') or attr_name.endswith('_connection_pool')) and not isinstance(attr, type):
+                            if hasattr(attr, 'close') and callable(getattr(attr, 'close')):
+                                try:
+                                    attr.close()
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                
+                # 将模块添加到待回收列表
+                cls._unloaded_modules.append(module)
+                
+                # 从sys.modules中删除模块
+                if module_fullname in sys.modules:
+                    del sys.modules[module_fullname]
+                
+                # 记录热更新日志
+                if is_hot_reload:
+                    status = "已删除" if not file_exists else "变更"
+                    add_framework_log(f"插件热更新：检测到文件{status} {dir_name}/{module_name}.py，已注销 {len(removed)} 个处理器")
+            except Exception as e:
+                add_error_log(f"清理模块时出错: {str(e)}", traceback.format_exc())
+        
+        # 5. 执行垃圾回收
         current_time = time.time()
         if removed and (current_time - _last_plugin_gc_time >= _plugin_gc_interval):
             gc.collect()
@@ -400,6 +661,25 @@ class PluginManager:
         return len(removed)
 
     # ===== 插件注册与分发相关 =====
+    @classmethod
+    def _rebuild_sorted_handlers(cls):
+        """重新构建按优先级排序的处理器列表，提升匹配性能"""
+        handlers_with_priority = []
+        for pattern, handler_info in cls._regex_handlers.items():
+            plugin_class = handler_info.get('class')
+            priority = cls._plugins.get(plugin_class, 10)
+            compiled_regex = cls._regex_cache.get(pattern)
+            if compiled_regex:
+                handlers_with_priority.append({
+                    'pattern': pattern,
+                    'regex': compiled_regex,
+                    'handler_info': handler_info,
+                    'priority': priority
+                })
+        
+        # 按优先级排序（数字越小优先级越高）
+        cls._sorted_handlers = sorted(handlers_with_priority, key=lambda x: x['priority'])
+    
     @classmethod
     def register_plugin(cls, plugin_class, skip_log=False):
         """
@@ -426,7 +706,7 @@ class PluginManager:
             else:
                 enhanced_pattern = f"^{pattern}"
             try:
-                compiled_regex = re.compile(enhanced_pattern)
+                compiled_regex = re.compile(enhanced_pattern, re.DOTALL)
                 cls._regex_cache[enhanced_pattern] = compiled_regex
             except Exception as e:
                 add_error_log(f"正则表达式 '{enhanced_pattern}' 编译失败: {str(e)}")
@@ -451,6 +731,9 @@ class PluginManager:
                 add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，处理器：{handlers_text}")
             else:
                 add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，无处理器")
+        
+        # 重新构建排序的处理器列表
+        cls._rebuild_sorted_handlers()
         return handlers_count
 
     @classmethod
@@ -495,9 +778,20 @@ class PluginManager:
         @return: 是否被处理
         """
         try:
+            # 检查插件更新
+            cls.load_plugins()
+            
             # 0. 检查消息是否已被处理（如在MessageEvent中直接处理的消息）
             if hasattr(event, 'handled') and event.handled:
                 return True
+            
+            # 0.1 检查用户是否在黑名单中
+            if hasattr(event, 'user_id') and event.user_id:
+                is_blacklisted, reason = cls.is_blacklisted(event.user_id)
+                if is_blacklisted:
+                    add_plugin_log(f"用户 {event.user_id} 在黑名单中，拒绝处理消息，原因: {reason}")
+                    MessageTemplate.send(event, MSG_TYPE_BLACKLIST, reason=reason)
+                    return True
                 
             # 1. 维护模式检查 - 快速判断
             if cls.is_maintenance_mode() and not cls.can_user_bypass_maintenance(event.user_id):
@@ -576,14 +870,19 @@ class PluginManager:
                     cls.send_default_response(event)
                 else:
                     add_plugin_log("未匹配到任何插件，但根据配置不发送默认回复")
+            else:
+                add_plugin_log("未匹配到任何插件，且未启用默认回复")
+            
+            # 记录未匹配的消息到数据库
+            cls._log_unmatched_message(event, original_content)
                     
         return matched
 
     @classmethod
     def _find_matched_handlers(cls, event_content, event, is_owner, is_group, permission_denied=None):
         """
-        查找匹配内容的所有处理器，并按优先级排序。
-        同时检查权限条件，过滤掉不符合条件的处理器
+        优化的处理器匹配方法：使用预排序列表，避免每次重新排序。
+        显著提升消息匹配性能，特别是在有很多插件时。
         
         @param event_content: 消息内容
         @param event: 消息事件对象
@@ -594,16 +893,12 @@ class PluginManager:
         """
         matched_handlers = []
         
-        for pattern, handler_info in cls._regex_handlers.items():
-            # 1. 编译并匹配正则
-            compiled_regex = cls._regex_cache.get(pattern)
-            if not compiled_regex:
-                try:
-                    compiled_regex = re.compile(pattern)
-                    cls._regex_cache[pattern] = compiled_regex
-                except Exception:
-                    continue
-                    
+        # 使用预排序的处理器列表，避免每次重新排序
+        for handler_data in cls._sorted_handlers:
+            compiled_regex = handler_data['regex']
+            handler_info = handler_data['handler_info']
+            
+            # 1. 匹配正则表达式（已预编译）
             match = compiled_regex.search(event_content)
             if not match:
                 continue
@@ -627,20 +922,16 @@ class PluginManager:
                     permission_denied['group_denied'] = True
                 continue
                 
-            # 4. 添加通过所有检查的处理器
-            priority = cls._plugins.get(plugin_class, 10)
+            # 4. 添加通过所有检查的处理器（已按优先级排序）
             matched_handlers.append({
-                'pattern': pattern,
+                'pattern': handler_data['pattern'],
                 'match': match,
                 'plugin_class': plugin_class,
                 'handler_name': handler_name,
-                'priority': priority
+                'priority': handler_data['priority']
             })
         
-        # 5. 按优先级排序
-        if matched_handlers:
-            matched_handlers.sort(key=lambda x: x['priority'])
-            
+        # 无需再次排序，因为已经使用了预排序列表
         return matched_handlers
 
     @classmethod
@@ -714,6 +1005,7 @@ class PluginManager:
     def _call_plugin_handler_with_logging(cls, plugin_class, handler_name, event, plugin_name):
         """
         调用插件处理函数并处理日志记录。
+        支持同步和异步处理函数。
         """
         original_reply = event.reply
         is_first_reply = [True]
@@ -726,10 +1018,87 @@ class PluginManager:
                 add_plugin_log(f"插件 {plugin_name} 回复：{text_content} (继续处理)")
             return original_reply(content, *args, **kwargs)
         event.reply = reply_with_log
+        
+        # 临时替换re模块函数，让插件内部的正则表达式支持换行符
+        original_re_search = re.search
+        original_re_match = re.match
+        original_re_findall = re.findall
+        original_re_finditer = re.finditer
+        original_re_sub = re.sub
+        original_re_subn = re.subn
+        
+        def patched_search(pattern, string, flags=0):
+            # 安全检查：直接检查类型而不是属性，避免递归
+            if hasattr(pattern, 'pattern'):  # 检查是否为已编译的Pattern对象
+                return pattern.search(string)
+            # 使用数值常量避免枚举操作导致的递归
+            DOTALL_FLAG = 16  # re.DOTALL的数值
+            return original_re_search(pattern, string, flags | DOTALL_FLAG)
+        
+        def patched_match(pattern, string, flags=0):
+            if hasattr(pattern, 'pattern'):
+                return pattern.match(string)
+            DOTALL_FLAG = 16
+            return original_re_match(pattern, string, flags | DOTALL_FLAG)
+        
+        def patched_findall(pattern, string, flags=0):
+            if hasattr(pattern, 'pattern'):
+                return pattern.findall(string)
+            DOTALL_FLAG = 16
+            return original_re_findall(pattern, string, flags | DOTALL_FLAG)
+        
+        def patched_finditer(pattern, string, flags=0):
+            if hasattr(pattern, 'pattern'):
+                return pattern.finditer(string)
+            DOTALL_FLAG = 16
+            return original_re_finditer(pattern, string, flags | DOTALL_FLAG)
+        
+        def patched_sub(pattern, repl, string, count=0, flags=0):
+            if hasattr(pattern, 'pattern'):
+                return pattern.sub(repl, string, count)
+            DOTALL_FLAG = 16
+            return original_re_sub(pattern, repl, string, count, flags | DOTALL_FLAG)
+        
+        def patched_subn(pattern, repl, string, count=0, flags=0):
+            if hasattr(pattern, 'pattern'):
+                return pattern.subn(repl, string, count)
+            DOTALL_FLAG = 16
+            return original_re_subn(pattern, repl, string, count, flags | DOTALL_FLAG)
+        
         try:
-            result = getattr(plugin_class, handler_name)(event)
+            # 替换re模块的函数
+            re.search = patched_search
+            re.match = patched_match
+            re.findall = patched_findall
+            re.finditer = patched_finditer
+            re.sub = patched_sub
+            re.subn = patched_subn
+            
+            handler = getattr(plugin_class, handler_name)
+            result = handler(event)
+            
+            # 检查结果是否为协程对象
+            if asyncio.iscoroutine(result):
+                # 如果是协程，使用asyncio运行它
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    # 如果没有事件循环，创建一个新的
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                # 运行协程直到完成
+                result = loop.run_until_complete(result)
+                
             return result
         finally:
+            # 恢复原始的re模块函数
+            re.search = original_re_search
+            re.match = original_re_match
+            re.findall = original_re_findall
+            re.finditer = original_re_finditer
+            re.sub = original_re_sub
+            re.subn = original_re_subn
             event.reply = original_reply
 
     # ===== 默认回复相关 =====
@@ -753,4 +1122,72 @@ class PluginManager:
         """
         发送默认回复。
         """
-        MessageTemplate.send(event, MSG_TYPE_DEFAULT) 
+        MessageTemplate.send(event, MSG_TYPE_DEFAULT)
+    
+    @classmethod
+    def _log_unmatched_message(cls, event, original_content):
+        """
+        记录未匹配任何插件的消息到数据库
+        @param event: 消息事件对象
+        @param original_content: 原始消息内容
+        """
+        try:
+            import datetime
+            
+            # 获取群聊ID，私聊默认为c2c
+            group_id = 'c2c'
+            if hasattr(event, 'group_id') and event.group_id:
+                group_id = str(event.group_id)
+            elif cls._is_group_chat(event):
+                # 从事件中尝试获取群聊ID
+                if hasattr(event, 'get'):
+                    group_id = event.get('d/group_openid') or event.get('d/guild_id') or 'unknown_group'
+                else:
+                    group_id = 'unknown_group'
+            
+            # 获取用户ID
+            user_id = str(event.user_id) if hasattr(event, 'user_id') and event.user_id else '未知用户'
+            
+            # 获取消息内容
+            content = original_content if original_content else (event.content if hasattr(event, 'content') else '')
+            
+            # 构建原始消息数据（JSON格式）
+            raw_message_data = {}
+            if hasattr(event, '__dict__'):
+                # 提取事件对象的关键属性
+                for attr in ['message_id', 'user_id', 'group_id', 'content', 'message_type', 'event_type']:
+                    if hasattr(event, attr):
+                        raw_message_data[attr] = getattr(event, attr)
+                
+                # 如果事件有原始数据，也添加进去（限制大小避免过大）
+                if hasattr(event, 'get') and callable(event.get):
+                    try:
+                        raw_data = {
+                            'd': event.get('d') if event.get('d') else {},
+                            'op': event.get('op'),
+                            's': event.get('s'),
+                            't': event.get('t')
+                        }
+                        raw_message_data['raw'] = raw_data
+                    except Exception:
+                        pass
+            
+            # 转换为JSON字符串，限制长度避免数据库字段溢出
+            raw_message_json = json.dumps(raw_message_data, ensure_ascii=False, default=str)
+            if len(raw_message_json) > 10000:  # 限制为10KB
+                raw_message_json = raw_message_json[:10000] + "...(truncated)"
+            
+            # 构建日志数据
+            log_data = {
+                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'user_id': user_id,
+                'group_id': group_id,
+                'content': content[:5000] if content else '',  # 限制内容长度
+                'raw_message': raw_message_json
+            }
+            
+            # 写入数据库
+            success = add_log_to_db('unmatched', log_data)
+ 
+        except Exception as e:
+            add_error_log(f"记录未匹配消息时出错: {str(e)}", traceback.format_exc()) 

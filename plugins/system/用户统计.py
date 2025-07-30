@@ -11,6 +11,8 @@ from functools import partial
 import datetime
 from config import LOG_DB_CONFIG
 import traceback
+from function.httpx_pool import sync_get, get_json
+from function.database import Database  # 导入Database类获取QQ号
 
 # 导入日志数据库相关内容
 try:
@@ -52,6 +54,10 @@ class system_plugin(Plugin):
                 'handler': 'get_dau_with_date',
                 'owner_only': True  # 仅限主人使用
             },
+            r'^dau\s+(\d{4})$': {
+                'handler': 'get_dau_with_date',
+                'owner_only': True  # 仅限主人使用，支持空格
+            },
             r'^获取全部指令$': {
                 'handler': 'admin_tools',
                 'owner_only': True  # 仅限主人使用
@@ -68,16 +74,69 @@ class system_plugin(Plugin):
     
     @staticmethod
     def getid(event):
-        # 先拼接用户ID和群组ID（不脱敏，直接显示）
+        # 初始化基本信息
         info = f"<@{event.user_id}>\n"
+        
+        # 查询用户QQ号，放在最前面显示
+        try:
+            db = Database()
+            sql = "SELECT qq, base64_data FROM M_users WHERE user_id = %s"
+            result = DatabaseService.execute_query(sql, (event.user_id,))
+            
+            qq = None
+            if result:
+                # 如果数据库中已有QQ号
+                if result.get('qq'):
+                    qq = result.get('qq')
+                # 如果QQ号为空，但有base64数据，尝试重新解析
+                elif result.get('base64_data'):
+                    import base64
+                    import httpx
+                    try:
+                        # 尝试解码并获取QQ号
+                        base64_data = result.get('base64_data')
+                        decoded_data = base64.b64decode(base64_data).hex()
+                        
+                        # 调用API获取QQ号
+                        response = httpx.get(f"http://127.0.0.1:34343/pb={decoded_data}", timeout=5)
+                        if response.status_code == 200:
+                            data = response.json()
+                            qq_number = data.get("3")
+                            if qq_number:
+                                # 保存QQ号
+                                sql = "UPDATE M_users SET qq = %s WHERE user_id = %s"
+                                DatabaseService.execute_update(sql, (str(qq_number), event.user_id))
+                                logging.info(f"用户 {event.user_id} 的QQ号 {qq_number} 已保存")
+                                qq = str(qq_number)
+                    except Exception as e:
+                        logging.error(f"解码获取QQ号失败: {e}")
+            
+            # 添加UIN信息到最前面
+            if qq:
+                # 脱敏处理：只显示第一位和最后两位，其他用*替换
+                if len(qq) > 3:
+                    # 转义*号，避免被当作markdown语法
+                    masked_qq = qq[0] + "\*" * (len(qq) - 3) + qq[-2:]
+                    info = f"<@{event.user_id}>\nUIN: {masked_qq}\n" + info[len(f"<@{event.user_id}>\n"):]
+                else:
+                    info = f"<@{event.user_id}>\nUIN: {qq}\n" + info[len(f"<@{event.user_id}>\n"):]
+            else:
+                # QQ号获取失败
+                info = f"<@{event.user_id}>\nUIN: 获取失败\n" + info[len(f"<@{event.user_id}>\n"):]
+                
+        except Exception as e:
+            logging.error(f"查询QQ号失败: {e}")
+            info = f"<@{event.user_id}>\nUIN: 获取失败\n" + info[len(f"<@{event.user_id}>\n"):]
+        
+        # 添加用户ID和群组ID
         info += f"用户ID: {event.user_id}\n"
         info += f"群组ID: {event.group_id}\n"
+        
         # 查询权限
         perm_str = ""
         try:
-            import requests
-            api_url = 'https://api.elaina.vin/tk/jrcnl/mysql.php'
-            resp = requests.get(api_url, timeout=5)
+            api_url = 'https://api.elaina.vin/api/积分/特殊用户.php'
+            resp = sync_get(api_url, timeout=5)
             data = resp.json()
             user_id_str = str(event.user_id)
             found = None
@@ -95,7 +154,7 @@ class system_plugin(Plugin):
         info += perm_str + "\n"
         event.reply(info)
     
-    @classmethod
+    @staticmethod
     def owner_commands(cls, event):
         """显示所有主人可用指令的按钮"""
         # 如果无法导入PluginManager，则返回错误
@@ -240,7 +299,7 @@ class system_plugin(Plugin):
             buttons = event.button(rows)
             
             # 发送带按钮的消息
-            event.reply(f"<@{event.user_id}>\n👑 主人专属指令快捷按钮", buttons)
+            event.reply(f"<@{event.user_id}>\n👑 主人专属指令快捷按钮", buttons, hide_avatar_and_center=True)
             
         except Exception as e:
             logger.error(f'获取主人指令失败: {e}')
@@ -307,7 +366,7 @@ class system_plugin(Plugin):
             code_content.append(f'总命令数: {total_commands}个')
             
             # 创建最终消息内容 - 使用代码框包裹
-            message = '\n'.join(header) + "\n```\n" + '\n'.join(code_content) + "\n```"
+            message = '\n'.join(header) + "\n\n```python\n" + '\n'.join(code_content) + "\n```\n"
             
             # 创建按钮
             buttons = event.button([
@@ -330,7 +389,7 @@ class system_plugin(Plugin):
             ])
             
             # 发送带按钮的消息
-            event.reply(message, buttons)
+            event.reply(message, buttons, hide_avatar_and_center=True)
             
         except Exception as e:
             logger.error(f'管理工具执行失败: {e}')
@@ -368,19 +427,32 @@ class system_plugin(Plugin):
     
     @classmethod
     def get_dau(cls, event):
-        """获取当日活跃用户统计信息"""
+        """获取当日活跃用户统计信息，并与昨天同时段进行对比"""
         # 获取今天的日期格式化为YYYYMMDD
-        today = datetime.datetime.now().strftime('%Y%m%d')
-        # 调用通用DAU查询方法
-        cls._get_dau_data(event, today)
+        today = datetime.datetime.now()
+        today_str = today.strftime('%Y%m%d')
+        
+        # 获取昨天的日期格式化为YYYYMMDD
+        yesterday = today - datetime.timedelta(days=1)
+        yesterday_str = yesterday.strftime('%Y%m%d')
+        
+        # 当前小时和分钟，用于限制昨天数据查询范围
+        current_hour = today.hour
+        current_minute = today.minute
+        
+        # 调用通用DAU查询方法，添加对比参数
+        cls._get_dau_data(event, today_str, yesterday_str, current_hour, current_minute)
     
     @classmethod
-    def _get_dau_data(cls, event, date_str):
+    def _get_dau_data(cls, event, date_str, yesterday_str=None, current_hour=None, current_minute=None):
         """获取特定日期的DAU统计数据的通用方法
         
         Args:
             event: 消息事件
             date_str: 日期字符串，格式为YYYYMMDD
+            yesterday_str: 昨天日期字符串，格式为YYYYMMDD（可选）
+            current_hour: 当前小时（可选）
+            current_minute: 当前分钟（可选）
         """
         start_time = time.time()
         
@@ -423,30 +495,39 @@ class system_plugin(Plugin):
                 result = cursor.fetchone()
                 if not result or result['count'] == 0:
                     # 将YYYYMMDD格式转换为更易读的格式
-                    display_date = f"{date_str[0:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                    display_date = f"{date_str[4:6]}-{date_str[6:8]}"
                     event.reply(f"该日期({display_date})无消息记录")
                     return
                 
+                # 时间限制条件 - 如果有当前小时和分钟，则限制查询范围
+                time_condition = ""
+                if current_hour is not None and current_minute is not None:
+                    time_limit = f"{current_hour:02d}:{current_minute:02d}:00"
+                    time_condition = f" WHERE TIME(timestamp) <= '{time_limit}'"
+                
                 # 查询总消息数
-                total_messages_query = f"SELECT COUNT(*) as count FROM {table_name}"
+                total_messages_query = f"SELECT COUNT(*) as count FROM {table_name}{time_condition}"
                 cursor.execute(total_messages_query)
                 total_messages_result = cursor.fetchone()
                 total_messages = total_messages_result['count'] if total_messages_result else 0
                 
                 # 查询不同用户数量（去重）
-                unique_users_query = f"SELECT COUNT(DISTINCT user_id) as count FROM {table_name} WHERE user_id IS NOT NULL AND user_id != ''"
+                unique_users_query = f"SELECT COUNT(DISTINCT user_id) as count FROM {table_name}{time_condition}"
+                unique_users_query += " AND user_id IS NOT NULL AND user_id != ''" if time_condition else " WHERE user_id IS NOT NULL AND user_id != ''"
                 cursor.execute(unique_users_query)
                 unique_users_result = cursor.fetchone()
                 unique_users = unique_users_result['count'] if unique_users_result else 0
                 
                 # 查询不同群组数量（去重）- 不包括私聊
-                unique_groups_query = f"SELECT COUNT(DISTINCT group_id) as count FROM {table_name} WHERE group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''"
+                unique_groups_query = f"SELECT COUNT(DISTINCT group_id) as count FROM {table_name}{time_condition}"
+                unique_groups_query += " AND group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''" if time_condition else " WHERE group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''"
                 cursor.execute(unique_groups_query)
                 unique_groups_result = cursor.fetchone()
                 unique_groups = unique_groups_result['count'] if unique_groups_result else 0
                 
                 # 查询私聊消息数量
-                private_messages_query = f"SELECT COUNT(*) as count FROM {table_name} WHERE group_id = 'c2c'"
+                private_messages_query = f"SELECT COUNT(*) as count FROM {table_name}{time_condition}"
+                private_messages_query += " AND group_id = 'c2c'" if time_condition else " WHERE group_id = 'c2c'"
                 cursor.execute(private_messages_query)
                 private_messages_result = cursor.fetchone()
                 private_messages = private_messages_result['count'] if private_messages_result else 0
@@ -454,11 +535,13 @@ class system_plugin(Plugin):
                 # 获取最活跃的5个群组
                 active_groups_query = f"""
                     SELECT group_id, COUNT(*) as msg_count 
-                    FROM {table_name} 
-                    WHERE group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''
+                    FROM {table_name}{time_condition}
+                    """
+                active_groups_query += " AND group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''" if time_condition else " WHERE group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''"
+                active_groups_query += """
                     GROUP BY group_id 
                     ORDER BY msg_count DESC 
-                    LIMIT 5
+                    LIMIT 3
                 """
                 cursor.execute(active_groups_query)
                 active_groups_result = cursor.fetchall()
@@ -466,11 +549,13 @@ class system_plugin(Plugin):
                 # 获取最活跃的5个用户
                 active_users_query = f"""
                     SELECT user_id, COUNT(*) as msg_count 
-                    FROM {table_name} 
-                    WHERE user_id IS NOT NULL AND user_id != ''
+                    FROM {table_name}{time_condition}
+                    """
+                active_users_query += " AND user_id IS NOT NULL AND user_id != ''" if time_condition else " WHERE user_id IS NOT NULL AND user_id != ''"
+                active_users_query += """
                     GROUP BY user_id 
                     ORDER BY msg_count DESC 
-                    LIMIT 5
+                    LIMIT 3
                 """
                 cursor.execute(active_users_query)
                 active_users_result = cursor.fetchall()
@@ -478,7 +563,7 @@ class system_plugin(Plugin):
                 # 按小时统计消息数量
                 hourly_stats_query = f"""
                     SELECT HOUR(timestamp) as hour, COUNT(*) as count 
-                    FROM {table_name} 
+                    FROM {table_name}{time_condition} 
                     GROUP BY HOUR(timestamp) 
                     ORDER BY hour
                 """
@@ -497,18 +582,87 @@ class system_plugin(Plugin):
                 most_active_hour = max(hours_data.items(), key=lambda x: x[1]) if hours_data else (0, 0)
                 
                 # 将YYYYMMDD格式转换为更易读的格式
-                display_date = f"{date_str[0:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                display_date = f"{date_str[4:6]}-{date_str[6:8]}"
+                
+                # 如果有昨天的日期，查询昨天同时段的数据进行对比
+                yesterday_data = None
+                if yesterday_str and current_hour is not None and current_minute is not None:
+                    yesterday_table = f"Mlog_{yesterday_str}_message"
+                    
+                    # 检查昨天的表是否存在
+                    cursor.execute(check_query, (yesterday_table,))
+                    y_result = cursor.fetchone()
+                    
+                    if y_result and y_result['count'] > 0:
+                        time_limit = f"{current_hour:02d}:{current_minute:02d}:00"
+                        y_time_condition = f" WHERE TIME(timestamp) <= '{time_limit}'"
+                        
+                        # 获取昨天同时段的基础统计数据
+                        yesterday_data = {}
+                        
+                        # 昨天总消息数
+                        cursor.execute(f"SELECT COUNT(*) as count FROM {yesterday_table}{y_time_condition}")
+                        y_total = cursor.fetchone()
+                        yesterday_data['total_messages'] = y_total['count'] if y_total else 0
+                        
+                        # 昨天活跃用户数
+                        y_users_query = f"SELECT COUNT(DISTINCT user_id) as count FROM {yesterday_table}{y_time_condition}"
+                        y_users_query += " AND user_id IS NOT NULL AND user_id != ''"
+                        cursor.execute(y_users_query)
+                        y_users = cursor.fetchone()
+                        yesterday_data['unique_users'] = y_users['count'] if y_users else 0
+                        
+                        # 昨天活跃群组数
+                        y_groups_query = f"SELECT COUNT(DISTINCT group_id) as count FROM {yesterday_table}{y_time_condition}"
+                        y_groups_query += " AND group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''"
+                        cursor.execute(y_groups_query)
+                        y_groups = cursor.fetchone()
+                        yesterday_data['unique_groups'] = y_groups['count'] if y_groups else 0
+                        
+                        # 昨天私聊消息数
+                        y_private_query = f"SELECT COUNT(*) as count FROM {yesterday_table}{y_time_condition}"
+                        y_private_query += " AND group_id = 'c2c'"
+                        cursor.execute(y_private_query)
+                        y_private = cursor.fetchone()
+                        yesterday_data['private_messages'] = y_private['count'] if y_private else 0
                 
                 # 构建响应信息
                 info = [
                     f'<@{event.user_id}>',
-                    f'📊 {display_date} 活跃统计',
-                    f'👤 活跃用户数: {unique_users}',
-                    f'👥 活跃群聊数: {unique_groups}',
-                    f'💬 消息总数: {total_messages}',
-                    f'📱 私聊消息: {private_messages}',
-                    f'⏰ 最活跃时段: {most_active_hour[0]}点 ({most_active_hour[1]})'
+                    f'📊 {display_date} 活跃统计' + (f' (截至{current_hour:02d}:{current_minute:02d})' if current_hour is not None else '')
                 ]
+                
+                # 添加基本数据与昨天对比（如果有）
+                if yesterday_data:
+                    y_display_date = f"{yesterday_str[4:6]}-{yesterday_str[6:8]}"
+                    
+                    # 用户数对比
+                    user_diff = unique_users - yesterday_data['unique_users']
+                    user_change = f"🔺{user_diff}" if user_diff > 0 else f"🔻{abs(user_diff)}" if user_diff < 0 else "➖0"
+                    info.append(f'👤 活跃用户数: {unique_users} ({user_change})')
+                    
+                    # 群组数对比
+                    group_diff = unique_groups - yesterday_data['unique_groups']
+                    group_change = f"🔺{group_diff}" if group_diff > 0 else f"🔻{abs(group_diff)}" if group_diff < 0 else "➖0"
+                    info.append(f'👥 活跃群聊数: {unique_groups} ({group_change})')
+                    
+                    # 消息总数对比
+                    msg_diff = total_messages - yesterday_data['total_messages']
+                    msg_change = f"🔺{msg_diff}" if msg_diff > 0 else f"🔻{abs(msg_diff)}" if msg_diff < 0 else "➖0"
+                    info.append(f'💬 消息总数: {total_messages} ({msg_change})')
+                    
+                    # 私聊消息对比
+                    private_diff = private_messages - yesterday_data['private_messages']
+                    private_change = f"🔺{private_diff}" if private_diff > 0 else f"🔻{abs(private_diff)}" if private_diff < 0 else "➖0"
+                    info.append(f'📱 私聊消息: {private_messages} ({private_change})')
+                else:
+                    # 没有昨天数据时显示普通格式
+                    info.append(f'👤 活跃用户数: {unique_users}')
+                    info.append(f'👥 活跃群聊数: {unique_groups}')
+                    info.append(f'💬 消息总数: {total_messages}')
+                    info.append(f'📱 私聊消息: {private_messages}')
+                
+                info.append(f'⏰ 最活跃时段: {most_active_hour[0]}点 ({most_active_hour[1]})')
                 
                 # 添加最活跃群组信息
                 if active_groups_result:
@@ -578,7 +732,7 @@ class system_plugin(Plugin):
                 ])
                 
                 # 发送带按钮的消息
-                event.reply('\n'.join(info), buttons)
+                event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
                 
             finally:
                 # 确保关闭游标和释放连接
@@ -605,7 +759,9 @@ class system_plugin(Plugin):
                 FROM M_groups_users
                 ORDER BY member_count DESC
                 LIMIT 1
-            """, None, False)
+            """, None, False),
+            # UIN统计查询 - 固定为64019，不再查询数据库
+            # ("SELECT COUNT(*) as count FROM M_users WHERE qq IS NOT NULL AND qq != ''", None, False),  # UIN成功获取数 - 已固定
         ]
     
     @classmethod
@@ -643,12 +799,18 @@ class system_plugin(Plugin):
             }
         else:
             most_active_group = {'group_id': "无数据", 'member_count': 0}
+            
+        # 处理UIN统计数据 - 固定UIN成功数量为64019
+        uin_success = 64019  # 固定值，不再查询数据库
         
         return {
             'user_count': user_count,
             'group_count': group_count,
             'private_users_count': private_users_count,
-            'most_active_group': most_active_group
+            'most_active_group': most_active_group,
+            'uin_stats': {
+                'success': uin_success
+            }
         }
     
     @classmethod
@@ -717,6 +879,9 @@ class system_plugin(Plugin):
             info.append(f'👥 所有用户总数量: {stats["user_count"]}')
             info.append(f'🔝 最大群: {stats["most_active_group"]["group_id"]} (群员: {stats["most_active_group"]["member_count"]})')
             
+            # 添加UIN统计信息
+            info.append(f'✅ UIN成功获取: {stats["uin_stats"]["success"]}')
+            
             # 如果在群聊中，添加当前群的排名信息
             if event.group_id and group_results:
                 group_info = cls._process_group_results(group_results, event.group_id)
@@ -740,7 +905,7 @@ class system_plugin(Plugin):
             ])
             
             # 发送带按钮的消息
-            event.reply('\n'.join(info), buttons)
+            event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
             
         except Exception as e:
             logger.error(f'获取统计信息失败: {e}')
@@ -774,14 +939,16 @@ class system_plugin(Plugin):
             
         # 添加用户@并用markdown横线分隔
         msg = (
-            f'<@{event.user_id}>关于伊蕾娜\n___\n'
-            '🔗 连接方式: WebHook\n'
-            '🧬 内核版本：Elaina 1.2.3\n'
-            '🏰 连接Bot框架: Elaina-Mbot\n'
-            f'🐍 Python版本: {python_version}\n'
-            f'🧩 已加载内核数: {kernel_count}\n'
-            f'🛠️ 已加载处理器数: {function_count}\n'
-            '\n\n>Tip:只有艾特伊蕾娜，伊蕾娜才能接收到你的消息~！'
+f'<@{event.user_id}>关于伊蕾娜\n___\n'
+'🔌 连接方式: WebHook\n'
+'🤖 机器人QQ: 3889045760\n'
+'🆔 机器人appid: 102134274\n'
+'🚀 内核版本：Elaina 1.2.3\n'
+'🏗️ 连接Bot框架: Elaina框架\n'
+f'⚙️ Python版本: {python_version}\n'
+f'💫 已加载内核数: {kernel_count}\n'
+f'⚡ 已加载处理器数: {function_count}\n'
+'\n\n>Tip:只有艾特伊蕾娜，伊蕾娜才能接收到你的消息~！'
         )
         btn = event.button([
             event.rows([

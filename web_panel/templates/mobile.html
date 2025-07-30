@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elaina手机仪表盘</title>
+    <base href="{{ prefix }}/">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* 基础样式 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Arial', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+        }
+        
+        body {
+            background-color: #f5f5f5;
+            color: #333;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* 顶部导航栏 */
+        .mobile-header {
+            background: linear-gradient(135deg, #4361ee, #3f37c9);
+            color: white;
+            padding: 10px 15px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .mobile-header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 100%;
+        }
+        
+        .mobile-title {
+            font-size: 18px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .connection-status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .connection-status.connected {
+            background-color: #4cd137;
+            box-shadow: 0 0 5px #4cd137;
+        }
+        
+        .connection-status.disconnected {
+            background-color: #e84118;
+            box-shadow: 0 0 5px #e84118;
+        }
+        
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .pc-switch-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+        
+        .pc-switch-btn:hover {
+            background: rgba(255,255,255,0.3);
+            color: white;
+        }
+        
+        /* 主内容区域 */
+        .mobile-content {
+            padding: 80px 15px 70px; /* 增加底部padding避免被导航覆盖 */
+            max-width: 100%;
+        }
+        
+        /* 底部导航 */
+        .mobile-bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            padding: 8px 0;
+            z-index: 9999; /* 确保导航栏始终在最顶层 */
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .nav-items {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+        
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-decoration: none;
+            color: #666;
+            padding: 5px 15px;
+            border-radius: 8px;
+            transition: all 0.3s;
+            font-size: 12px;
+        }
+        
+        .nav-item.active {
+            color: #4361ee;
+        }
+        
+        .nav-item i {
+            font-size: 18px;
+            margin-bottom: 2px;
+        }
+        
+        .nav-item span {
+            font-size: 10px;
+        }
+        
+        /* 仪表板容器 */
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+            max-width: 100%;
+        }
+        
+        /* 卡片通用样式 */
+        .dashboard-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .dashboard-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+        }
+        
+        /* 状态卡片 */
+        .status-card {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+        }
+        
+        .status-card .card-title {
+            font-size: 16px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .uptime-text {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        /* 统计卡片 */
+        .stats-card {
+            padding: 15px 20px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .stat-icon {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+        }
+        
+        .stat-text {
+            flex: 1;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 2px;
+        }
+        
+        .stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        /* 系统信息卡片 */
+        .system-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 每行显示2个 */
+            gap: 10px;
+        }
+        
+        .system-mini-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        
+        .system-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+            display: block;
+        }
+        
+        .cpu-icon { color: #2196F3; }
+        .memory-icon { color: #4CAF50; }
+        .storage-icon { color: #FF9800; }
+        .disk-icon { color: #9C27B0; }
+        
+        .system-title {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .system-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .system-sub {
+            font-size: 10px;
+            color: #888;
+            margin-top: 2px;
+        }
+        
+        /* 进度条样式 */
+        .progress-container {
+            margin-top: 10px;
+        }
+        
+        .progress-bar-custom {
+            width: 100%;
+            height: 6px;
+            background-color: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+        
+        .cpu-progress { background: linear-gradient(to right, #4cc9f0, #4361ee); }
+        .memory-progress { background: linear-gradient(to right, #4895ef, #3f37c9); }
+        .storage-progress { background: linear-gradient(to right, #f72585, #e63946); }
+        .disk-progress { background: linear-gradient(to right, #4cc9f0, #4895ef); }
+        
+        /* 日志卡片 */
+        .logs-card {
+            max-height: none;
+        }
+        
+        .logs-tabs {
+            display: flex;
+            margin-bottom: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 4px;
+        }
+        
+        .log-tab {
+            flex: 1;
+            padding: 8px 12px;
+            text-align: center;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: none;
+            background: none;
+        }
+        
+        .log-tab.active {
+            background: #4361ee;
+            color: white;
+        }
+        
+        .logs-container {
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: white;
+        }
+        
+        .log-entry {
+            padding: 8px 12px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333; /* 设置日志文字为黑色 */
+        }
+        
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .log-timestamp {
+            color: #888;
+            font-size: 10px;
+        }
+        
+        .log-content {
+            margin-top: 2px;
+            line-height: 1.4;
+        }
+        
+        /* 底部导航 */
+        .mobile-bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            padding: 10px 0 5px;
+            z-index: 999;
+        }
+        
+        .nav-items {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+        
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            color: #666;
+            text-decoration: none;
+            font-size: 10px;
+            padding: 5px 10px;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        
+        .nav-item.active {
+            color: #4361ee;
+            background: rgba(67, 97, 238, 0.1);
+        }
+        
+        .nav-item i {
+            font-size: 16px;
+        }
+        
+        /* 内存分配详情 */
+        .memory-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .memory-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .memory-item i {
+            font-size: 14px;
+        }
+        
+        .memory-label {
+            font-size: 11px;
+            color: #666;
+        }
+        
+        .memory-value {
+            font-size: 12px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        /* 刷新按钮 */
+        .refresh-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 16px;
+            padding: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .refresh-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        /* 隐藏类 */
+        .hidden {
+            display: none;
+        }
+        
+        /* 页面切换 */
+        .page-section {
+            display: none;
+        }
+        
+        .page-section.active {
+            display: block;
+        }
+        
+        /* 插件卡片样式 */
+        .plugin-card {
+            margin-bottom: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+            transition: all 0.2s ease;
+            border-left: 3px solid #ccc;
+        }
+        
+        .plugin-card.loaded {
+            border-left-color: #4CAF50;
+        }
+        
+        .plugin-card.error {
+            border-left-color: #f44336;
+        }
+        
+        .plugin-content {
+            padding: 12px 15px;
+        }
+        
+        .plugin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .plugin-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .plugin-badges {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .plugin-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+        
+        .plugin-handlers {
+            margin-top: 8px;
+        }
+        
+        .handlers-container {
+            max-height: 60px;
+            overflow-y: auto;
+            padding: 5px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .handler-item {
+            display: inline-block;
+            font-size: 10px;
+            padding: 2px 5px;
+            margin: 2px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        
+        .handler-item-public {
+            background: #e7f7ee;
+            color: #28a745;
+        }
+        
+        .handler-item-owner {
+            background: #e7f3ff;
+            color: #007bff;
+        }
+        
+        .handler-item-group {
+            background: #fff3e0;
+            color: #ff9800;
+        }
+        
+        /* 加载动画 */
+        .loading {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #4361ee;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* 响应式调整 */
+        @media (max-width: 360px) {
+            .mobile-content {
+                padding: 75px 10px 70px; /* 修正底部padding */
+            }
+            
+            .dashboard-card {
+                padding: 15px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            
+            /* 系统性能保持每行2个，不改为1列 */
+            .system-cards {
+                grid-template-columns: 1fr 1fr;
+                gap: 8px; /* 小屏幕稍微减少间距 */
+            }
+            
+            .system-mini-card {
+                padding: 12px; /* 小屏幕减少内边距 */
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <div class="mobile-header">
+        <div class="mobile-header-content">
+            <div class="mobile-title">
+                <i class="bi bi-phone"></i>
+                <span>Elaina仪表盘</span>
+            </div>
+            <div class="header-actions">
+                <span class="connection-status disconnected" id="connection-indicator"></span>
+                <span id="connection-text" style="font-size: 12px;">未连接</span>
+                <button class="refresh-btn" id="refresh-btn" title="刷新数据">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+                <a href="?device=pc" class="pc-switch-btn">
+                    <i class="bi bi-laptop"></i> 切换PC
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主内容区域 -->
+    <div class="mobile-content">
+        <!-- 仪表盘页面 -->
+        <div class="page-section active" id="mobile-dashboard-section">
+            <div class="dashboard-container">
+            <!-- 运行状态卡片 -->
+            <div class="dashboard-card status-card">
+                <div class="card-title">
+                    <i class="bi bi-activity"></i>
+                    <span>运行状态</span>
+                </div>
+                <div class="status-info">
+                    <div>
+                        <div class="uptime-text">运行时间: <span id="mobile-uptime">0天 0小时</span></div>
+                        <div class="uptime-text">启动时间: <span id="mobile-start-time">未知</span></div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div class="uptime-text" id="current-time"></div>
+                    </div>
+                </div>
+            </div>
+
+
+
+            <!-- 系统性能卡片 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-speedometer2"></i> 系统性能
+                </h6>
+                <div class="system-cards">
+                    <div class="system-mini-card">
+                        <i class="fas fa-microchip system-icon cpu-icon"></i>
+                        <div class="system-title">CPU使用率</div>
+                        <div class="system-value" id="mobile-cpu-text">0%</div>
+                        <div class="system-sub">框架: <span id="mobile-framework-cpu">0%</span></div>
+                        <div class="progress-container">
+                            <div class="progress-bar-custom">
+                                <div id="mobile-cpu-progress" class="progress-fill cpu-progress" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="system-mini-card">
+                        <i class="fas fa-memory system-icon memory-icon"></i>
+                        <div class="system-title">内存使用率</div>
+                        <div class="system-value" id="mobile-memory-text">0%</div>
+                        <div class="system-sub">框架: <span id="mobile-framework-memory">0%</span></div>
+                        <div class="progress-container">
+                            <div class="progress-bar-custom">
+                                <div id="mobile-memory-progress" class="progress-fill memory-progress" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="system-mini-card">
+                        <i class="fas fa-hdd system-icon storage-icon"></i>
+                        <div class="system-title">硬盘空间</div>
+                        <div class="system-value" id="mobile-disk-used">0 GB</div>
+                        <div class="system-sub">框架: <span id="mobile-framework-disk">0 GB</span></div>
+                        <div class="progress-container">
+                            <div class="progress-bar-custom">
+                                <div id="mobile-disk-progress" class="progress-fill storage-progress" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="system-mini-card">
+                        <i class="fas fa-server system-icon disk-icon"></i>
+                        <div class="system-title">总内存</div>
+                        <div class="system-value" id="mobile-total-memory">0 MB</div>
+                        <div class="system-sub">系统: <span id="mobile-system-memory">0 GB</span></div>
+                        <div class="progress-container">
+                            <div class="progress-bar-custom">
+                                <div id="mobile-total-progress" class="progress-fill disk-progress" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 内存分配详情 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-bar-chart-fill"></i> 内存分配详情
+                </h6>
+                <div class="memory-details">
+                    <div class="memory-item">
+                        <i class="bi bi-puzzle text-primary"></i>
+                        <div>
+                            <div class="memory-label">插件</div>
+                            <div class="memory-value" id="mobile-plugins-memory">0 MB</div>
+                        </div>
+                    </div>
+                    <div class="memory-item">
+                        <i class="bi bi-bricks text-info"></i>
+                        <div>
+                            <div class="memory-label">框架</div>
+                            <div class="memory-value" id="mobile-framework-memory-detail">0 MB</div>
+                        </div>
+                    </div>
+                    <div class="memory-item">
+                        <i class="bi bi-window text-success"></i>
+                        <div>
+                            <div class="memory-label">面板</div>
+                            <div class="memory-value" id="mobile-webpanel-memory">0 MB</div>
+                        </div>
+                    </div>
+                    <div class="memory-item">
+                        <i class="bi bi-box text-secondary"></i>
+                        <div>
+                            <div class="memory-label">其他</div>
+                            <div class="memory-value" id="mobile-other-memory">0 MB</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 15px; display: flex; justify-content: space-between; font-size: 12px; color: #666;">
+                    <span><i class="bi bi-recycle"></i> GC计数: <span id="mobile-gc-count">0/0/0</span></span>
+                    <span><i class="bi bi-boxes"></i> 对象数: <span id="mobile-objects-count">0</span></span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    
+    <!-- 日志页面 -->
+    <div class="page-section" id="mobile-logs-section">
+        <div class="dashboard-container">
+            <div class="dashboard-card logs-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-journal-text"></i> 实时日志
+                </h6>
+                <div class="logs-tabs">
+                    <button class="log-tab active" data-type="received">接收消息</button>
+                    <button class="log-tab" data-type="plugin">插件日志</button>
+                    <button class="log-tab" data-type="framework">框架日志</button>
+                    <button class="log-tab" data-type="error">错误日志</button>
+                </div>
+                <div class="logs-container" id="mobile-logs-container">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div style="margin-top: 10px;">加载日志中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 插件页面 -->
+    <div class="page-section" id="mobile-plugins-section">
+        <div class="dashboard-container">
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-grid"></i> 插件列表
+                    <button class="btn btn-sm btn-outline-primary float-end" id="mobile-refresh-plugins">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                </h6>
+                <div id="mobile-plugins-container">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div style="margin-top: 10px;">加载插件中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- 底部导航 -->
+    <div class="mobile-bottom-nav">
+        <div class="nav-items">
+            <a href="#" class="nav-item active" data-section="dashboard">
+                <i class="bi bi-speedometer2"></i>
+                <span>仪表盘</span>
+            </a>
+            <a href="#" class="nav-item" data-section="logs">
+                <i class="bi bi-journal-text"></i>
+                <span>日志</span>
+            </a>
+            <a href="#" class="nav-item" data-section="plugins">
+                <i class="bi bi-grid"></i>
+                <span>插件</span>
+            </a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.1/dist/socket.io.min.js"></script>
+    <script>
+        // 全局变量
+        const URL_PREFIX = "{{ prefix }}";
+        let socket;
+        let autoRefreshTimer = null;
+        let currentLogType = 'received';
+        const connectionIndicator = document.getElementById('connection-indicator');
+        const connectionText = document.getElementById('connection-text');
+
+        // 设置连接状态
+        function setConnectionStatus(connected) {
+            if (connected) {
+                connectionIndicator.classList.remove('disconnected');
+                connectionIndicator.classList.add('connected');
+                connectionText.textContent = '已连接';
+            } else {
+                connectionIndicator.classList.remove('connected');
+                connectionIndicator.classList.add('disconnected');
+                connectionText.textContent = '未连接';
+            }
+        }
+
+        // 初始化Socket连接
+        function initSocket() {
+            try {
+                const currentUrl = new URL(window.location.href);
+                const host = currentUrl.hostname;
+                const port = currentUrl.port || (currentUrl.protocol === 'https:' ? '443' : '80');
+                const protocol = currentUrl.protocol === 'https:' ? 'https' : 'http';
+                
+                socket = io(`${protocol}://${host}:${port}${URL_PREFIX}`, {
+                    path: "/socket.io",
+                    reconnectionAttempts: 10,
+                    reconnectionDelay: 1000,
+                    timeout: 20000,
+                    forceNew: true,
+                    transports: ['polling', 'websocket']
+                });
+
+                socket.on('connect', () => {
+                    setConnectionStatus(true);
+                    startAutoRefresh();
+                });
+
+                socket.on('disconnect', () => {
+                    setConnectionStatus(false);
+                    stopAutoRefresh();
+                });
+
+                socket.on('connect_error', (error) => {
+                    setConnectionStatus(false);
+                    stopAutoRefresh();
+                });
+
+                // 接收系统信息
+                socket.on('system_info', updateSystemInfo);
+                
+                // 接收新消息
+                socket.on('new_message', (data) => {
+                    if (data.type === currentLogType) {
+                        addLogEntry(data.data);
+                    }
+                });
+
+                // 接收日志批量数据
+                socket.on('logs_batch', (data) => {
+                    if (data[currentLogType]) {
+                        displayLogs(data[currentLogType].logs);
+                    }
+                    
+                    // 不再更新日志统计显示，因为已删除消息统计卡片
+                });
+
+                // 接收插件信息
+                socket.on('plugins_update', (data) => {
+                    if (data && Array.isArray(data)) {
+                        // 不再更新插件计数显示，因为已删除消息统计卡片
+                        updateMobilePluginsInfo(data);
+                    }
+                });
+
+            } catch (error) {
+                setConnectionStatus(false);
+                stopAutoRefresh();
+            }
+        }
+
+        // 更新系统信息
+        function updateSystemInfo(data) {
+            if (!data) return;
+
+            // CPU信息
+            const cpuUsage = data.cpu_percent || 0;
+            const frameworkCpu = data.framework_cpu_percent || 0;
+            document.getElementById('mobile-cpu-text').textContent = cpuUsage.toFixed(1) + '%';
+            document.getElementById('mobile-framework-cpu').textContent = frameworkCpu.toFixed(1) + '%';
+            document.getElementById('mobile-cpu-progress').style.width = cpuUsage + '%';
+
+            // 内存信息
+            const memPercent = data.memory_percent || 0;
+            const frameworkMemPercent = data.framework_memory_percent || 0;
+            document.getElementById('mobile-memory-text').textContent = memPercent.toFixed(1) + '%';
+            document.getElementById('mobile-framework-memory').textContent = frameworkMemPercent.toFixed(1) + '%';
+            document.getElementById('mobile-memory-progress').style.width = memPercent + '%';
+
+            // 总内存
+            const memUsedValue = data.memory_used || 0;
+            const totalMemValue = data.total_memory || 0;
+            document.getElementById('mobile-total-memory').textContent = formatMemory(memUsedValue * 1024 * 1024);
+            document.getElementById('mobile-system-memory').textContent = formatDiskSize(data.system_memory_total_bytes || totalMemValue * 1024 * 1024);
+            document.getElementById('mobile-total-progress').style.width = memPercent + '%';
+
+            // 硬盘信息
+            if (data.disk_info) {
+                const diskInfo = data.disk_info;
+                document.getElementById('mobile-disk-used').textContent = formatDiskSize(diskInfo.used || 0);
+                document.getElementById('mobile-framework-disk').textContent = formatDiskSize(diskInfo.framework_usage || 0);
+                if (diskInfo.total && diskInfo.used) {
+                    const diskUsagePercent = (diskInfo.used / diskInfo.total * 100);
+                    document.getElementById('mobile-disk-progress').style.width = diskUsagePercent + '%';
+                }
+            }
+
+            // 内存分配详情
+            document.getElementById('mobile-plugins-memory').textContent = formatMemory(data.plugins_memory || 0);
+            document.getElementById('mobile-framework-memory-detail').textContent = formatMemory(data.framework_memory || 0);
+            document.getElementById('mobile-webpanel-memory').textContent = formatMemory(data.webpanel_memory || 0);
+            document.getElementById('mobile-other-memory').textContent = formatMemory(data.other_memory || 0);
+
+            // GC和对象数
+            const gcCounts = data.gc_counts || [0, 0, 0];
+            document.getElementById('mobile-gc-count').textContent = `${gcCounts[0]}/${gcCounts[1]}/${gcCounts[2]}`;
+            document.getElementById('mobile-objects-count').textContent = data.objects_count || '0';
+
+            // 运行时间
+            if (data.uptime) {
+                const uptime = Number(data.uptime);
+                const days = Math.floor(uptime / 86400);
+                const hours = Math.floor((uptime % 86400) / 3600);
+                const minutes = Math.floor((uptime % 3600) / 60);
+                
+                let uptimeText = '';
+                if (days > 0) uptimeText += days + '天 ';
+                uptimeText += hours + '小时 ' + minutes + '分钟';
+                
+                document.getElementById('mobile-uptime').textContent = uptimeText;
+            }
+
+            // 启动时间
+            if (data.start_time) {
+                try {
+                    const startDate = new Date(data.start_time);
+                    if (!isNaN(startDate.getTime())) {
+                        const formattedDate = startDate.toLocaleString('zh-CN', {
+                            month: '2-digit', 
+                            day: '2-digit',
+                            hour: '2-digit', 
+                            minute: '2-digit'
+                        });
+                        document.getElementById('mobile-start-time').textContent = formattedDate;
+                    } else {
+                        document.getElementById('mobile-start-time').textContent = data.start_time;
+                    }
+                } catch(e) {
+                    document.getElementById('mobile-start-time').textContent = data.start_time;
+                }
+            }
+        }
+
+        // 格式化内存显示
+        function formatMemory(bytesOrMb) {
+            if (bytesOrMb === undefined || bytesOrMb === null || bytesOrMb === 0) {
+                return '0 MB';
+            }
+            
+            if (typeof bytesOrMb === 'string') {
+                if (bytesOrMb.includes('MB') || bytesOrMb.includes('GB')) {
+                    return bytesOrMb;
+                }
+                bytesOrMb = parseFloat(bytesOrMb);
+            }
+            
+            if (bytesOrMb > 0 && bytesOrMb < 1000) {
+                return Math.round(bytesOrMb) + ' MB';
+            }
+            
+            let mb = bytesOrMb / (1024 * 1024);
+            
+            if (mb >= 1024) {
+                const gb = mb / 1024;
+                return gb.toFixed(2) + ' GB';
+            }
+            
+            return Math.round(mb) + ' MB';
+        }
+
+        // 格式化硬盘大小
+        function formatDiskSize(bytes) {
+            if (bytes === undefined || bytes === null || bytes === 0) {
+                return '0 GB';
+            }
+            
+            const mb = bytes / (1024 * 1024);
+            if (mb >= 1024) {
+                const gb = mb / 1024;
+                return gb.toFixed(2) + ' GB';
+            } else {
+                return Math.round(mb) + ' MB';
+            }
+        }
+
+        // 显示日志
+        function displayLogs(logs) {
+            const container = document.getElementById('mobile-logs-container');
+            container.innerHTML = '';
+            
+            if (!logs || logs.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">暂无日志</div>';
+                return;
+            }
+            
+            logs.forEach(log => {
+                addLogEntry(log, false);
+            });
+        }
+
+        // 添加日志条目
+        function addLogEntry(log, prepend = true) {
+            const container = document.getElementById('mobile-logs-container');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const timestamp = log.timestamp || new Date().toLocaleString('zh-CN');
+            const content = log.content || log;
+            
+            entry.innerHTML = `
+                <div class="log-timestamp">[${timestamp}]</div>
+                <div class="log-content">${content}</div>
+            `;
+            
+            if (prepend && container.firstChild) {
+                container.insertBefore(entry, container.firstChild);
+            } else {
+                container.appendChild(entry);
+            }
+            
+            // 限制日志数量
+            while (container.children.length > 50) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        // 切换日志标签
+        function switchLogTab(type) {
+            currentLogType = type;
+            
+            // 更新标签状态
+            document.querySelectorAll('.log-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelector(`[data-type="${type}"]`).classList.add('active');
+            
+            // 清空日志容器并显示加载状态
+            const container = document.getElementById('mobile-logs-container');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div><div style="margin-top: 10px;">加载日志中...</div></div>';
+            
+            // 请求日志数据
+            if (socket && socket.connected) {
+                socket.emit('request_logs', {
+                    type: type,
+                    page: 1,
+                    page_size: 30
+                });
+            }
+        }
+
+        // 开始自动刷新
+        function startAutoRefresh() {
+            if (autoRefreshTimer === null) {
+                autoRefreshTimer = setInterval(() => {
+                    if (socket && socket.connected) {
+                        socket.emit('get_system_info');
+                    }
+                }, 5000);
+            }
+        }
+
+        // 停止自动刷新
+        function stopAutoRefresh() {
+            if (autoRefreshTimer !== null) {
+                clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
+            }
+        }
+
+        // 更新时间
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = now.toLocaleTimeString('zh-CN');
+        }
+
+        // 页面切换功能
+        function switchToPage(pageId) {
+            console.log('切换到页面:', pageId);
+            
+            // 隐藏所有页面
+            document.querySelectorAll('.page-section').forEach(section => {
+                section.classList.remove('active');
+                console.log('隐藏页面:', section.id);
+            });
+            
+            // 显示目标页面
+            const targetPage = document.getElementById(pageId);
+            if (targetPage) {
+                targetPage.classList.add('active');
+                console.log('显示页面:', pageId);
+            } else {
+                console.error('找不到页面:', pageId);
+            }
+            
+            // 更新导航状态
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            const sectionName = pageId.replace('mobile-', '').replace('-section', '');
+            const navItem = document.querySelector(`[data-section="${sectionName}"]`);
+            if (navItem) {
+                navItem.classList.add('active');
+                console.log('激活导航:', sectionName);
+            } else {
+                console.error('找不到导航项:', sectionName);
+            }
+        }
+
+        // 更新插件信息
+        function updateMobilePluginsInfo(plugins) {
+            const container = document.getElementById('mobile-plugins-container');
+            
+            if (!plugins || plugins.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">未发现任何插件</div>';
+                return;
+            }
+            
+            let html = '';
+            plugins.forEach(plugin => {
+                const statusClass = plugin.status === 'loaded' ? 'loaded' : 'error';
+                let statusBadge = plugin.status === 'loaded' 
+                    ? `<span class="badge bg-success plugin-badge">已加载</span>` 
+                    : `<span class="badge bg-danger plugin-badge">错误</span>`;
+                
+                let handlerCountBadge = '';
+                if (plugin.status === 'loaded') {
+                    const handlerCount = plugin.handlers || 0;
+                    handlerCountBadge = `<span class="badge bg-secondary plugin-badge">${handlerCount}个处理器</span>`;
+                }
+                
+                let handlersHtml = '';
+                if (plugin.status === 'loaded' && plugin.handlers_list && plugin.handlers_list.length > 0) {
+                    const handlers_owner_only = plugin.handlers_owner_only || {};
+                    const handlers_group_only = plugin.handlers_group_only || {};
+                    
+                    handlersHtml = `
+                    <div class="plugin-handlers">
+                        <div class="handlers-container">
+                            ${plugin.handlers_list.map(handler => {
+                                const isOwnerOnly = handlers_owner_only[handler] === true;
+                                const isGroupOnly = handlers_group_only[handler] === true;
+                                let handlerClass = 'handler-item handler-item-public';
+                                
+                                if (isOwnerOnly) {
+                                    handlerClass = 'handler-item handler-item-owner';
+                                }
+                                if (isGroupOnly) {
+                                    handlerClass = 'handler-item handler-item-group';
+                                }
+                                
+                                return `<span class="${handlerClass}">${handler}</span>`;
+                            }).join('')}
+                        </div>
+                    </div>`;
+                }
+                
+                let displayName = plugin.name;
+                if (displayName.includes('/')) {
+                    const parts = displayName.split('/');
+                    if (parts.length >= 3) {
+                        displayName = `${parts[1]} (${parts[2]})`;
+                    } else {
+                        displayName = parts[parts.length - 1];
+                    }
+                }
+                
+                html += `
+                <div class="plugin-card ${statusClass}">
+                    <div class="plugin-content">
+                        <div class="plugin-header">
+                            <div class="plugin-name">${displayName}</div>
+                            <div class="plugin-badges">
+                                ${statusBadge}
+                                ${handlerCountBadge}
+                            </div>
+                        </div>
+                        ${handlersHtml}
+                    </div>
+                </div>`;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        // 页面初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化时间
+            updateTime();
+            setInterval(updateTime, 1000);
+            
+            // 初始化Socket连接
+            initSocket();
+            
+            // 日志标签切换事件
+            document.querySelectorAll('.log-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    switchLogTab(tab.dataset.type);
+                });
+            });
+            
+            // 刷新按钮事件
+            document.getElementById('refresh-btn').addEventListener('click', () => {
+                if (socket && socket.connected) {
+                    socket.emit('get_system_info');
+                    socket.emit('request_logs', {
+                        type: currentLogType,
+                        page: 1,
+                        page_size: 30
+                    });
+                }
+            });
+            
+            // 底部导航切换
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const section = item.dataset.section;
+                    switchToPage(`mobile-${section}-section`);
+                });
+            });
+
+            // 插件刷新按钮
+            document.getElementById('mobile-refresh-plugins').addEventListener('click', () => {
+                if (socket && socket.connected) {
+                    const container = document.getElementById('mobile-plugins-container');
+                    container.innerHTML = '<div class="loading"><div class="spinner"></div><div style="margin-top: 10px;">刷新插件中...</div></div>';
+                    socket.emit('refresh_plugins');
+                }
+            });
+
+            // 初始加载日志
+            setTimeout(() => {
+                switchLogTab('received');
+            }, 1000);
+        });
+    </script>
+</body>
+</html> 

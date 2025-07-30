@@ -16,6 +16,7 @@ import logging
 import datetime
 import traceback
 import pymysql
+# 移除了未使用的 asyncio 和 httpx 导入
 from pymysql.cursors import DictCursor
 from concurrent.futures import ThreadPoolExecutor
 
@@ -30,13 +31,17 @@ logger = logging.getLogger('log_db')
 # 全局常量
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_INSERT_INTERVAL = 10  # 秒
-LOG_TYPES = ['received', 'plugin', 'framework', 'error']
+LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'unmatched']
 TABLE_SUFFIX = {
     'received': 'message',
     'plugin': 'plugin',
     'framework': 'framework',
-    'error': 'error'
+    'error': 'error',
+    'unmatched': 'unmatched'
 }
+
+# 注意：如果需要HTTP请求功能，请使用 function.httpx_pool 模块
+# from function.httpx_pool import HttpxPoolManager
 
 class LogDatabasePool:
     """日志数据库连接池，专门用于日志写入"""
@@ -369,6 +374,11 @@ class LogDatabaseManager:
             # 添加索引
             cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
             
+            # 为unmatched表添加额外索引
+            if log_type == 'unmatched':
+                cursor.execute(f"CREATE INDEX idx_{table_name}_user ON {table_name} (user_id)")
+                cursor.execute(f"CREATE INDEX idx_{table_name}_group ON {table_name} (group_id)")
+            
             connection.commit()
             self.tables_created.add(table_name)
             logger.info(f"创建日志表 {table_name} 成功")
@@ -398,6 +408,14 @@ class LogDatabaseManager:
                 `user_id` varchar(255) NOT NULL COMMENT '用户ID',
                 `group_id` varchar(255) DEFAULT 'c2c' COMMENT '群聊ID，私聊为c2c',
                 `content` text NOT NULL COMMENT '消息内容',
+            """
+        elif log_type == 'unmatched':
+            # 未匹配消息日志，包含用户ID、群聊ID、消息内容和原始消息
+            specific_fields = """
+                `user_id` varchar(255) NOT NULL COMMENT '用户ID',
+                `group_id` varchar(255) DEFAULT 'c2c' COMMENT '群聊ID，私聊为c2c',
+                `content` text NOT NULL COMMENT '消息内容',
+                `raw_message` text COMMENT '原始消息数据',
             """
         elif log_type == 'error':
             # 错误日志包含traceback
@@ -519,6 +537,21 @@ class LogDatabaseManager:
                     log.get('content')
                 ) for log in logs_to_insert]
                 
+            elif log_type == 'unmatched':
+                # 未匹配消息日志，包含用户ID、群聊ID、消息内容和原始消息
+                sql = f"""
+                    INSERT INTO `{table_name}` 
+                    (timestamp, user_id, group_id, content, raw_message) 
+                    VALUES (%s, %s, %s, %s, %s)
+                """
+                values = [(
+                    log.get('timestamp'),
+                    log.get('user_id', '未知用户'),
+                    log.get('group_id', 'c2c'),
+                    log.get('content'),
+                    log.get('raw_message', '')
+                ) for log in logs_to_insert]
+                
             elif log_type == 'error':
                 # 错误日志包含traceback
                 sql = f"""
@@ -591,6 +624,12 @@ class LogDatabaseManager:
                     f.write(f"[{timestamp}] {content}\n")
                     if log_type == 'error' and 'traceback' in log:
                         f.write(f"调用栈信息:\n{log['traceback']}\n")
+                    elif log_type == 'unmatched':
+                        user_id = log.get('user_id', '未知用户')
+                        group_id = log.get('group_id', 'c2c')
+                        f.write(f"用户ID: {user_id}, 群聊ID: {group_id}\n")
+                        if 'raw_message' in log and log['raw_message']:
+                            f.write(f"原始消息: {log['raw_message'][:500]}...\n")
             
             logger.info(f"日志已回退保存到文件 {fallback_file}")
         except Exception as e:
@@ -684,9 +723,11 @@ def add_log_to_db(log_type, log_data):
     """添加日志到数据库
     
     Args:
-        log_type: 日志类型，可选值: 'received', 'plugin', 'framework', 'error'
+        log_type: 日志类型，可选值: 'received', 'plugin', 'framework', 'error', 'unmatched'
         log_data: 日志数据字典，必须包含'timestamp'和'content'键
                  对于'received'类型，可以包含'user_id'和'group_id'
+                 对于'unmatched'类型，可以包含'user_id', 'group_id', 'raw_message'
+                 对于'error'类型，可以包含'traceback'
     
     Returns:
         成功返回True，失败返回False

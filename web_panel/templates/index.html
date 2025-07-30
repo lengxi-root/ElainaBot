@@ -473,16 +473,6 @@
             color: #666;
         }
         
-        /* 热更新提示 */
-        .hot-reload-info {
-            background-color: #e7f7ff;
-            border-left: 4px solid #2196f3;
-            padding: 10px 15px;
-            margin-bottom: 20px;
-            border-radius: 4px;
-            color: #0c5460;
-        }
-        
         .btn-control {
             padding: 6px 12px;
             background-color: var(--light-color);
@@ -695,40 +685,30 @@
             margin-left: 16px;
         }
 
-        .hot-reload-badge {
-            display: flex;
-            align-items: center;
-            background-color: rgba(220, 53, 69, 0.1);
-            color: #dc3545;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            border: 1px solid rgba(220, 53, 69, 0.2);
-        }
 
-        .cold-load-badge {
-            display: flex;
-            align-items: center;
-            background-color: rgba(23, 162, 184, 0.1);
-            color: #17a2b8;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            border: 1px solid rgba(23, 162, 184, 0.2);
-        }
-
-        .hot-reload-badge i, .cold-load-badge i {
-            margin-right: 4px;
-            font-size: 0.7rem;
-        }
 
         .page-section {
             display: none;
         }
         .page-section.active {
             display: block;
+        }
+
+        .update-time-badge {
+            display: flex;
+            align-items: center;
+            background-color: rgba(0, 123, 255, 0.1);
+            color: #007bff;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            border: 1px solid rgba(0, 123, 255, 0.2);
+        }
+
+        .update-time-badge i {
+            margin-right: 4px;
+            font-size: 0.7rem;
         }
 
         @media (max-width: 992px) {
@@ -799,31 +779,42 @@
                 padding-top: 70px;
             }
         }
+
+
     </style>
 </head>
 <body>
     <div class="page-header">
         <div class="container-fluid">
-            <div class="d-flex justify-content-between align-items-center">
-                <div class="d-flex align-items-center">
-                    <button class="toggle-sidebar me-2" id="toggle-sidebar">
-                        <i class="bi bi-list"></i>
-                    </button>
-                    <h1 class="page-title">Elaina仪表盘</h1>
+            <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center;">
+                <!-- 左侧：侧边栏切换按钮 -->
+                <button class="toggle-sidebar" id="toggle-sidebar" style="position: absolute; left: 15px;">
+                    <i class="bi bi-list"></i>
+                </button>
+                
+                <!-- 标题：位于1/3处 -->
+                <h1 class="page-title d-flex align-items-center mb-0" style="position: absolute; left: 33.33%; transform: translateX(0);">
+                    <i class="bi bi-laptop me-2"></i>
+                    Elaina仪表盘
+                </h1>
+                
+                <!-- 右侧：状态信息 -->
+                <div class="d-flex align-items-center" style="margin-left: auto;">
+                    <div class="me-3">
+                        <span class="connection-status disconnected" id="connection-indicator"></span>
+                        <span class="text-light" id="connection-text">未连接</span>
+                    </div>
+                    <div class="me-3">
+                        <span class="text-light"><i class="bi bi-alarm"></i> <span id="topbar-uptime-text">0天 0小时</span></span>
+                    </div>
+                    <div class="me-3">
+                        <span class="text-light"><i class="bi bi-clock-history"></i> <span id="topbar-start-time">未知</span></span>
+                    </div>
+                    <span class="text-light me-3"><i class="bi bi-clock"></i> <span id="current-time"></span></span>
+                    <a href="?device=mobile" class="btn btn-sm btn-outline-light">
+                        <i class="bi bi-phone"></i> 切换手机版
+                    </a>
                 </div>
-                            <div class="d-flex align-items-center">
-                <div class="me-3">
-                    <span class="connection-status disconnected" id="connection-indicator"></span>
-                    <span class="text-light" id="connection-text">未连接</span>
-                </div>
-                <div class="me-3">
-                    <span class="text-light"><i class="bi bi-alarm"></i> <span id="topbar-uptime-text">0天 0小时</span></span>
-                </div>
-                <div class="me-3">
-                    <span class="text-light"><i class="bi bi-clock-history"></i> <span id="topbar-start-time">未知</span></span>
-                </div>
-                <span class="text-light"><i class="bi bi-clock"></i> <span id="current-time"></span></span>
-            </div>
             </div>
         </div>
     </div>
@@ -1228,6 +1219,21 @@
                     pluginsLoading.style.display = 'block';
                     pluginsContainer.innerHTML = '';
                     socket.emit('refresh_plugins');
+                    
+                    // 添加超时处理，确保即使服务器没有响应也能恢复界面
+                    const refreshTimeout = setTimeout(() => {
+                        if (pluginsLoading.style.display === 'block') {
+                            pluginsLoading.style.display = 'none';
+                            pluginsContainer.innerHTML = '<div class="alert alert-warning">刷新超时，请重试或刷新页面</div>';
+                        }
+                    }, 10000); // 10秒超时
+                    
+                    // 添加一次性监听器，收到插件更新后清除超时
+                    const onPluginsUpdate = (data) => {
+                        clearTimeout(refreshTimeout);
+                        socket.off('plugins_update', onPluginsUpdate);
+                    };
+                    socket.on('plugins_update', onPluginsUpdate);
                 }
             });
         }
@@ -1802,19 +1808,6 @@
             sortedDirectories.forEach(directory => {
                 const directoryPlugins = pluginsByDirectory[directory];
                 if (directoryPlugins && directoryPlugins.length > 0) {
-                    // 检查热加载/冷加载状态
-                    const hasHotReload = directoryPlugins.some(p => p.is_hot_reload);
-                    const hasColdLoad = directoryPlugins.some(p => p.is_cold_load);
-                    
-                    // 设置加载类型标识
-                    let loadTypeHtml = '';
-                    if (hasHotReload) {
-                        loadTypeHtml += `<span class="hot-reload-badge"><i class="bi bi-lightning-charge"></i> 热加载</span>`;
-                    }
-                    if (hasColdLoad) {
-                        loadTypeHtml += `<span class="cold-load-badge ms-2"><i class="bi bi-snow"></i> 冷加载</span>`;
-                    }
-                    
                     // 添加目录标题
                     html += `
                     <div class="mb-4">
@@ -1823,9 +1816,6 @@
                                 <i class="bi bi-folder-fill"></i>
                                 ${directory.toUpperCase()}
                                 <span class="count-badge">${directoryPlugins.length}</span>
-                            </div>
-                            <div class="load-type-badges">
-                                ${loadTypeHtml}
                             </div>
                         </div>
                         <div class="directory-plugins">`;
@@ -1900,6 +1890,10 @@
                             priorityDisplay = `<span class="plugin-priority"><i class="bi bi-sort-numeric-down"></i> ${priority}</span>`;
                         }
                         let pathDisplay = `<span class="plugin-path" title="${plugin.path}">${plugin.path.split('/').slice(-3).join('/')}</span>`;
+                        let timeDisplay = '';
+                        if (plugin.last_modified) {
+                            timeDisplay = `<span class="plugin-path text-muted ms-2"><i class="bi bi-clock-history"></i> ${plugin.last_modified}</span>`;
+                        }
                         html += `
                         <div class="card plugin-card ${statusClass}">
                             <div class="plugin-content">
@@ -1908,6 +1902,7 @@
                                         <h6 class="mb-0 me-2">${displayName}</h6>
                                         ${priorityDisplay}
                                         ${pathDisplay}
+                                        ${timeDisplay}
                                     </div>
                                     <div class="plugin-badges">
                                         ${statusBadge}

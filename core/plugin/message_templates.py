@@ -19,6 +19,7 @@ MSG_TYPE_DEFAULT = 'default'                # 默认回复
 MSG_TYPE_OWNER_ONLY = 'owner_only'          # 主人专属命令提示
 MSG_TYPE_MAINTENANCE = 'maintenance'        # 维护模式回复
 MSG_TYPE_API_ERROR = 'api_error'            # API错误提示消息
+MSG_TYPE_BLACKLIST = 'blacklist'            # 黑名单用户提示消息
 
 # 消息类型映射常量
 GROUP_MESSAGE = 'GROUP_AT_MESSAGE_CREATE'      # 群消息类型
@@ -31,6 +32,7 @@ GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'            # 被拉进群事件类型
 
 def _handle_welcome(event, **kwargs):
     """群欢迎消息处理"""
+    # 获取欢迎消息内容和按钮
     message = "![感谢 #1755px #2048px](https://gd-hbimg.huaban.com/d8b5c087d33e7d25835db96adab5f226227e943a165000-gzpWLe)\n__「你绝不是只身一人」 「我一直在你身边。」\n今朝依旧，今后亦然。__\n\n>大家好，我是有着沉鱼落雁般美貌的灰之魔女伊蕾娜！\n\n>可以为群内提供各种各样的群娱互动，与一些高质量图库功能，欢迎大家使用！\n***\n\n>注:所有指令必须_[@伊蕾娜]_才能使用,可以先尝试发送娱乐菜单，有按钮可以一键发送命令使用哦~\n"
     
     btn = event.button([
@@ -61,6 +63,7 @@ def _handle_welcome(event, **kwargs):
         }])
     ])
     
+    # 直接发送欢迎消息
     result = event.reply(message, btn)
     return result is not None
 
@@ -186,7 +189,7 @@ def _handle_default(event, **kwargs):
         ])
     ])
     
-    result = event.reply(f"![错误指令 #1360px #680px](https://gd-hbimg.huaban.com/53f695e975a52018a87ab8dc21bffff16da658ff7c6d7-fDXTPP)\n\n><@{user_id}> ", btn)
+    result = event.reply(f"![错误指令 #1360px #680px](https://gd-hbimg.huaban.com/53f695e975a52018a87ab8dc21bffff16da658ff7c6d7-fDXTPP)\n<@{user_id}> ", btn)
     return result is not None
 
 def _handle_owner_only(event, **kwargs):
@@ -229,7 +232,7 @@ def _handle_api_error(event, **kwargs):
     elif error_code == 50015006:
         user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{trace_id}\n注：系统繁忙，稍后重试"
         show_feedback_buttons = False
-    elif error_code == 40054010:
+    elif error_code == 40054010 or error_code == 40034028:
         user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{trace_id}\n注：禁止发送url，请截图选一种方式反馈"
         show_feedback_buttons = True
     else:
@@ -280,6 +283,34 @@ def _handle_api_error(event, **kwargs):
         
     return user_tip
 
+def _handle_blacklist(event, **kwargs):
+    """黑名单用户消息处理"""
+    user_id = event.user_id if hasattr(event, 'user_id') else None
+    reason = kwargs.get('reason', '未指明原因')
+    
+    message = f"<@{user_id}> 您已被列入黑名单，无法使用任何指令，如有误判，请点击下方反馈\n\n>原因：{reason}"
+    
+    # 添加反馈按钮
+    buttons = event.button([
+        event.rows([
+            {
+                'text': '加群(推荐)',
+                'link': 'https://qm.qq.com/q/w5kFw95zDq',
+                'type': 0,
+                'style': 1
+            },
+            {
+                'text': '问卷(较慢)',
+                'link': 'https://www.wjx.cn/vm/rJ1ZKHn.aspx',
+                'type': 0,
+                'style': 1
+            }
+        ])
+    ])
+    
+    result = event.reply(message, buttons)
+    return result is not None
+
 # 消息处理器映射表
 MESSAGE_HANDLERS = {
     MSG_TYPE_WELCOME: _handle_welcome,
@@ -289,6 +320,7 @@ MESSAGE_HANDLERS = {
     MSG_TYPE_OWNER_ONLY: _handle_owner_only,
     MSG_TYPE_MAINTENANCE: _handle_maintenance,
     MSG_TYPE_API_ERROR: _handle_api_error,
+    MSG_TYPE_BLACKLIST: _handle_blacklist,
 }
 
 class MessageTemplate:
@@ -301,7 +333,8 @@ class MessageTemplate:
         @param event: 消息事件对象
         @param msg_type: 消息类型，使用MSG_TYPE_*常量
         @param kwargs: 额外参数，根据消息类型不同而不同
-        @return: 是否发送成功
+        @return: 根据处理函数返回值，对于_handle_welcome返回(message, btn)元组，
+                其他处理函数返回布尔值表示是否发送成功
         """
         try:
             # 查找对应的处理函数，如果没有则返回False

@@ -7,21 +7,13 @@ from config import DB_CONFIG
 import threading
 import time
 import gc  # 垃圾回收模块
-import weakref  # 弱引用管理
-import logging  # 添加日志记录
+import logging  # 日志记录
 import warnings
-import urllib3
-import queue  # 队列模块，用于连接请求管理
 import concurrent.futures  # 线程池支持
-import functools  # 函数工具
-
-# 禁用urllib3不安全请求的警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 设置日志记录器
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('db_pool')
+logger.setLevel(logging.INFO)
 
 # 导入框架日志记录功能，用于重要日志
 try:
@@ -49,13 +41,12 @@ POOL_CONFIG = {
 
 class DatabasePool:
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()  # 使用可重入锁
     _pool = []
     _busy_connections = {}  # 正在使用的连接
     _initialized = False
     _last_gc_time = 0      # 上次垃圾回收时间
-    _connection_requests = queue.Queue()  # 连接请求队列
-    _thread_pool = None    # 线程池
+    _thread_pool = None    # 简化的线程池
     
     # 从配置加载参数
     _max_connections = POOL_CONFIG['max_connections']
@@ -74,19 +65,11 @@ class DatabasePool:
         # 单例模式下只初始化一次
         with self._lock:
             if not self._initialized:
-                # 创建线程池
+                # 创建简化的线程池
                 self._thread_pool = concurrent.futures.ThreadPoolExecutor(
                     max_workers=POOL_CONFIG['thread_pool_size'],
                     thread_name_prefix="DBPool"
                 )
-                
-                # 启动连接请求处理线程
-                self._conn_request_thread = threading.Thread(
-                    target=self._process_connection_requests,
-                    daemon=True,
-                    name="DBConnRequestProcessor"
-                )
-                self._conn_request_thread.start()
                 
                 self._init_pool()
                 # 启动维护线程
@@ -165,32 +148,6 @@ class DatabasePool:
         try:
             connection.close()
         except Exception:
-            pass
-    
-    def _process_connection_requests(self):
-        """处理连接请求队列"""
-        while True:
-            try:
-                # 从队列中获取请求
-                request = self._connection_requests.get()
-                if request is None:  # 停止信号
-                    break
-                    
-                future, timeout = request
-                
-                # 尝试获取连接
-                try:
-                    connection = self._get_connection_internal(timeout)
-                    future.set_result(connection)
-                except Exception as e:
-                    future.set_exception(e)
-                    
-            except Exception as e:
-                logger.error(f"处理连接请求时出错: {str(e)}")
-            finally:
-                try:
-                    self._connection_requests.task_done()
-                except:
                     pass
     
     def get_connection(self):
@@ -203,27 +160,6 @@ class DatabasePool:
         
         # 直接调用内部方法获取连接
         return self._get_connection_internal()
-    
-    def get_connection_async(self, timeout=None):
-        """获取数据库连接 - 异步版本，返回Future"""
-        if timeout is None:
-            timeout = POOL_CONFIG['request_timeout']
-            
-        connection_id = threading.get_ident()
-        
-        # 如果当前线程已经有连接，直接返回已完成的Future
-        if connection_id in self._busy_connections:
-            future = concurrent.futures.Future()
-            future.set_result(self._busy_connections[connection_id]['connection'])
-            return future
-        
-        # 创建Future对象
-        future = concurrent.futures.Future()
-        
-        # 将请求添加到队列
-        self._connection_requests.put((future, timeout))
-        
-        return future
     
     def _get_connection_internal(self, max_wait_time=None):
         """内部方法：获取数据库连接"""
@@ -497,6 +433,40 @@ class DatabasePool:
                 logger.warning(warning_msg)
                 add_framework_log(f"数据库连接池：{warning_msg}")
 
+    # 添加异步执行方法
+    async def execute_async_db(self, sql, params=None, fetch_all=False):
+        """异步执行SQL查询"""
+        future = self.execute_async(sql, params, fetch_all)
+        
+        # 创建异步任务等待Future完成
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, 
+            lambda: future.result(timeout=POOL_CONFIG['request_timeout'])
+        )
+        return result
+    
+    async def batch_execute_async_db(self, queries):
+        """批量异步执行SQL查询"""
+        futures = self.batch_execute_async(queries)
+        
+        # 创建异步任务等待所有Future完成
+        loop = asyncio.get_event_loop()
+        results = []
+        
+        for future in futures:
+            try:
+                result = await loop.run_in_executor(
+                    None, 
+                    lambda f=future: f.result(timeout=POOL_CONFIG['request_timeout'])
+                )
+                results.append(result)
+            except Exception as e:
+                logger.error(f"批量异步查询出错: {str(e)}")
+                results.append(None)
+                
+        return results
+
 class ConnectionManager:
     """数据库连接管理器，提供便捷的上下文管理接口"""
     
@@ -731,4 +701,24 @@ class DatabaseService:
     @staticmethod
     def execute_concurrent_queries(query_list):
         """并发执行多个查询，返回结果列表"""
-        return execute_concurrent_queries(query_list) 
+        return execute_concurrent_queries(query_list)
+        
+    @staticmethod
+    async def execute_query_await(sql, params=None, fetch_all=False):
+        """异步执行查询SQL并等待结果(使用await)"""
+        return await db_pool.execute_async_db(sql, params, fetch_all)
+    
+    @staticmethod
+    async def execute_update_await(sql, params=None):
+        """异步执行更新SQL并等待结果(使用await)"""
+        future = execute_update_async(sql, params)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, 
+            lambda: future.result(timeout=POOL_CONFIG['request_timeout'])
+        )
+    
+    @staticmethod
+    async def execute_concurrent_queries_await(query_list):
+        """异步并发执行多个查询并等待所有结果(使用await)"""
+        return await db_pool.batch_execute_async_db(query_list) 

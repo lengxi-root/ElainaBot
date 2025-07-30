@@ -5,10 +5,10 @@
 QQ机器人配置文件
 """
 
-appid = " "    
-secret = " " 
-OWNER_IDS = [" "]  # 主人QQ号列表
-USE_MARKDOWN = Flase  # True使用Markdown，False使用纯文本格式
+appid = ""    
+secret = "" 
+OWNER_IDS = ["8C7A05AC58E3BCAAA3E83B22486FAF8F"]  # 主人QQ号列表
+USE_MARKDOWN = False  # True使用Markdown，False使用纯文本格式
 
 # 是否在没有插件匹配命令时发送默认回复
 SEND_DEFAULT_RESPONSE = True
@@ -44,10 +44,10 @@ IMAGE_BED = {
     
     # QQ互联图床
     'qq_share': {
-        'enabled': False,       # 默认关闭QQ互联图床
-        'priority': 2,          # 优先级，数字越小优先级越高
-        'p_uin': ' ',  # QQ号
-        'p_skey': ' '  # p_skey值
+        'enabled': ,       # 默认关闭QQ互联图床
+        'priority': ,          # 优先级，数字越小优先级越高
+        'p_uin': '',  # QQ号
+        'p_skey': ''  # p_skey值
     }
 }
 """
@@ -60,11 +60,11 @@ Q互联图床：
 # 数据库配置
 DB_CONFIG = {
     # 基本连接配置
-    'host': ' ',
-    'port': 3306,
-    'user': ' ',
-    'password': ' ',
-    'database': ' ',
+    'host': '',
+    'port': ,
+    'user': '',
+    'password': '',
+    'database': '',
     'charset': 'utf8mb4',
     
     # 连接池基础设置
@@ -92,7 +92,7 @@ DB_CONFIG = {
     'pool_maintenance_interval': 15, # 池维护间隔(秒)
     
     # 兼容性设置
-    'pool_name': 'mbot_pool',
+    'pool_name': 'elaina_pool',
     'use_pure': True,            # 使用纯Python实现
     'buffered': False            # 缓存查询结果
 }
@@ -115,11 +115,11 @@ LOG_DB_CONFIG = {
     'auto_cleanup': True,           # 是否自动清理过期日志表
     
     # 独立数据库配置(仅当use_main_db=False时有效)
-    'host': ' ',
-    'port':  ,
-    'user': ' ',
-    'password': ' ',
-    'database': ' ',
+    'host': '127.0.0.1',
+    'port': 3306,
+    'user': 'log',
+    'password': '',
+    'database': 'log',
     'charset': 'utf8mb4',
     
     # 连接池配置(仅当use_main_db=False时有效)

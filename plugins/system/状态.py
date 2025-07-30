@@ -8,12 +8,12 @@ import datetime
 import tempfile
 import psutil
 import asyncio
-import requests
 import subprocess
 import re
 from core.plugin.PluginManager import Plugin
 from function.db_pool import DatabaseService
 from function.log_db import LogDatabasePool
+from function.httpx_pool import sync_get
 from PIL import Image
 
 # 主题模式配置（auto/day/night）
@@ -27,14 +27,10 @@ BACKGROUND_IMAGES = {
 
 # 网络测速目标
 SPEED_TEST_URLS = {
-    "API节点": "https://api.elaina.vin",
     "Edgeone": "https://i.elaina.vin",
-    "GitHub": "https://github.com",
-    "STEAM": "https://store.steampowered.com",
     "腾讯云": "https://cloud.tencent.com",
     "百度": "https://www.baidu.com",
     "网易": "https://www.163.com",
-    "Bing": "https://www.bing.com",
 }
 
 # 添加从专属测试工具插件复制的render_website_to_image函数
@@ -44,6 +40,9 @@ async def render_website_to_image(website_url, output_path):
         from playwright.async_api import async_playwright
     except ImportError:
         raise ImportError("未安装playwright库，请先安装: pip install playwright")
+    
+    # 注意：此函数保持异步，因为Playwright API是异步的
+    # 网络请求已在test_network_speed函数中改为使用httpx_pool的sync_get
     
     async with async_playwright() as p:
         # 启动浏览器，增加超时设置
@@ -103,7 +102,7 @@ class system_plugin(Plugin):
             html = render_full_html(header_html, left_html, middle_html, right_html, theme)
             # 11. 渲染为图片并上传
             img_url = render_and_upload(event, html, loop)
-            event.reply(img_url)
+            event.reply(img_url, hide_avatar_and_center=True)
         except Exception as e:
             event.reply(f"状态统计生成失败：{str(e)}")
 
@@ -124,7 +123,7 @@ def generate_header_card(theme):
     return f'''
     <div class="header-card">
       <div class="header">
-        <h1 class="title">Mbot 状态统计</h1>
+        <h1 class="title">Elaina框架 状态统计</h1>
         <div class="version">版本 {version}</div>
         <div class="version">生成时间: {now}</div>
       </div>
@@ -136,7 +135,7 @@ async def test_network_speed():
     for name, url in SPEED_TEST_URLS.items():
         try:
             start = time.time()
-            requests.get(url, timeout=3)
+            sync_get(url, timeout=3)
             latency = int((time.time() - start) * 1000)
             if latency > 500:
                 ping_class = 'ping-bad'

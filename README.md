@@ -1,4 +1,4 @@
-# MBot
+# ElainaBot
 
 基于Python的QQ机器人框架，支持WS WH链接方式，支持插件系统、Web面板监控。
 
@@ -18,14 +18,7 @@
 - Python 3.8+
 - MySQL 5.7+（可选）
 
-### 2. 安装依赖
-```bash
-git clone https://github.com/lengxi-root/MBot-Framework.git
-cd MBot-Framework
-pip install -r requirements.txt
-```
-
-### 3. 基础配置
+### 2. 基础配置
 编辑 `config.py`：
 ```python
 
@@ -45,12 +38,12 @@ WEB_SECURITY = {
 
 ```
 
-### 4. 启动机器人
+### 3. 启动机器人
 ```bash
 python main.py
 ```
 
-### 5. 访问Web面板
+### 4. 访问Web面板
 浏览器访问：`http://你的IP:5005/web/?token=你的访问令牌`
 
 ## 插件开发

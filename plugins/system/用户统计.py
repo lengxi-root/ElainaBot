@@ -9,8 +9,7 @@ import time
 import datetime
 from config import LOG_DB_CONFIG
 import traceback
-from function.httpx_pool import sync_get
-from function.database import Database  # 导入Database类获取QQ号
+
 
 # 导入日志数据库相关内容
 try:
@@ -54,7 +53,7 @@ class system_plugin(Plugin):
             },
             r'^dau\s+(\d{4})$': {
                 'handler': 'get_dau_with_date',
-                'owner_only': True  # 仅限主人使用
+                'owner_only': True  # 仅限主人使用，支持空格
             },
             r'^补全dau$': {
                 'handler': 'complete_dau',
@@ -76,84 +75,11 @@ class system_plugin(Plugin):
     
     @staticmethod
     def getid(event):
-        # 初始化基本信息
+        # 构建基本信息
         info = f"<@{event.user_id}>\n"
-        
-        # 查询用户QQ号，放在最前面显示
-        try:
-            db = Database()
-            sql = "SELECT qq, base64_data FROM M_users WHERE user_id = %s"
-            result = DatabaseService.execute_query(sql, (event.user_id,))
-            
-            qq = None
-            if result:
-                # 如果数据库中已有QQ号
-                if result.get('qq'):
-                    qq = result.get('qq')
-                # 如果QQ号为空，但有base64数据，尝试重新解析
-                elif result.get('base64_data'):
-                    import base64
-                    import httpx
-                    try:
-                        # 尝试解码并获取QQ号
-                        base64_data = result.get('base64_data')
-                        decoded_data = base64.b64decode(base64_data).hex()
-                        
-                        # 调用API获取QQ号
-                        response = httpx.get(f"http://127.0.0.1:34343/pb={decoded_data}", timeout=5)
-                        if response.status_code == 200:
-                            data = response.json()
-                            qq_number = data.get("3")
-                            if qq_number:
-                                # 保存QQ号
-                                sql = "UPDATE M_users SET qq = %s WHERE user_id = %s"
-                                DatabaseService.execute_update(sql, (str(qq_number), event.user_id))
-                                logging.info(f"用户 {event.user_id} 的QQ号 {qq_number} 已保存")
-                                qq = str(qq_number)
-                    except Exception as e:
-                        logging.error(f"解码获取QQ号失败: {e}")
-            
-            # 添加UIN信息到最前面
-            if qq:
-                # 脱敏处理：只显示第一位和最后两位，其他用*替换
-                if len(qq) > 3:
-                    # 转义*号，避免被当作markdown语法
-                    masked_qq = qq[0] + "\\*" * (len(qq) - 3) + qq[-2:]
-                    info = f"<@{event.user_id}>\nUIN: {masked_qq}\n" + info[len(f"<@{event.user_id}>\n"):]
-                else:
-                    info = f"<@{event.user_id}>\nUIN: {qq}\n" + info[len(f"<@{event.user_id}>\n"):]
-            else:
-                # QQ号获取失败
-                info = f"<@{event.user_id}>\nUIN: 获取失败\n" + info[len(f"<@{event.user_id}>\n"):]
-                
-        except Exception as e:
-            logging.error(f"查询QQ号失败: {e}")
-            info = f"<@{event.user_id}>\nUIN: 获取失败\n" + info[len(f"<@{event.user_id}>\n"):]
-        
-        # 添加用户ID和群组ID
         info += f"用户ID: {event.user_id}\n"
         info += f"群组ID: {event.group_id}\n"
         
-        # 查询权限
-        perm_str = ""
-        try:
-            api_url = 'https://api.elaina.vin/api/积分/特殊用户.php'
-            resp = sync_get(api_url, timeout=5)
-            data = resp.json()
-            user_id_str = str(event.user_id)
-            found = None
-            for item in data:
-                if item.get('openid') == user_id_str or item.get('qq') == user_id_str:
-                    found = item
-                    break
-            if found:
-                perm_str = f"用户权限：{found.get('reason', '特殊权限用户')}"
-            else:
-                perm_str = "用户权限：普通用户"
-        except Exception as e:
-            perm_str = "用户权限：查询失败"
-        # 统一输出
-        info += perm_str + "\n"
         event.reply(info)
     
     

@@ -855,7 +855,7 @@ def get_available_dates():
         }), 500
 
 # ===== 10. 系统信息与插件管理 =====
-@catch_error  
+@catch_error
 def get_system_info():
     global _last_gc_time, _last_gc_log_time
     
@@ -1700,7 +1700,7 @@ def fetch_user_nickname(user_id):
         from config import appid
         
         # 构建API URL
-        api_url = f"https://api.elaina.vin/api/bot/xx.php?openid={user_id}&appid={appid}"
+        api_url = f"https://i.elaina.vin/api/bot/xx.php?openid={user_id}&appid={appid}"
         
         # 发送请求
         response = requests.get(api_url, timeout=3)

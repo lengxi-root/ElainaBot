@@ -1,124 +1,112 @@
 # MBot
 
-MBot机器人框架，基于Python实现，支持插件热更新、内存优化、Web面板监控等特性。
+基于Python的QQ机器人框架，支持WS WH链接方式，支持插件系统、Web面板监控。
 
-## 特性
+## 核心特性
 
-- ✨ **插件化架构**：动态加载与卸载插件，支持热更新
-- 🚀 **高性能**：内置连接池和内存优化，提升运行效率
-- 📊 **Web控制面板**：实时监控系统状态、内存使用和日志
-- 🔒 **多级权限系统**：主人命令、管理员权限细粒度控制
 - 🖼 **多图床支持**：集成QQ官方和QQShare两种图片上传方案
 - 💾 **数据持久化**：MySQL数据库支持，记录用户和群组信息
-- 🔄 **垃圾回收机制**：优化内存使用，提升长期稳定性
+- 🔌 **插件系统**：支持插件热加载，无需重启
+- 📊 **Web控制面板**：实时监控、日志查看、插件管理
+- ⚡ **高性能**：内置连接池和内存优化
+- 🔒 **权限控制**：主人命令、群组权限管理
+- 💾 **数据持久化**：MySQL数据库支持
 
-## 安装
+## 快速部署
 
-### 环境要求
-
+### 1. 环境准备
 - Python 3.8+
-- MySQL 5.7+
+- MySQL 5.7+（可选）
 
-### 安装步骤
-
-1. 克隆代码库
-
+### 2. 安装依赖
 ```bash
 git clone https://github.com/lengxi-root/MBot-Framework.git
-```
-
-2. 安装依赖包
-
-```bash
+cd MBot-Framework
 pip install -r requirements.txt
 ```
 
-3. 配置机器人
-
-编辑`config.py`文件，填写QQ机器人的appid和secret等信息：
-
+### 3. 基础配置
+编辑 `config.py`：
 ```python
+
+记得创建1-2个数据库
+用于数据库处理和日志处理，可用相同的
+记得将配置文件都补充完整
 # 机器人配置
-appid = "你的APPID"
-secret = "你的SECRET" 
+appid = "你的机器人APPID"
+secret = "你的机器人SECRET"
 
-# 主人QQ号
-OWNER_IDS = ["你的QQ号的MD5值"]
 
-# 图床配置
-IMAGE_BED = {
-    'qq_bot': {
-        'channel_id': '你的频道ID',
-    },
-    'qq_share': {
-        'p_uin': '你的QQ号',
-        'p_skey': '你的p_skey值'
-    }
+# Web面板访问配置
+WEB_SECURITY = {
+    'access_token': '你的访问令牌',  # 用于URL验证
+    'admin_password': '你的管理密码'  # 用于登录验证
 }
 
-# 数据库配置
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': 3306,
-    'user': '用户名',
-    'password': '密码',
-    'database': '数据库名',
-    # ...其他配置
-}
 ```
 
-4. 运行机器人
-
+### 4. 启动机器人
 ```bash
 python main.py
 ```
 
-## 快速开始
+### 5. 访问Web面板
+浏览器访问：`http://你的IP:5005/web/?token=你的访问令牌`
 
-### 访问Web控制面板
+## 插件开发
 
-启动MBot后，访问以下地址打开Web控制面板：
-
-```
-http://你的服务器IP:端口/
-```
-
-通过Web面板可以监控机器人状态、查看日志、管理插件等。
-
-## 框架结构
-
-```
-Mbot/
-├── config.py             # 全局配置文件
-├── core/                 # 核心功能
-│   ├── event/            # 事件处理
-│   └── plugin/           # 插件管理
-├── function/             # 工具函数
-├── plugins/              # 插件目录
-│   ├── example/          # 热更新插件
-│   ├── system/           # 系统插件
-│   └── [其他插件]/        # 标准插件
-├── web_panel/            # Web控制面板
-└── main.py               # 主程序入口
+创建插件文件 `plugins/your_plugin/example.py`：
+```python
+class ExamplePlugin:
+    @staticmethod
+    def get_regex_handlers():
+        return {
+            r'^/hello': ExamplePlugin.hello
+        }
+    
+    @staticmethod
+    def hello(event):
+        return "Hello, World!"
 ```
 
-## 内存管理
+## 配置说明
 
-MBot内置了垃圾回收机制，定期清理不再使用的对象，可通过Web面板监控内存使用情况：
+### WebSocket连接（可选）
+```python
+WEBSOCKET_CONFIG = {
+    'enabled': True,        # 启用WebSocket
+    'auto_connect': True,   # 自动连接
+}
+```
 
-- 总体内存使用率
-- 各组件内存占用情况
-- 大型内存对象追踪
-- 手动触发内存回收
+### 数据库配置（可选）
+```python
+DB_CONFIG = {
+    'host': 'localhost',
+    'port': 3306,
+    'user': 'root',
+    'password': '密码',
+    'database': '数据库名'
+}
+```
 
-## 图床配置
+## 目录结构
+```
+MBot/
+├── config.py          # 配置文件
+├── main.py            # 启动文件
+├── plugins/           # 插件目录
+├── web_panel/         # Web面板
+└── function/          # 工具函数
+```
 
-MBot支持两种图床，可在`config.py`中配置：
+## 注意事项
 
-1. **QQ官方图床**：需要配置`channel_id`
-2. **QQShare图床**：需要配置QQ号和p_skey
+1. 首次运行会自动创建必要的数据表
+2. 插件放入 `plugins/` 对应目录即可自动加载
+3. Web面板提供实时日志查看和系统监控
+4. 支持HTTP和WebSocket两种接收消息方式
 
-获取p_skey的方法：
-1. 使用PC浏览器登录connect.qq.com
-2. 打开开发者工具(F12)
-3. 在网络或应用标签页下查找Cookie中的p_skey值
+---
+
+更多详细配置请查看 `config.py` 文件注释。

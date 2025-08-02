@@ -15,4 +15,4 @@ psutil==5.9.5
 urllib3==2.0.3
 python-dateutil==2.8.2
 Flask-SocketIO==5.3.6
-qrcode==8.2
+websockets==13.1

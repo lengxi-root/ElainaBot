@@ -1,5 +1,4 @@
-# 重新导入Flask组件
-# ===== 1. 标准库导入 =====
+
 import os
 import sys
 import glob
@@ -10,74 +9,456 @@ import threading
 import traceback
 import importlib.util
 import functools
-import gc  # 导入垃圾回收模块
+import gc
 import warnings
 import logging
-# 移除了未使用的 asyncio 导入
-from datetime import datetime
+import hashlib
+import hmac
+import base64
+import uuid
+from datetime import datetime, timedelta
 from collections import deque
-
-# ===== 2. 第三方库导入 =====
 from flask import Flask, render_template, request, jsonify, Blueprint, make_response
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import psutil
-# 移除了未使用的 httpx 导入
-# ===== 3. 自定义模块导入 =====
-from config import LOG_DB_CONFIG
+from config import LOG_DB_CONFIG, WEB_SECURITY
 try:
     from function.log_db import add_log_to_db
 except ImportError:
     def add_log_to_db(log_type, log_data):
         return False
 
-# ===== 4. 全局配置与变量 =====
-# 注意：如果需要HTTP请求功能，请使用 function.httpx_pool 模块
-
-PREFIX = '/web'  # 路径前缀
+PREFIX = '/web'
 web_panel = Blueprint('web_panel', __name__, 
                      static_url_path=f'{PREFIX}/static',
                      static_folder='static',  
                      template_folder='templates')
-socketio = None  # Socket.IO实例 - 会在start_web_panel中设置
-MAX_LOGS = 1000  # 最大保存日志数量
+socketio = None
+MAX_LOGS = 1000
 received_messages = deque(maxlen=MAX_LOGS)
 plugin_logs = deque(maxlen=MAX_LOGS)
 framework_logs = deque(maxlen=MAX_LOGS)
 error_logs = deque(maxlen=MAX_LOGS)
-_last_gc_time = 0  # 上次垃圾回收时间
-_last_gc_log_time = 0  # 上次推送垃圾回收日志的时间
-_gc_interval = 30  # 垃圾回收间隔(秒)
-_gc_log_interval = 120  # 垃圾回收日志推送间隔(秒)
-plugins_info = []  # 存储插件信息
-START_TIME = datetime.now()  # 记录框架启动时间
-from core.event.MessageEvent import MessageEvent  # 导入MessageEvent用于消息解析
+_last_gc_time = 0
+_gc_interval = 30
+plugins_info = []
+START_TIME = datetime.now()
+from core.event.MessageEvent import MessageEvent
 
-# 已移除未使用的异步HTTP请求代码
+valid_sessions = {}
+_last_session_cleanup = 0
+IP_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'ip.json')
+ip_access_data = {}
+_last_ip_cleanup = 0
 
-# ===== 5. 装饰器与通用函数 =====
+statistics_cache = None
+statistics_cache_time = 0
+STATISTICS_CACHE_DURATION = 300
+
+
+def extract_device_info(request):
+    """提取设备信息"""
+    user_agent = request.headers.get('User-Agent', '')
+    
+    device_info = {
+        'user_agent': user_agent[:500],
+        'accept_language': request.headers.get('Accept-Language', '')[:100],
+        'accept_encoding': request.headers.get('Accept-Encoding', '')[:100],
+        'last_update': datetime.now().isoformat()
+    }
+    
+
+    user_agent_lower = user_agent.lower()
+    if any(keyword in user_agent_lower for keyword in ['android', 'iphone', 'ipad', 'mobile', 'phone']):
+        device_info['device_type'] = 'mobile'
+    elif any(keyword in user_agent_lower for keyword in ['tablet']):
+        device_info['device_type'] = 'tablet'
+    else:
+        device_info['device_type'] = 'desktop'
+    
+
+    if 'chrome' in user_agent_lower:
+        device_info['browser'] = 'chrome'
+    elif 'firefox' in user_agent_lower:
+        device_info['browser'] = 'firefox'
+    elif 'safari' in user_agent_lower and 'chrome' not in user_agent_lower:
+        device_info['browser'] = 'safari'
+    elif 'edge' in user_agent_lower:
+        device_info['browser'] = 'edge'
+    else:
+        device_info['browser'] = 'unknown'
+    
+    return device_info
+
+def load_ip_data():
+    """加载IP访问数据"""
+    global ip_access_data
+    try:
+        if os.path.exists(IP_DATA_FILE):
+            with open(IP_DATA_FILE, 'r', encoding='utf-8') as f:
+                ip_access_data = json.load(f)
+        else:
+            ip_access_data = {}
+    except Exception as e:
+        ip_access_data = {}
+
+def save_ip_data():
+    """保存IP数据到文件"""
+    try:
+        with open(IP_DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(ip_access_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        pass
+
+def record_ip_access(ip_address, access_type='token_success', device_info=None):
+    """记录IP访问"""
+    global ip_access_data
+    current_time = datetime.now()
+    
+    if ip_address not in ip_access_data:
+        ip_access_data[ip_address] = {
+            'first_access': current_time.isoformat(),
+            'last_access': current_time.isoformat(),
+            'token_success_count': 0,
+            'password_fail_count': 0,
+            'password_fail_times': [],
+            'password_success_count': 0,
+            'password_success_times': [],
+            'device_info': {},
+            'is_banned': False,
+            'ban_time': None
+        }
+    
+    ip_data = ip_access_data[ip_address]
+    ip_data['last_access'] = current_time.isoformat()
+    
+    if access_type == 'token_success':
+        ip_data['token_success_count'] += 1
+
+        if device_info:
+            ip_data['device_info'] = device_info
+    elif access_type == 'password_fail':
+        ip_data['password_fail_count'] += 1
+        ip_data['password_fail_times'].append(current_time.isoformat())
+        
+        cleanup_old_password_fails(ip_address)
+        recent_fails = len([t for t in ip_data['password_fail_times'] 
+                           if (current_time - datetime.fromisoformat(t)).total_seconds() < 24 * 3600])
+        
+        if recent_fails >= 5:
+            ip_data['is_banned'] = True
+            ip_data['ban_time'] = current_time.isoformat()
+    elif access_type == 'password_success':
+        ip_data['password_success_count'] += 1
+        ip_data['password_success_times'].append(current_time.isoformat())
+        cleanup_old_password_success(ip_address)
+        if device_info:
+            ip_data['device_info'] = device_info
+    
+    save_ip_data()
+
+def cleanup_old_password_fails(ip_address):
+    """清理24小时前的密码失败记录"""
+    if ip_address not in ip_access_data:
+        return
+    
+    current_time = datetime.now()
+    ip_data = ip_access_data[ip_address]
+    
+
+    ip_data['password_fail_times'] = [
+        t for t in ip_data['password_fail_times']
+        if (current_time - datetime.fromisoformat(t)).total_seconds() < 24 * 3600
+    ]
+
+def cleanup_old_password_success(ip_address):
+    """清理超过30天的密码成功记录"""
+    if ip_address not in ip_access_data:
+        return
+    
+    current_time = datetime.now()
+    ip_data = ip_access_data[ip_address]
+    
+
+    ip_data['password_success_times'] = [
+        t for t in ip_data['password_success_times']
+        if (current_time - datetime.fromisoformat(t)).total_seconds() < 30 * 24 * 3600
+    ]
+
+def is_ip_banned(ip_address):
+    """检查IP是否被封禁"""
+    global ip_access_data
+    
+    if ip_address not in ip_access_data:
+        return False
+    
+    ip_data = ip_access_data[ip_address]
+    
+
+    if not ip_data.get('is_banned', False):
+        return False
+    
+
+    ban_time_str = ip_data.get('ban_time')
+    if not ban_time_str:
+        return True
+    
+    try:
+        ban_time = datetime.fromisoformat(ban_time_str)
+        current_time = datetime.now()
+        
+
+        if (current_time - ban_time).total_seconds() >= 24 * 3600:
+
+            ip_data['is_banned'] = False
+            ip_data['ban_time'] = None
+            ip_data['password_fail_times'] = []
+            save_ip_data()
+            return False
+        else:
+            return True
+    except Exception:
+        # 如果日期解析出错，保持封禁状态
+        return True
+
+def cleanup_expired_ip_bans():
+    """清理过期的IP封禁记录"""
+    global ip_access_data, _last_ip_cleanup
+    
+    current_time = time.time()
+    # 每小时清理一次
+    if current_time - _last_ip_cleanup < 3600:
+        return
+    
+    _last_ip_cleanup = current_time
+    current_datetime = datetime.now()
+    
+    cleaned_count = 0
+    for ip_address in list(ip_access_data.keys()):
+        ip_data = ip_access_data[ip_address]
+        
+        # 清理密码失败记录
+        cleanup_old_password_fails(ip_address)
+        
+        # 检查封禁是否过期
+        if ip_data.get('is_banned', False):
+            ban_time_str = ip_data.get('ban_time')
+            if ban_time_str:
+                try:
+                    ban_time = datetime.fromisoformat(ban_time_str)
+                    if (current_datetime - ban_time).total_seconds() >= 24 * 3600:
+                        ip_data['is_banned'] = False
+                        ip_data['ban_time'] = None
+                        ip_data['password_fail_times'] = []
+                        cleaned_count += 1
+                except Exception:
+                    pass
+    
+    if cleaned_count > 0:
+        save_ip_data()
+
+
+
+load_ip_data()
+
+
 def catch_error(func):
-    """捕获错误的装饰器，记录到错误日志"""
+    """捕获错误的装饰器"""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except Exception as e:
             error_msg = f"{func.__name__} 执行出错: {str(e)}"
-            tb_info = traceback.format_exc()
-            print(error_msg)
-            print(tb_info)
+            
             if 'add_error_log' in globals() and 'socketio' in globals() and socketio is not None:
-                add_error_log(error_msg, tb_info)
-            else:
+                add_error_log(error_msg)
+            
+            try:
                 log_data = {
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'content': error_msg,
-                    'traceback': tb_info
+                    'content': error_msg
                 }
                 add_log_to_db('error', log_data)
+            except Exception:
+                pass
+                
             return None
     return wrapper
+
+
+def generate_session_token():
+    """生成安全的会话令牌"""
+    return base64.urlsafe_b64encode(uuid.uuid4().bytes).decode('utf-8').rstrip('=')
+
+def sign_cookie_value(value, secret):
+    """对cookie值进行签名"""
+    signature = hmac.new(
+        secret.encode('utf-8'),
+        value.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    return f"{value}.{signature}"
+
+def verify_cookie_value(signed_value, secret):
+    """验证cookie值的签名"""
+    try:
+        value, signature = signed_value.rsplit('.', 1)
+        expected_signature = hmac.new(
+            secret.encode('utf-8'),
+            value.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(signature, expected_signature), value
+    except:
+        return False, None
+
+def require_token(f):
+    """要求访问令牌的装饰器"""
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+
+        token = request.args.get('token') or request.form.get('token')
+        if not token or token != WEB_SECURITY['access_token']:
+            return '', 403
+        
+
+        device_info = extract_device_info(request)
+        record_ip_access(request.remote_addr, access_type='token_success', device_info=device_info)
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+def require_auth(f):
+    """要求身份验证的装饰器"""
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        cleanup_expired_sessions()
+        cookie_value = request.cookies.get(WEB_SECURITY['cookie_name'])
+        if cookie_value:
+            is_valid, session_token = verify_cookie_value(cookie_value, WEB_SECURITY['cookie_secret'])
+            if is_valid and session_token in valid_sessions:
+                session_info = valid_sessions[session_token]
+
+                if datetime.now() < session_info['expires']:
+
+                    if WEB_SECURITY.get('production_mode', False):
+                        if (session_info.get('ip') != request.remote_addr or 
+                            session_info.get('user_agent', '')[:200] != request.headers.get('User-Agent', '')[:200]):
+
+                            del valid_sessions[session_token]
+                        else:
+                            return f(*args, **kwargs)
+                    else:
+                        return f(*args, **kwargs)
+                else:
+                    del valid_sessions[session_token]
+        token = request.args.get('token', '')
+        return render_template('login.html', token=token)
+    return decorated_function
+
+def require_socketio_token(f):
+    """SocketIO事件要求token和cookie双重验证的装饰器"""
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 清理过期的封禁记录和会话
+        cleanup_expired_ip_bans()
+        cleanup_expired_sessions()
+        
+        # 检查IP是否被封禁
+        client_ip = request.remote_addr
+        if is_ip_banned(client_ip):
+            return False  # 拒绝连接
+        
+        # 第一层验证：检查token
+        token = request.args.get('token')
+        if not token or token != WEB_SECURITY['access_token']:
+            return False  # 拒绝连接
+        
+        # 第二层验证：检查cookie（与web页面保持一致的安全标准）
+        cookie_value = request.cookies.get(WEB_SECURITY['cookie_name'])
+        if not cookie_value:
+            return False  # 没有cookie，拒绝连接
+        
+        # 验证cookie签名和会话有效性
+        is_valid, session_token = verify_cookie_value(cookie_value, WEB_SECURITY['cookie_secret'])
+        if not is_valid or session_token not in valid_sessions:
+            return False  # cookie无效或会话不存在，拒绝连接
+        
+        session_info = valid_sessions[session_token]
+        
+        # 检查会话是否过期
+        if datetime.now() >= session_info['expires']:
+            # 会话过期，清理并拒绝连接
+            del valid_sessions[session_token]
+            return False
+        
+        # 生产环境：验证IP和User-Agent一致性（可选）
+        if WEB_SECURITY.get('production_mode', False):
+            if (session_info.get('ip') != client_ip or 
+                session_info.get('user_agent', '')[:200] != request.headers.get('User-Agent', '')[:200]):
+                # IP或User-Agent发生变化，出于安全考虑删除会话并拒绝连接
+                del valid_sessions[session_token]
+                return False
+        
+        # 记录访问（token验证成功）
+        device_info = extract_device_info(request)
+        record_ip_access(client_ip, access_type='token_success', device_info=device_info)
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+def check_ip_ban(f):
+    """检查IP是否被封禁的装饰器"""
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 清理过期的封禁记录
+        cleanup_expired_ip_bans()
+        
+        # 检查IP是否被封禁
+        client_ip = request.remote_addr
+        if is_ip_banned(client_ip):
+            return '', 403
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+def cleanup_expired_sessions():
+    """清理过期的会话（生产环境安全机制）"""
+    global valid_sessions, _last_session_cleanup
+    
+    current_time = time.time()
+    # 每5分钟清理一次过期会话
+    if current_time - _last_session_cleanup < 300:
+        return
+    
+    _last_session_cleanup = current_time
+    current_datetime = datetime.now()
+    
+    # 找出过期的会话
+    expired_sessions = []
+    for session_token, session_info in valid_sessions.items():
+        if current_datetime >= session_info['expires']:
+            expired_sessions.append(session_token)
+    
+    # 删除过期会话
+    for session_token in expired_sessions:
+        del valid_sessions[session_token]
+    
+    if expired_sessions:
+        pass
+
+def limit_session_count():
+    """限制同时活跃的会话数量（生产环境安全机制）"""
+    max_sessions = 10  # 最大同时会话数
+    if len(valid_sessions) > max_sessions:
+        # 删除最旧的会话
+        sorted_sessions = sorted(valid_sessions.items(), 
+                               key=lambda x: x[1]['created'])
+        while len(valid_sessions) > max_sessions:
+            oldest_session = sorted_sessions.pop(0)
+            del valid_sessions[oldest_session[0]]
 
 # ===== 6. 日志处理类 =====
 class LogHandler:
@@ -96,13 +477,8 @@ class LogHandler:
             self.global_logs = framework_logs
         elif log_type == 'error':
             self.global_logs = error_logs
+            
     def add(self, content, traceback_info=None, skip_db=False):
-        """
-        优化的日志添加方法：减少重复操作，提升性能
-        :param content: 日志内容
-        :param traceback_info: 错误调用栈信息（可选）
-        :param skip_db: 是否跳过数据库写入
-        """
         global socketio
         
         # 预先生成时间戳，避免重复调用
@@ -145,9 +521,6 @@ error_handler = LogHandler('error')
 # ===== 8. 日志与消息相关API =====
 @catch_error
 def add_received_message(message):
-    """
-    优化的消息记录方法：简化逻辑，提升性能
-    """
     # 快速检查是否为被拉进群事件，直接跳过
     if _is_group_add_robot_event(message):
         return None
@@ -184,7 +557,7 @@ def _is_group_add_robot_event(message):
     return False
 
 def _parse_message_info(message):
-    """解析消息信息，返回(user_id, group_id, pure_content, formatted_message)"""
+    """解析消息信息，提取用户ID、群组ID和内容"""
     try:
         if isinstance(message, str) and not message.startswith('{'):
             # 纯文本消息
@@ -199,7 +572,7 @@ def _parse_message_info(message):
         # 处理交互消息
         if getattr(event, 'event_type', None) == 'INTERACTION_CREATE':
             chat_type = event.get('d/chat_type')
-            scene = event.get('d/scene') 
+            scene = event.get('d/scene')
             if chat_type == 2 or scene == 'c2c':
                 group_id = "c2c"
                 user_id = event.get('d/user_openid') or user_id
@@ -240,7 +613,65 @@ def add_error_log(log, traceback_info=None):
     return error_handler.add(log, traceback_info)
 
 # ===== 9. API路由 =====
+@web_panel.route('/login', methods=['POST'])
+@check_ip_ban
+@require_token
+@catch_error
+def login():
+    """处理密码验证"""
+    password = request.form.get('password')
+    token = request.form.get('token')
+    
+    if password == WEB_SECURITY['admin_password']:
+        # 生产环境安全检查
+        cleanup_expired_sessions()
+        limit_session_count()
+        
+        # 记录密码验证成功
+        device_info = extract_device_info(request)
+        record_ip_access(request.remote_addr, access_type='password_success', device_info=device_info)
+        
+        # 密码正确，生成会话
+        session_token = generate_session_token()
+        expires = datetime.now() + timedelta(days=WEB_SECURITY['cookie_expires_days'])
+        
+        # 保存会话信息
+        valid_sessions[session_token] = {
+            'created': datetime.now(),
+            'expires': expires,
+            'ip': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', '')[:200]  # 记录用户代理（限制长度）
+        }
+        
+        # 创建签名cookie
+        signed_token = sign_cookie_value(session_token, WEB_SECURITY['cookie_secret'])
+        
+        # 重定向到主页面
+        response = make_response(f'''
+        <script>
+            window.location.href = "/web/?token={token}";
+        </script>
+        ''')
+        response.set_cookie(
+            WEB_SECURITY['cookie_name'],
+            signed_token,
+            max_age=WEB_SECURITY['cookie_expires_days'] * 24 * 60 * 60,
+            httponly=True,
+            secure=False,   # 不使用SSL验证
+            samesite='Lax'  # 调整为Lax模式
+        )
+        return response
+    else:
+        # 密码错误
+        record_ip_access(request.remote_addr, access_type='password_fail')
+        return render_template('login.html', token=token, error='密码错误，请重试')
+
+
+
 @web_panel.route('/')
+@check_ip_ban
+@require_token
+@require_auth
 @catch_error
 def index():
     """Web面板首页 - 自动检测设备类型并选择模板"""
@@ -265,17 +696,25 @@ def index():
     
     response = make_response(render_template(template_name, prefix=PREFIX, device_type=device_type))
     
-    # 添加安全头信息
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
+    # 添加生产环境安全头信息
+    if WEB_SECURITY.get('secure_headers', True):
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'  # 生产环境：完全禁止iframe
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self'"
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
     
     # 添加缓存控制头
-    response.headers['Cache-Control'] = 'max-age=86400, public'  # 缓存24小时
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'  # 生产环境：禁用缓存敏感页面
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
     
     return response
 
 @web_panel.route('/api/logs/<log_type>')
+@check_ip_ban
+@require_token
 @catch_error
 def get_logs(log_type):
     """API端点，用于分页获取日志"""
@@ -302,6 +741,8 @@ def get_logs(log_type):
     })
 
 @web_panel.route('/status')
+@check_ip_ban
+@require_token
 @catch_error
 def status():
     """状态检查接口"""
@@ -315,15 +756,107 @@ def status():
         }
     })
 
-# ===== 10. 系统信息与插件管理 =====
+@web_panel.route('/api/statistics')
+@check_ip_ban
+@require_token
 @catch_error
+def get_statistics():
+    """获取统计数据API"""
+    try:
+        # 检查是否强制刷新
+        force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
+        
+        # 检查是否查询特定日期
+        selected_date = request.args.get('date')
+        
+        if selected_date and selected_date != 'today':
+            # 查询特定历史日期的数据
+            date_data = get_specific_date_data(selected_date)
+            if date_data:
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'selected_date_data': date_data,
+                        'date': selected_date
+                    }
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'未找到日期 {selected_date} 的数据'
+                }), 404
+        else:
+            # 查询完整统计数据（包含图表数据）
+            data = get_statistics_data(force_refresh=force_refresh)
+            return jsonify({
+                'success': True,
+                'data': data
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@web_panel.route('/api/complete_dau', methods=['POST'])
+@check_ip_ban
+@require_token
+@catch_error
+def complete_dau():
+    """补全DAU数据API"""
+    try:
+        result = complete_dau_data()
+        return jsonify({
+            'success': True,
+            'result': result
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@web_panel.route('/api/get_nickname/<user_id>')
+@check_ip_ban
+@require_token
+@catch_error
+def get_user_nickname(user_id):
+    """获取用户昵称API"""
+    try:
+        nickname = fetch_user_nickname(user_id)
+        return jsonify({
+            'success': True,
+            'nickname': nickname,
+            'user_id': user_id
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'user_id': user_id
+        }), 500
+
+@web_panel.route('/api/available_dates')
+@check_ip_ban
+@require_token
+@catch_error
+def get_available_dates():
+    """获取可用的DAU日期列表API"""
+    try:
+        dates = get_available_dau_dates()
+        return jsonify({
+            'success': True,
+            'dates': dates
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# ===== 10. 系统信息与插件管理 =====
+@catch_error  
 def get_system_info():
-    """
-    获取系统信息，包含基本的内存和CPU使用情况以及详细的内存分配。
-    支持自动垃圾回收和内存分配估算。
-    增加硬盘使用情况信息。
-    优化性能，减少不必要的计算。
-    """
     global _last_gc_time, _last_gc_log_time
     
     try:
@@ -335,9 +868,6 @@ def get_system_info():
         if current_time - _last_gc_time >= _gc_interval:
             collected = gc.collect(0)  # 只收集第0代对象，减少停顿时间
             _last_gc_time = current_time
-            if current_time - _last_gc_log_time >= _gc_log_interval:
-                add_framework_log(f"系统执行垃圾回收，回收了 {collected} 个对象")
-                _last_gc_log_time = current_time
         
         # 内存信息 - 使用缓存数据结构提高效率
         memory_info = process.memory_info()
@@ -484,11 +1014,9 @@ def get_system_info():
         }
         
         return system_info
-    except Exception as e:
-        error_msg = f"获取系统信息过程中发生错误: {str(e)}"
-        add_error_log(error_msg, traceback.format_exc())
         
-        # 返回默认值确保前端能显示内容
+    except Exception as e:
+        add_error_log(f"获取系统信息失败: {str(e)}")
         return {
             'cpu_percent': 5.0,
             'framework_cpu_percent': 1.0,
@@ -690,6 +1218,7 @@ def scan_plugins():
 def register_socketio_handlers(sio):
     """注册Socket.IO事件处理函数"""
     @sio.on('connect', namespace=PREFIX)
+    @require_socketio_token
     def handle_connect():
         sid = request.sid
         
@@ -758,6 +1287,7 @@ def register_socketio_handlers(sio):
         pass
 
     @sio.on('get_system_info', namespace=PREFIX)
+    @require_socketio_token
     def handle_get_system_info():
         """处理客户端请求系统信息的事件"""
         try:
@@ -794,6 +1324,7 @@ def register_socketio_handlers(sio):
             sio.emit('system_info', default_info, room=request.sid, namespace=PREFIX)
 
     @sio.on('refresh_plugins', namespace=PREFIX)
+    @require_socketio_token
     def handle_refresh_plugins():
         """处理刷新插件信息的请求"""
         # 获取当前请求的会话ID
@@ -817,6 +1348,7 @@ def register_socketio_handlers(sio):
         threading.Thread(target=async_scan_plugins, daemon=True).start()
 
     @sio.on('request_logs', namespace=PREFIX)
+    @require_socketio_token  
     def handle_request_logs(data):
         """处理客户端请求日志的事件"""
         log_type = data.get('type', 'received')
@@ -848,6 +1380,173 @@ def register_socketio_handlers(sio):
             'page_size': page_size
         }, room=request.sid, namespace=PREFIX)
 
+# ===== 10.5. 统计数据处理函数 =====
+def get_statistics_data(force_refresh=False):
+    """获取统计数据，包含历史数据和今日实时数据"""
+    global statistics_cache, statistics_cache_time
+    
+    current_time = time.time()
+    current_date = datetime.now().date()
+    
+    # 检查缓存是否有效：
+    # 1. 不是强制刷新
+    # 2. 缓存存在且未过期
+    # 3. 缓存的日期是今天（避免跨日期问题）
+    cache_valid = (not force_refresh and 
+                  statistics_cache is not None and 
+                  current_time - statistics_cache_time < STATISTICS_CACHE_DURATION)
+    
+    # 额外检查：如果缓存存在，验证缓存的日期是否为今天
+    if cache_valid and statistics_cache:
+        cache_date_str = statistics_cache.get('cache_date')
+        if cache_date_str:
+            try:
+                cache_date = datetime.strptime(cache_date_str, '%Y-%m-%d').date()
+                if cache_date != current_date:
+                    cache_valid = False  # 缓存日期不是今天，失效
+            except Exception as e:
+                cache_valid = False  # 日期解析失败，失效
+        else:
+            cache_valid = False  # 没有缓存日期，失效
+    
+    if cache_valid:
+        return statistics_cache
+    
+    try:
+        # 获取历史DAU数据（30天）
+        historical_data = load_historical_dau_data()
+        
+        # 获取今日实时数据
+        today_data = get_today_dau_data(force_refresh)
+        
+        # 构建返回数据
+        result = {
+            'historical': historical_data,
+            'today': today_data,
+            'cache_time': current_time,
+            'cache_date': current_date.strftime('%Y-%m-%d')  # 添加缓存日期
+        }
+        
+        # 更新缓存
+        statistics_cache = result
+        statistics_cache_time = current_time
+        
+        return result
+        
+    except Exception as e:
+        add_error_log(f"获取统计数据失败: {str(e)}")
+        return {
+            'historical': [],
+            'today': {},
+            'cache_time': current_time,
+            'error': str(e)
+        }
+
+def load_historical_dau_data():
+    """加载历史DAU数据（最近30天，不包括今天）"""
+    try:
+        # 尝试导入DAU分析模块
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            # 如果导入失败，尝试添加路径后导入
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
+        
+        dau_analytics = get_dau_analytics()
+        historical_data = []
+        
+        today = datetime.now()
+        
+        # 获取最近30天的数据（不包括今天）
+        for i in range(1, 31):
+            target_date = today - timedelta(days=i)
+            
+            try:
+                dau_data = dau_analytics.load_dau_data(target_date)
+                
+                if dau_data:
+                    # 格式化日期为MM-DD格式用于显示
+                    display_date = target_date.strftime('%m-%d')
+                    dau_data['display_date'] = display_date
+                    historical_data.append(dau_data)
+            except Exception:
+                continue
+        
+        # 按日期排序（从旧到新）
+        historical_data.sort(key=lambda x: x.get('date', ''))
+        
+        return historical_data
+        
+    except Exception as e:
+        add_error_log(f"加载历史DAU数据失败: {str(e)}")
+        return []
+
+def get_today_dau_data(force_refresh=False):
+    """获取今日实时DAU数据"""
+    try:
+        # 尝试导入相关模块
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            # 如果导入失败，尝试添加路径后导入
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
+        
+        dau_analytics = get_dau_analytics()
+        today = datetime.now()
+        
+        # 如果不是强制刷新，尝试先从文件加载今日数据
+        today_data = None
+        if not force_refresh:
+            today_data = dau_analytics.load_dau_data(today)
+        
+        # 如果文件中没有今日数据或者是强制刷新，则实时计算
+        if not today_data:
+            try:
+                today_data = dau_analytics.collect_dau_data(today)
+                
+                # 如果实时计算成功，添加标记表示这是实时数据
+                if today_data:
+                    today_data['is_realtime'] = True
+                    today_data['cache_time'] = time.time()
+            except Exception as e:
+                # 返回空数据结构，避免前端报错
+                today_data = {
+                    'message_stats': {
+                        'total_messages': 0,
+                        'active_users': 0,
+                        'active_groups': 0,
+                        'private_messages': 0,
+                        'peak_hour': 0,
+                        'peak_hour_count': 0,
+                        'top_groups': [],
+                        'top_users': []
+                    },
+                    'user_stats': {
+                        'total_users': 0,
+                        'total_groups': 0,
+                        'total_friends': 0
+                    },
+                    'command_stats': [],
+                    'error': str(e)
+                }
+        
+        return today_data or {}
+        
+    except Exception as e:
+        add_error_log(f"获取今日DAU数据失败: {str(e)}")
+        return {
+            'message_stats': {},
+            'user_stats': {},
+            'command_stats': [],
+            'error': str(e)
+        }
+
 # ===== 11. Web面板启动函数 =====
 def start_web_panel(main_app=None):
     """
@@ -872,9 +1571,7 @@ def start_web_panel(main_app=None):
             # 关键：注册Socket.IO处理函数
             register_socketio_handlers(socketio)
         except Exception as e:
-            print(f"Socket.IO初始化错误: {str(e)}")
             error_tb = traceback.format_exc()
-            print(error_tb)
             add_log_to_db('error', {
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'content': f"Socket.IO初始化错误: {str(e)}",
@@ -887,8 +1584,8 @@ def start_web_panel(main_app=None):
         if not any(bp.name == 'web_panel' for bp in main_app.blueprints.values()):
             main_app.register_blueprint(web_panel, url_prefix=PREFIX)
         else:
-            print("Web面板Blueprint已注册，跳过重复注册")
-            
+            pass
+        
         try:
             CORS(main_app, resources={r"/*": {"origins": "*"}})
         except Exception:
@@ -907,13 +1604,231 @@ def start_web_panel(main_app=None):
             # 关键：注册Socket.IO处理函数
             register_socketio_handlers(socketio)
         except Exception as e:
-            print(f"Socket.IO初始化错误: {str(e)}")
             error_tb = traceback.format_exc()
-            print(error_tb)
             add_log_to_db('error', {
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'content': f"Socket.IO初始化错误: {str(e)}",
                 'traceback': error_tb
             })
 
+        return None
+
+def complete_dau_data():
+    """补全DAU数据的具体实现"""
+    import os
+    import sys
+    
+    try:
+        # 尝试导入dau_analytics
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            # 如果导入失败，尝试添加路径后导入
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
+        
+        dau_analytics = get_dau_analytics()
+        today = datetime.now()
+        
+        # 检查30天内的DAU数据（除了今天）
+        missing_dates = []
+        
+        for i in range(1, 31):  # 从昨天开始，检查30天
+            target_date = today - timedelta(days=i)
+            
+            # 检查是否存在DAU数据文件
+            try:
+                dau_data = dau_analytics.load_dau_data(target_date)
+                if not dau_data:
+                    missing_dates.append(target_date)
+            except Exception as e:
+                missing_dates.append(target_date)
+        
+        if not missing_dates:
+            return {
+                'generated_count': 0,
+                'failed_count': 0,
+                'total_missing': 0,
+                'generated_dates': [],
+                'failed_dates': [],
+                'message': '近30天DAU数据完整，无需补全'
+            }
+        
+        # 开始生成缺失的DAU数据
+        generated_count = 0
+        failed_count = 0
+        generated_dates = []
+        failed_dates = []
+        
+        for target_date in missing_dates:
+            try:
+                success = dau_analytics.manual_generate_dau(target_date)
+                if success:
+                    generated_count += 1
+                    generated_dates.append(target_date.strftime('%Y-%m-%d'))
+                else:
+                    failed_count += 1
+                    failed_dates.append(target_date.strftime('%Y-%m-%d'))
+            except Exception as e:
+                failed_count += 1
+                failed_dates.append(target_date.strftime('%Y-%m-%d'))
+        
+        return {
+            'generated_count': generated_count,
+            'failed_count': failed_count,
+            'total_missing': len(missing_dates),
+            'generated_dates': generated_dates,
+            'failed_dates': failed_dates,
+            'message': f'检测到{len(missing_dates)}天的DAU数据缺失，成功生成{generated_count}天，失败{failed_count}天'
+        }
+        
+    except Exception as e:
+        raise Exception(f"补全DAU数据失败: {str(e)}")
+
+def fetch_user_nickname(user_id):
+    """获取用户昵称"""
+    import requests
+    
+    try:
+        # 参数验证
+        if not user_id or len(user_id) < 3:
+            return None
+            
+        # 从配置文件获取appid
+        from config import appid
+        
+        # 构建API URL
+        api_url = f"https://api.elaina.vin/api/bot/xx.php?openid={user_id}&appid={appid}"
+        
+        # 发送请求
+        response = requests.get(api_url, timeout=3)
+        
+        if response.status_code == 200:
+            data = response.json()
+            nickname = data.get('名字', '').strip()
+            
+            # 验证昵称有效性
+            if nickname and nickname != user_id and len(nickname) > 0 and len(nickname) <= 20:
+                return nickname
+            else:
+                return None  # 没有获取到有效昵称
+        else:
+            return None
+            
+    except Exception as e:
+        return None
+
+def get_available_dau_dates():
+    """获取可用的DAU日期列表（近30天）"""
+    import os
+    import glob
+    from datetime import datetime, timedelta
+    
+    try:
+        # 获取项目根目录下的data/dau文件夹
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        dau_folder = os.path.join(project_root, 'data', 'dau')
+        
+        if not os.path.exists(dau_folder):
+            return []
+        
+        # 获取所有.json文件
+        json_files = glob.glob(os.path.join(dau_folder, '*.json'))
+        
+        # 提取日期并过滤近30天
+        available_dates = []
+        today = datetime.now().date()
+        thirty_days_ago = today - timedelta(days=30)
+        
+        for file_path in json_files:
+            filename = os.path.basename(file_path)
+            if filename.endswith('.json'):
+                date_str = filename[:-5]  # 移除.json后缀
+                try:
+                    # 尝试解析日期 (YYYY-MM-DD格式)
+                    file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    
+                    # 只包含近30天的日期
+                    if file_date >= thirty_days_ago and file_date <= today:
+                        # 判断是否为今日
+                        is_today = file_date == today
+                        display_name = "今日数据" if is_today else f"{file_date.strftime('%m-%d')} ({file_date.strftime('%Y-%m-%d')})"
+                        
+                        available_dates.append({
+                            'value': 'today' if is_today else date_str,
+                            'date': date_str,
+                            'display': display_name,
+                            'is_today': is_today
+                        })
+                except ValueError:
+                    # 如果文件名不是有效日期格式，跳过
+                    continue
+        
+        # 如果今日没有DAU文件，添加今日选项（实时计算）
+        today_exists = any(item['is_today'] for item in available_dates)
+        if not today_exists:
+            available_dates.append({
+                'value': 'today',
+                'date': today.strftime('%Y-%m-%d'),
+                'display': '今日数据 (实时)',
+                'is_today': True
+            })
+        
+        # 按日期排序（今日在最前，然后按日期倒序）
+        available_dates.sort(key=lambda x: (not x['is_today'], -int(x['date'].replace('-', ''))))
+        
+        return available_dates
+        
+    except Exception as e:
+        # 返回默认的今日选项
+        return [{
+            'value': 'today',
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'display': '今日数据',
+                         'is_today': True
+         }]
+
+def get_specific_date_data(date_str):
+    """获取特定日期的DAU数据"""
+    import os
+    from datetime import datetime
+    
+    try:
+        # 尝试导入dau_analytics
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            # 如果导入失败，尝试添加路径后导入
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
+        
+        # 解析日期
+        target_date = datetime.strptime(date_str, '%Y-%m-%d')
+        
+        # 获取DAU数据
+        dau_analytics = get_dau_analytics()
+        dau_data = dau_analytics.load_dau_data(target_date)
+        
+        if not dau_data:
+            return None
+        
+        # 格式化数据以匹配前端期望的格式
+        message_stats = dau_data.get('message_stats', {})
+        user_stats = dau_data.get('user_stats', {})
+        command_stats = dau_data.get('command_stats', [])
+        
+        return {
+            'message_stats': message_stats,
+            'user_stats': user_stats,
+            'command_stats': command_stats,
+            'date': date_str,
+            'generated_at': dau_data.get('generated_at', ''),
+            'is_historical': True
+        }
+        
+    except Exception as e:
         return None

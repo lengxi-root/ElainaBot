@@ -6,12 +6,10 @@ from function.db_pool import DatabaseService
 import json
 import logging
 import time
-import concurrent.futures
-from functools import partial
 import datetime
 from config import LOG_DB_CONFIG
 import traceback
-from function.httpx_pool import sync_get, get_json
+from function.httpx_pool import sync_get
 from function.database import Database  # 导入Database类获取QQ号
 
 # 导入日志数据库相关内容
@@ -56,19 +54,23 @@ class system_plugin(Plugin):
             },
             r'^dau\s+(\d{4})$': {
                 'handler': 'get_dau_with_date',
-                'owner_only': True  # 仅限主人使用，支持空格
+                'owner_only': True  # 仅限主人使用
+            },
+            r'^补全dau$': {
+                'handler': 'complete_dau',
+                'owner_only': True  # 仅限主人使用
             },
             r'^获取全部指令$': {
                 'handler': 'admin_tools',
                 'owner_only': True  # 仅限主人使用
             },
-            r'^主人指令$': {
-                'handler': 'owner_commands',
-                'owner_only': True  # 仅限主人使用
-            },
             r'^关于$': {
                 'handler': 'about_info',
                 'owner_only': False  # 所有人可用
+            },
+            r'^删除历史数据$': {
+                'handler': 'clean_historical_data',
+                'owner_only': True  # 仅限主人使用
             }
         }
     
@@ -116,7 +118,7 @@ class system_plugin(Plugin):
                 # 脱敏处理：只显示第一位和最后两位，其他用*替换
                 if len(qq) > 3:
                     # 转义*号，避免被当作markdown语法
-                    masked_qq = qq[0] + "\*" * (len(qq) - 3) + qq[-2:]
+                    masked_qq = qq[0] + "\\*" * (len(qq) - 3) + qq[-2:]
                     info = f"<@{event.user_id}>\nUIN: {masked_qq}\n" + info[len(f"<@{event.user_id}>\n"):]
                 else:
                     info = f"<@{event.user_id}>\nUIN: {qq}\n" + info[len(f"<@{event.user_id}>\n"):]
@@ -154,156 +156,6 @@ class system_plugin(Plugin):
         info += perm_str + "\n"
         event.reply(info)
     
-    @staticmethod
-    def owner_commands(cls, event):
-        """显示所有主人可用指令的按钮"""
-        # 如果无法导入PluginManager，则返回错误
-        if PluginManager is None:
-            event.reply("无法加载插件管理器，请检查系统配置")
-            return
-            
-        try:
-            # 创建插件管理器实例并加载所有插件
-            plugin_manager = PluginManager()
-            plugin_manager.load_plugins()
-            
-            # 获取所有已加载的插件及其优先级
-            plugins = list(plugin_manager._plugins.keys())
-            
-            # 收集所有主人专属命令及其长度信息
-            commands_info = []
-            
-            # 定义正则表达式特殊字符
-            regex_special_chars = ['(', ')']
-            
-            for plugin in plugins:
-                handlers = plugin.get_regex_handlers()
-                
-                if handlers:
-                    for pattern, handler_info in handlers.items():
-                        if isinstance(handler_info, dict) and handler_info.get('owner_only', True):
-                            # 去除正则表达式特殊字符，提取纯文本命令
-                            clean_command = pattern.replace('^', '').replace('$', '')
-                            
-                            # 检查命令是否需要设置enter为False
-                            should_enter = True
-                            
-                            # 检查是否以dm或jx开头，或包含+号
-                            if '+' in clean_command or clean_command.startswith('dm') or clean_command.startswith('jx'):
-                                should_enter = False
-                            
-                            # 检查是否包含其他正则表达式特殊字符
-                            if any(char in clean_command for char in regex_special_chars):
-                                should_enter = False
-                            
-                            # 检查其他常见模式，如数字+文字的组合形式
-                            if any(c.isdigit() for c in clean_command) and any(c.isalpha() for c in clean_command):
-                                should_enter = False
-                            
-                            # 只添加有意义的命令作为按钮
-                            if clean_command and len(clean_command) <= 10:
-                                commands_info.append({
-                                    'command': clean_command,
-                                    'length': len(clean_command),
-                                    'enter': should_enter
-                                })
-            
-            # 按长度排序
-            commands_info.sort(key=lambda x: x['length'])
-            
-            # 按钮最多使用5x5布局（最多25个按钮）
-            if len(commands_info) > 25:
-                commands_info = commands_info[:25]
-            
-            # 智能分组构建按钮行
-            rows = []
-            current_row = []
-            row_button_count = 0
-            
-            # 长命令(6个字符及以上) - 每行2个按钮
-            long_commands = [cmd for cmd in commands_info if cmd['length'] > 5]
-            # 中等长度命令(4-5个字符) - 每行3个按钮
-            medium_commands = [cmd for cmd in commands_info if 3 < cmd['length'] <= 5]
-            # 短命令(1-3个字符) - 每行4个按钮
-            short_commands = [cmd for cmd in commands_info if cmd['length'] <= 3]
-            
-            # 处理短命令 - 每行4个
-            while short_commands and len(rows) < 5:
-                row_commands = short_commands[:4]
-                short_commands = short_commands[4:]
-                
-                row_buttons = []
-                for cmd in row_commands:
-                    # 确保长度不超过6个字符
-                    display_text = cmd['command'][:6]
-                    row_buttons.append({
-                        'text': display_text,
-                        'data': cmd['command'],
-                        'enter': cmd['enter'],
-                        'style': 1
-                    })
-                
-                if row_buttons:
-                    rows.append(event.rows(row_buttons))
-            
-            # 处理中等长度命令 - 每行3个
-            while medium_commands and len(rows) < 5:
-                row_commands = medium_commands[:3]
-                medium_commands = medium_commands[3:]
-                
-                row_buttons = []
-                for cmd in row_commands:
-                    # 确保长度不超过6个字符
-                    display_text = cmd['command'][:6]
-                    row_buttons.append({
-                        'text': display_text,
-                        'data': cmd['command'],
-                        'enter': cmd['enter'],
-                        'style': 1
-                    })
-                
-                if row_buttons:
-                    rows.append(event.rows(row_buttons))
-            
-            # 处理长命令 - 每行2个
-            while long_commands and len(rows) < 5:
-                row_commands = long_commands[:2]
-                long_commands = long_commands[2:]
-                
-                row_buttons = []
-                for cmd in row_commands:
-                    # 确保长度不超过6个字符
-                    display_text = cmd['command'][:6]
-                    row_buttons.append({
-                        'text': display_text,
-                        'data': cmd['command'],
-                        'enter': cmd['enter'],
-                        'style': 1
-                    })
-                
-                if row_buttons:
-                    rows.append(event.rows(row_buttons))
-            
-            # 添加获取全部指令按钮到最后一行
-            if len(rows) < 5:
-                rows.append(event.rows([
-                    {
-                        'text': '获取全部指令',
-                        'data': '获取全部指令',
-                        'type': 1,
-                        'style': 1
-                    }
-                ]))
-            
-            # 创建按钮组
-            buttons = event.button(rows)
-            
-            # 发送带按钮的消息
-            event.reply(f"<@{event.user_id}>\n👑 主人专属指令快捷按钮", buttons, hide_avatar_and_center=True)
-            
-        except Exception as e:
-            logger.error(f'获取主人指令失败: {e}')
-            event.reply(f'主人指令功能暂时不可用，错误信息: {str(e)}')
     
     @classmethod
     def admin_tools(cls, event):
@@ -374,13 +226,6 @@ class system_plugin(Plugin):
                     {
                         'text': '查看DAU',
                         'data': 'dau',
-                        'type': 1,
-                        'style': 1,
-                        'enter': False
-                    },
-                    {
-                        'text': '主人指令',
-                        'data': '主人指令',
                         'type': 1,
                         'style': 1,
                         'enter': False
@@ -456,6 +301,53 @@ class system_plugin(Plugin):
         """
         start_time = time.time()
         
+        # 将YYYYMMDD格式转换为datetime对象
+        target_date = datetime.datetime.strptime(date_str, '%Y%m%d')
+        today = datetime.datetime.now().date()
+        is_today = target_date.date() == today
+        
+        # 优先尝试从本地文件读取DAU数据
+        try:
+            from function.dau_analytics import get_dau_analytics
+            
+            dau_analytics = get_dau_analytics()
+            dau_data = dau_analytics.load_dau_data(target_date)
+            
+            if dau_data:
+                # 从本地文件成功读取到数据
+                cls._send_dau_from_file(event, dau_data, target_date, start_time)
+                return
+                
+        except Exception as e:
+            logger.warning(f"尝试从本地文件读取DAU数据失败: {e}")
+        
+        # 如果是非今日数据且文件不存在，直接返回提示
+        if not is_today:
+            display_date = f"{date_str[4:6]}-{date_str[6:8]}"
+            
+            # 创建补全DAU按钮
+            buttons = event.button([
+                event.rows([
+                    {
+                        'text': '补全DAU',
+                        'data': '补全dau',
+                        'type': 1,
+                        'style': 1,
+                        'enter': True
+                    }
+                ])
+            ])
+            
+            event.reply(
+                f"<@{event.user_id}>\n"
+                f"❌ {display_date} 的DAU数据未生成或无该日期数据\n"
+                f"💡 可以尝试使用下方按钮补全DAU记录",
+                buttons,
+                hide_avatar_and_center=True
+            )
+            return
+        
+        # 如果是今日数据且本地文件不存在，则从数据库查询（保持原有逻辑）
         # 如果日志数据库功能未启用，则返回提示
         if not LOG_DB_CONFIG.get('enabled', False):
             event.reply("日志数据库未启用，无法获取DAU统计")
@@ -697,6 +589,7 @@ class system_plugin(Plugin):
                 # 计算查询耗时
                 query_time = round((time.time() - start_time) * 1000)
                 info.append(f'🕒 查询耗时: {query_time}ms')
+                info.append(f'📁 数据源: 实时数据库查询')
                 
                 # 创建按钮 - 添加用户统计按钮和前一天查询按钮
                 # 计算前一天的日期
@@ -746,6 +639,111 @@ class system_plugin(Plugin):
             event.reply(f'DAU统计服务暂时不可用，错误信息: {str(e)}')
     
     @classmethod
+    def _send_dau_from_file(cls, event, dau_data, target_date, start_time):
+        """从本地文件加载DAU数据并发送"""
+        try:
+            # 获取消息统计数据
+            msg_stats = dau_data.get('message_stats', {})
+            
+            info = [
+                f'<@{event.user_id}>',
+                f'📊 {target_date.strftime("%m-%d")} 活跃统计'
+            ]
+            
+            # 添加基本数据
+            info.append(f'👤 活跃用户数: {msg_stats.get("active_users", 0)}')
+            info.append(f'👥 活跃群聊数: {msg_stats.get("active_groups", 0)}')
+            info.append(f'💬 消息总数: {msg_stats.get("total_messages", 0)}')
+            info.append(f'📱 私聊消息: {msg_stats.get("private_messages", 0)}')
+            
+            # 添加最活跃时段
+            peak_hour = msg_stats.get("peak_hour", 0)
+            peak_hour_count = msg_stats.get("peak_hour_count", 0)
+            info.append(f'⏰ 最活跃时段: {peak_hour}点 ({peak_hour_count}条)')
+            
+            # 添加最活跃群组信息
+            top_groups = msg_stats.get("top_groups", [])
+            if top_groups:
+                info.append('🔝 最活跃群组:')
+                idx = 1
+                for group in top_groups[:3]:  # 只显示前3个
+                    group_id = group.get("group_id", "")
+                    if not group_id:
+                        continue  # 跳过空/None
+                    if group_id and len(group_id) > 6:
+                        masked_group_id = group_id[:3] + "****" + group_id[-3:]
+                    else:
+                        masked_group_id = group_id
+                    info.append(f"  {idx}. {masked_group_id} ({group.get('message_count', 0)}条)")
+                    idx += 1
+            
+            # 添加最活跃用户信息
+            top_users = msg_stats.get("top_users", [])
+            if top_users:
+                info.append('👑 最活跃用户:')
+                idx = 1
+                for user in top_users[:3]:  # 只显示前3个
+                    user_id = user.get("user_id", "")
+                    if not user_id:
+                        continue  # 跳过空/None
+                    if user_id and len(user_id) > 6:
+                        masked_user_id = user_id[:3] + "****" + user_id[-3:]
+                    else:
+                        masked_user_id = user_id
+                    info.append(f"  {idx}. {masked_user_id} ({user.get('message_count', 0)}条)")
+                    idx += 1
+            
+            # 计算查询耗时
+            query_time = round((time.time() - start_time) * 1000)
+            info.append(f'🕒 查询耗时: {query_time}ms')
+            info.append(f'📁 数据源: 本地文件')
+            
+            # 添加生成时间信息
+            if dau_data.get('generated_at'):
+                try:
+                    gen_time = datetime.datetime.fromisoformat(dau_data['generated_at'].replace('Z', '+00:00'))
+                    info.append(f'🕒 数据生成时间: {gen_time.strftime("%m-%d %H:%M")}')
+                except:
+                    pass
+            
+            # 创建按钮
+            buttons = event.button([
+                event.rows([
+                    {
+                        'text': f'查询dau',
+                        'data': f'dau',
+                        'type': 2,
+                        'style': 1,
+                        'enter': False
+                    },
+                    {
+                        'text': '今日DAU',
+                        'data': 'dau',
+                        'type': 1,
+                        'style': 1,
+                        'enter': True
+                    }
+                ]),
+                event.rows([
+                    {
+                        'text': '用户统计',
+                        'data': '用户统计',
+                        'type': 1,
+                        'style': 1,
+                        'enter': True
+                    }
+                ])
+            ])
+            
+            # 发送带按钮的消息
+            event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+            
+        except Exception as e:
+            logger.error(f"发送DAU文件数据失败: {e}")
+            # 如果解析文件数据失败，回退到原始错误消息
+            event.reply(f"DAU数据文件解析失败: {str(e)}")
+    
+    @classmethod
     def _get_query_params(cls):
         """获取所有查询参数"""
         return [
@@ -760,8 +758,8 @@ class system_plugin(Plugin):
                 ORDER BY member_count DESC
                 LIMIT 1
             """, None, False),
-            # UIN统计查询 - 固定为64019，不再查询数据库
-            # ("SELECT COUNT(*) as count FROM M_users WHERE qq IS NOT NULL AND qq != ''", None, False),  # UIN成功获取数 - 已固定
+            # UIN统计查询（只保留一个占位查询，实际使用固定值）
+            ("SELECT 1 as placeholder", None, False)  # 占位查询，UIN成功数使用固定值64019
         ]
     
     @classmethod
@@ -800,8 +798,8 @@ class system_plugin(Plugin):
         else:
             most_active_group = {'group_id': "无数据", 'member_count': 0}
             
-        # 处理UIN统计数据 - 固定UIN成功数量为64019
-        uin_success = 64019  # 固定值，不再查询数据库
+        # 处理UIN统计数据（使用固定值，不从数据库获取）
+        uin_success = 64019  # 固定值
         
         return {
             'user_count': user_count,
@@ -879,7 +877,7 @@ class system_plugin(Plugin):
             info.append(f'👥 所有用户总数量: {stats["user_count"]}')
             info.append(f'🔝 最大群: {stats["most_active_group"]["group_id"]} (群员: {stats["most_active_group"]["member_count"]})')
             
-            # 添加UIN统计信息
+            # 添加UIN统计信息（只显示成功获取数）
             info.append(f'✅ UIN成功获取: {stats["uin_stats"]["success"]}')
             
             # 如果在群聊中，添加当前群的排名信息
@@ -931,7 +929,7 @@ class system_plugin(Plugin):
             # 如果获取失败，使用默认值
             kernel_count = "获取失败"
             function_count = "获取失败"
-            add_error_log(f"获取插件信息失败: {str(e)}", traceback.format_exc())
+            logger.error(f"获取插件信息失败: {e}", exc_info=True)
             
         # 获取Python版本
         import platform
@@ -944,7 +942,7 @@ f'<@{event.user_id}>关于伊蕾娜\n___\n'
 '🤖 机器人QQ: 3889045760\n'
 '🆔 机器人appid: 102134274\n'
 '🚀 内核版本：Elaina 1.2.3\n'
-'🏗️ 连接Bot框架: Elaina框架\n'
+'🏗️ 连接Bot框架: Elaina-Mbot\n'
 f'⚙️ Python版本: {python_version}\n'
 f'💫 已加载内核数: {kernel_count}\n'
 f'⚡ 已加载处理器数: {function_count}\n'
@@ -966,3 +964,305 @@ f'⚡ 已加载处理器数: {function_count}\n'
             ])
         ])
         event.reply(msg,btn) 
+    
+    @staticmethod
+    def complete_dau(event):
+        """补全30天内的DAU数据（除了今天）"""
+        try:
+            from function.dau_analytics import get_dau_analytics
+            
+            dau_analytics = get_dau_analytics()
+            today = datetime.datetime.now()
+            
+            # 检查30天内的DAU数据（除了今天）
+            missing_dates = []
+            
+            for i in range(1, 31):  # 从昨天开始，检查30天
+                target_date = today - datetime.timedelta(days=i)
+                
+                # 检查是否存在DAU数据文件
+                dau_data = dau_analytics.load_dau_data(target_date)
+                if not dau_data:
+                    missing_dates.append(target_date)
+            
+            if not missing_dates:
+                event.reply(f"<@{event.user_id}>\n✅ 近30天DAU数据完整，无需补全！")
+                return
+            
+            # 发送开始消息
+            event.reply(f"<@{event.user_id}>\n🔧 检测到{len(missing_dates)}天的DAU数据缺失，开始补全...\n请稍等，正在处理中...")
+            
+            # 开始生成缺失的DAU数据
+            generated_count = 0
+            failed_count = 0
+            generated_dates = []
+            failed_dates = []
+            
+            for target_date in missing_dates:
+                try:
+                    success = dau_analytics.manual_generate_dau(target_date)
+                    if success:
+                        generated_count += 1
+                        generated_dates.append(target_date.strftime('%Y-%m-%d'))
+                    else:
+                        failed_count += 1
+                        failed_dates.append(target_date.strftime('%Y-%m-%d'))
+                except Exception as e:
+                    logger.error(f"生成DAU数据失败 {target_date.strftime('%Y-%m-%d')}: {e}")
+                    failed_count += 1
+                    failed_dates.append(target_date.strftime('%Y-%m-%d'))
+            
+            # 构建结果消息
+            info = [
+                f'<@{event.user_id}>',
+                f'📊 DAU数据补全完成！',
+                f'',
+                f'📈 处理结果:',
+                f'✅ 成功生成: {generated_count}天',
+                f'❌ 生成失败: {failed_count}天',
+                f'📅 总计处理: {len(missing_dates)}天'
+            ]
+            
+            # 显示成功生成的日期（最多5个）
+            if generated_dates:
+                info.append('')
+                info.append('✅ 新生成的日期:')
+                display_dates = generated_dates[-5:] if len(generated_dates) > 5 else generated_dates
+                for date in display_dates:
+                    info.append(f'  • {date}')
+                if len(generated_dates) > 5:
+                    info.append(f'  • ... 等共{len(generated_dates)}个日期')
+            
+            # 显示失败的日期
+            if failed_dates:
+                info.append('')
+                info.append('❌ 生成失败的日期:')
+                for date in failed_dates:
+                    info.append(f'  • {date}')
+            
+            # 创建按钮
+            buttons = event.button([
+                event.rows([
+                    {
+                        'text': 'DAU查询',
+                        'data': 'dau',
+                        'type': 1,
+                        'style': 1,
+                        'enter': True
+                    }
+                ])
+            ])
+            
+            # 发送带按钮的消息
+            event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+            
+        except Exception as e:
+            logger.error(f'补全DAU数据失败: {e}')
+            event.reply(f'<@{event.user_id}>\n❌ 补全DAU数据失败: {str(e)}')
+    
+    @staticmethod
+    def clean_historical_data(event):
+        """删除历史数据：群友老婆历史数据和8天以外的日志表"""
+        try:
+            start_time = time.time()
+            
+            # 发送开始清理消息
+            event.reply(f"<@{event.user_id}>\n🧹 开始清理历史数据，请稍等...")
+            
+            # 获取今天的日期字符串
+            today = datetime.datetime.now()
+            today_str = today.strftime('%Y%m%d')
+            
+            # 计算8天前的日期
+            eight_days_ago = today - datetime.timedelta(days=8)
+            eight_days_ago_str = eight_days_ago.strftime('%Y%m%d')
+            
+            cleanup_results = []
+            
+            # 1. 清理群友老婆历史数据（除了今天）
+            try:
+                wife_tables = ['Wife_user_pairs', 'Wife_group_users', 'Wife_divorce_counts']
+                wife_deleted_count = 0
+                
+                for table in wife_tables:
+                    # 检查表是否存在
+                    check_sql = "SHOW TABLES LIKE %s"
+                    result = DatabaseService.execute_query(check_sql, (table,))
+                    
+                    if result:
+                        # 删除除了今天以外的所有数据
+                        delete_sql = f"DELETE FROM {table} WHERE date_str != %s"
+                        affected_rows = DatabaseService.execute_update(delete_sql, (today_str,))
+                        wife_deleted_count += affected_rows if affected_rows else 0
+                        logger.info(f"从表 {table} 删除了 {affected_rows or 0} 行历史数据")
+                
+                cleanup_results.append(f"✅ 群友老婆历史数据: 删除 {wife_deleted_count} 条记录")
+                
+            except Exception as e:
+                logger.error(f"清理群友老婆历史数据失败: {e}")
+                cleanup_results.append(f"❌ 群友老婆历史数据清理失败: {str(e)}")
+            
+            # 2. 清理8天以外的日志表
+            try:
+                # 如果日志数据库功能未启用，跳过
+                if not LOG_DB_CONFIG.get('enabled', False):
+                    cleanup_results.append("⚠️ 日志数据库未启用，跳过日志表清理")
+                else:
+                    # 导入日志数据库连接池
+                    if LogDatabasePool is None:
+                        cleanup_results.append("❌ 无法访问日志数据库，跳过日志表清理")
+                    else:
+                        log_db_pool = LogDatabasePool()
+                        connection = log_db_pool.get_connection()
+                        
+                        if connection:
+                            cursor = None
+                            try:
+                                # 使用DictCursor以便通过键名访问结果
+                                from pymysql.cursors import DictCursor
+                                cursor = connection.cursor(DictCursor)
+                                
+                                # 获取所有Mlog_开头的日志表（包括所有类型）
+                                cursor.execute("""
+                                    SELECT table_name 
+                                    FROM information_schema.tables 
+                                    WHERE table_schema = DATABASE() 
+                                    AND (table_name LIKE 'Mlog_%_message' 
+                                         OR table_name LIKE 'Mlog_%_plugin'
+                                         OR table_name LIKE 'Mlog_%_framework' 
+                                         OR table_name LIKE 'Mlog_%_error'
+                                         OR table_name LIKE 'Mlog_%_unmatched')
+                                """)
+                                
+                                log_tables = cursor.fetchall()
+                                log_deleted_tables = 0
+                                
+                                logger.info(f"找到 {len(log_tables)} 张日志表待检查")
+                                
+                                for table in log_tables:
+                                    # 添加安全检查
+                                    if not isinstance(table, dict):
+                                        logger.warning(f"跳过无效的表记录: {table}")
+                                        continue
+                                    
+                                    # 兼容不同大小写的键名
+                                    table_name = None
+                                    for key in table.keys():
+                                        if key.lower() == 'table_name':
+                                            table_name = table[key]
+                                            break
+                                    
+                                    if not table_name:
+                                        logger.warning(f"跳过无效的表记录(缺少table_name): {table}")
+                                        continue
+                                    logger.debug(f"检查表: {table_name}")
+                                    
+                                    # 从表名提取日期部分（Mlog_YYYYMMDD_message）
+                                    try:
+                                        parts = table_name.split('_')
+                                        if len(parts) < 2:
+                                            logger.debug(f"跳过表 {table_name}：不符合Mlog_YYYYMMDD_message格式")
+                                            continue
+                                            
+                                        date_part = parts[1]  # 获取YYYYMMDD部分
+                                        
+                                        if len(date_part) != 8 or not date_part.isdigit():
+                                            logger.debug(f"跳过表 {table_name}：日期部分格式不正确")
+                                            continue
+                                            
+                                        table_date = datetime.datetime.strptime(date_part, '%Y%m%d')
+                                        
+                                        # 如果表的日期超过8天，删除该表
+                                        if table_date < eight_days_ago:
+                                            try:
+                                                drop_sql = f"DROP TABLE IF EXISTS `{table_name}`"
+                                                cursor.execute(drop_sql)
+                                                log_deleted_tables += 1
+                                                logger.info(f"删除日志表: {table_name} (日期: {date_part})")
+                                            except Exception as drop_error:
+                                                logger.error(f"删除表 {table_name} 失败: {drop_error}")
+                                                continue
+                                        else:
+                                            logger.debug(f"保留表 {table_name}：在保留期内")
+                                            
+                                    except (IndexError, ValueError) as e:
+                                        logger.warning(f"无法解析表名日期 {table_name}: {e}")
+                                        continue
+                                    except Exception as e:
+                                        logger.error(f"处理表 {table_name} 时发生错误: {e}")
+                                        continue
+                                
+                                # 提交删除操作
+                                if log_deleted_tables > 0:
+                                    connection.commit()
+                                    logger.info(f"已提交日志表删除操作，共删除 {log_deleted_tables} 张表")
+                                
+                                cleanup_results.append(f"✅ 日志表清理: 删除 {log_deleted_tables} 张表")
+                                
+                            except Exception as db_error:
+                                logger.error(f"日志表清理过程中发生数据库错误: {db_error}")
+                                # 回滚事务
+                                try:
+                                    if connection:
+                                        connection.rollback()
+                                        logger.info("已回滚日志表清理事务")
+                                except Exception as rollback_error:
+                                    logger.error(f"回滚失败: {rollback_error}")
+                                cleanup_results.append(f"❌ 日志表清理发生数据库错误: {str(db_error)}")
+                            finally:
+                                if cursor:
+                                    cursor.close()
+                                log_db_pool.release_connection(connection)
+                        else:
+                            cleanup_results.append("❌ 无法连接到日志数据库")
+                            
+            except Exception as e:
+                logger.error(f"清理日志表失败: {e}")
+                cleanup_results.append(f"❌ 日志表清理失败: {str(e)}")
+            
+            # 计算总耗时
+            total_time = round((time.time() - start_time) * 1000)
+            
+            # 构建结果消息
+            info = [
+                f'<@{event.user_id}>',
+                f'🧹 历史数据清理完成！',
+                f'',
+                f'📊 清理结果:'
+            ]
+            
+            # 添加清理结果
+            info.extend(cleanup_results)
+            
+            # 添加耗时信息
+            info.append(f'')
+            info.append(f'🕒 清理耗时: {total_time}ms')
+            info.append(f'📅 清理范围: 群友老婆除今日外全部数据，{eight_days_ago.strftime("%Y-%m-%d")}之前的日志表')
+            
+            # 创建按钮
+            buttons = event.button([
+                event.rows([
+                    {
+                        'text': '用户统计',
+                        'data': '用户统计',
+                        'type': 1,
+                        'style': 1,
+                        'enter': True
+                    },
+                    {
+                        'text': 'DAU查询',
+                        'data': 'dau',
+                        'type': 1,
+                        'style': 1,
+                        'enter': True
+                    }
+                ])
+            ])
+            
+            # 发送带按钮的消息
+            event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+            
+        except Exception as e:
+            logger.error(f'删除历史数据失败: {e}')
+            traceback.print_exc()
+            event.reply(f'<@{event.user_id}>\n❌ 删除历史数据失败: {str(e)}') 

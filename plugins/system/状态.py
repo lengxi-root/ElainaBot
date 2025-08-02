@@ -123,7 +123,7 @@ def generate_header_card(theme):
     return f'''
     <div class="header-card">
       <div class="header">
-        <h1 class="title">Elaina框架 状态统计</h1>
+        <h1 class="title">Mbot 状态统计</h1>
         <div class="version">版本 {version}</div>
         <div class="version">生成时间: {now}</div>
       </div>

@@ -7,13 +7,68 @@ from config import DB_CONFIG
 import threading
 import time
 import gc  # 垃圾回收模块
-import logging  # 日志记录
+import weakref  # 弱引用管理
+import logging  # 添加日志记录
 import warnings
+import asyncio  # 添加异步支持
+import httpx    # 替换urllib3
+import queue  # 队列模块，用于连接请求管理
 import concurrent.futures  # 线程池支持
+import functools  # 函数工具
 
 # 设置日志记录器
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('db_pool')
-logger.setLevel(logging.INFO)
+
+# 创建异步HTTP客户端
+async_client = None
+
+def get_async_client():
+    """获取全局异步HTTP客户端"""
+    global async_client
+    if async_client is None or async_client.is_closed:
+        async_client = httpx.AsyncClient(
+            verify=False,  # 禁用SSL验证，相当于原来的不安全请求警告
+            timeout=30.0,
+            limits=httpx.Limits(
+                max_connections=10,
+                max_keepalive_connections=5,
+                keepalive_expiry=30.0
+            )
+        )
+    return async_client
+
+def run_async(coroutine):
+    """在同步环境中运行异步函数"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coroutine)
+    finally:
+        loop.close()
+
+async def close_async_client():
+    """关闭异步HTTP客户端"""
+    global async_client
+    if async_client is not None and not async_client.is_closed:
+        await async_client.aclose()
+        async_client = None
+
+# 当应用退出时关闭客户端
+import atexit
+atexit.register(lambda: run_async(close_async_client()))
+
+# 异步HTTP请求方法
+async def async_request(method, url, **kwargs):
+    """执行异步HTTP请求"""
+    client = get_async_client()
+    try:
+        response = await client.request(method, url, **kwargs)
+        return response
+    except Exception as e:
+        logger.error(f"HTTP请求错误: {str(e)}")
+        raise
 
 # 导入框架日志记录功能，用于重要日志
 try:
@@ -25,28 +80,29 @@ except ImportError:
 
 # 从配置中获取连接池设置，如果不存在则使用默认值
 POOL_CONFIG = {
-    'max_connections': DB_CONFIG.get('pool_size', 7),
-    'min_connections': DB_CONFIG.get('min_pool_size', max(2, DB_CONFIG.get('pool_size', 7) // 3)),
-    'connection_timeout': DB_CONFIG.get('connect_timeout', 5),
+    'max_connections': DB_CONFIG.get('pool_size', 15),  # 增加最大连接数
+    'min_connections': DB_CONFIG.get('min_pool_size', max(3, DB_CONFIG.get('pool_size', 15) // 3)),
+    'connection_timeout': DB_CONFIG.get('connect_timeout', 10),  # 增加连接超时
     'read_timeout': DB_CONFIG.get('read_timeout', 30),
     'write_timeout': DB_CONFIG.get('write_timeout', 30),
     'connection_lifetime': DB_CONFIG.get('connection_lifetime', 1200),  # 连接生命周期(秒)
     'gc_interval': DB_CONFIG.get('gc_interval', 60),  # 垃圾回收间隔(秒)
     'idle_timeout': DB_CONFIG.get('idle_timeout', 10),  # 空闲连接超时(秒)
-    'thread_pool_size': DB_CONFIG.get('thread_pool_size', 5),  # 线程池大小
-    'request_timeout': DB_CONFIG.get('request_timeout', 3.0),  # 请求超时时间(秒)
+    'thread_pool_size': DB_CONFIG.get('thread_pool_size', 8),  # 增加线程池大小
+    'request_timeout': DB_CONFIG.get('request_timeout', 10.0),  # 增加请求超时时间到10秒
     'retry_count': DB_CONFIG.get('retry_count', 3),  # 重试次数
     'retry_interval': DB_CONFIG.get('retry_interval', 0.5)  # 重试间隔(秒)
 }
 
 class DatabasePool:
     _instance = None
-    _lock = threading.RLock()  # 使用可重入锁
+    _lock = threading.Lock()
     _pool = []
     _busy_connections = {}  # 正在使用的连接
     _initialized = False
     _last_gc_time = 0      # 上次垃圾回收时间
-    _thread_pool = None    # 简化的线程池
+    _connection_requests = queue.Queue()  # 连接请求队列
+    _thread_pool = None    # 线程池
     
     # 从配置加载参数
     _max_connections = POOL_CONFIG['max_connections']
@@ -65,11 +121,19 @@ class DatabasePool:
         # 单例模式下只初始化一次
         with self._lock:
             if not self._initialized:
-                # 创建简化的线程池
+                # 创建线程池
                 self._thread_pool = concurrent.futures.ThreadPoolExecutor(
                     max_workers=POOL_CONFIG['thread_pool_size'],
                     thread_name_prefix="DBPool"
                 )
+                
+                # 启动连接请求处理线程
+                self._conn_request_thread = threading.Thread(
+                    target=self._process_connection_requests,
+                    daemon=True,
+                    name="DBConnRequestProcessor"
+                )
+                self._conn_request_thread.start()
                 
                 self._init_pool()
                 # 启动维护线程
@@ -96,12 +160,14 @@ class DatabasePool:
                         'created_at': time.time(),
                         'last_used': time.time()
                     })
-            logger.info(f"数据库连接池初始化成功，创建了{successful_connections}个连接")
-            add_framework_log(f"数据库连接池：初始化成功，创建了{successful_connections}个连接")
         except Exception as e:
             error_msg = f"初始化数据库连接池失败: {str(e)}"
             logger.error(error_msg)
             add_framework_log(f"数据库连接池错误：{error_msg}")
+        
+        if successful_connections > 0:
+            logger.info("数据库连接池初始化完成")
+            add_framework_log("数据库连接池初始化完成")
     
     def _create_connection(self):
         """创建新的数据库连接"""
@@ -148,6 +214,32 @@ class DatabasePool:
         try:
             connection.close()
         except Exception:
+            pass
+    
+    def _process_connection_requests(self):
+        """处理连接请求队列"""
+        while True:
+            try:
+                # 从队列中获取请求
+                request = self._connection_requests.get()
+                if request is None:  # 停止信号
+                    break
+                    
+                future, timeout = request
+                
+                # 尝试获取连接
+                try:
+                    connection = self._get_connection_internal(timeout)
+                    future.set_result(connection)
+                except Exception as e:
+                    future.set_exception(e)
+                    
+            except Exception as e:
+                logger.error(f"处理连接请求时出错: {str(e)}")
+            finally:
+                try:
+                    self._connection_requests.task_done()
+                except:
                     pass
     
     def get_connection(self):
@@ -160,6 +252,27 @@ class DatabasePool:
         
         # 直接调用内部方法获取连接
         return self._get_connection_internal()
+    
+    def get_connection_async(self, timeout=None):
+        """获取数据库连接 - 异步版本，返回Future"""
+        if timeout is None:
+            timeout = POOL_CONFIG['request_timeout']
+            
+        connection_id = threading.get_ident()
+        
+        # 如果当前线程已经有连接，直接返回已完成的Future
+        if connection_id in self._busy_connections:
+            future = concurrent.futures.Future()
+            future.set_result(self._busy_connections[connection_id]['connection'])
+            return future
+        
+        # 创建Future对象
+        future = concurrent.futures.Future()
+        
+        # 将请求添加到队列
+        self._connection_requests.put((future, timeout))
+        
+        return future
     
     def _get_connection_internal(self, max_wait_time=None):
         """内部方法：获取数据库连接"""
@@ -362,16 +475,9 @@ class DatabasePool:
                     if current_time - self._last_gc_time > self._gc_interval:
                         collected = gc.collect()
                         self._last_gc_time = current_time
-                        logger.info(f"执行垃圾回收完成，回收了 {collected} 个对象")
-                        # 同时发送到框架日志
-                        add_framework_log(f"数据库连接池：执行垃圾回收完成，回收了 {collected} 个对象")
                     
                     # 每几分钟记录一次连接池状态
                     if current_time - last_pool_status_time > pool_status_interval:
-                        pool_status = f"连接池状态：空闲 {len(self._pool)}，忙碌 {len(self._busy_connections)}"
-                        logger.info(pool_status)
-                        # 同时发送到框架日志
-                        add_framework_log(f"数据库连接池：{pool_status}")
                         last_pool_status_time = current_time
             except Exception as e:
                 error_msg = f"连接池维护过程中发生错误: {str(e)}"
@@ -399,7 +505,6 @@ class DatabasePool:
                     conn_info['connection'].close()
                     del self._pool[i]
                 except Exception as e:
-                    logger.debug(f"关闭过期连接失败: {str(e)}")
                     try:
                         del self._pool[i]
                     except IndexError:

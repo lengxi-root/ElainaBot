@@ -16,7 +16,8 @@ import logging
 import datetime
 import traceback
 import pymysql
-# 移除了未使用的 asyncio 和 httpx 导入
+import asyncio  # 添加异步支持
+import httpx    # 替换urllib3
 from pymysql.cursors import DictCursor
 from concurrent.futures import ThreadPoolExecutor
 
@@ -40,8 +41,54 @@ TABLE_SUFFIX = {
     'unmatched': 'unmatched'
 }
 
-# 注意：如果需要HTTP请求功能，请使用 function.httpx_pool 模块
-# from function.httpx_pool import HttpxPoolManager
+# 创建异步HTTP客户端
+async_client = None
+
+def get_async_client():
+    """获取全局异步HTTP客户端"""
+    global async_client
+    if async_client is None or async_client.is_closed:
+        async_client = httpx.AsyncClient(
+            verify=False,  # 禁用SSL验证
+            timeout=30.0,
+            limits=httpx.Limits(
+                max_connections=10,
+                max_keepalive_connections=5,
+                keepalive_expiry=30.0
+            )
+        )
+    return async_client
+
+def run_async(coroutine):
+    """在同步环境中运行异步函数"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coroutine)
+    finally:
+        loop.close()
+
+async def close_async_client():
+    """关闭异步HTTP客户端"""
+    global async_client
+    if async_client is not None and not async_client.is_closed:
+        await async_client.aclose()
+        async_client = None
+
+# 当应用退出时关闭客户端
+import atexit
+atexit.register(lambda: run_async(close_async_client()))
+
+# 异步HTTP请求方法
+async def async_request(method, url, **kwargs):
+    """执行异步HTTP请求"""
+    client = get_async_client()
+    try:
+        response = await client.request(method, url, **kwargs)
+        return response
+    except Exception as e:
+        logger.error(f"HTTP请求错误: {str(e)}")
+        raise
 
 class LogDatabasePool:
     """日志数据库连接池，专门用于日志写入"""
@@ -77,7 +124,6 @@ class LogDatabasePool:
                 self._maintenance_thread.start()
                 
                 self._initialized = True
-                logger.info("日志数据库连接池初始化完成")
     
     def _init_pool(self):
         """初始化连接池，创建初始连接"""
@@ -96,11 +142,9 @@ class LogDatabasePool:
                         'last_used': time.time()
                     })
             
-            logger.info(f"日志数据库连接池初始化成功，创建了{successful_connections}个连接")
         except Exception as e:
             error_msg = f"初始化日志数据库连接池失败: {str(e)}"
             logger.error(error_msg)
-            # 如果初始化失败，记录到标准错误输出
             print(error_msg, file=sys.stderr)
     
     def _create_connection(self):
@@ -320,7 +364,7 @@ class LogDatabaseManager:
             )
             self._cleanup_thread.start()
         
-        logger.info("日志数据库管理器初始化完成")
+        logger.info("日志数据库模块初始化完成")
     
     def _get_table_name(self, log_type):
         """获取日志表名称"""
@@ -350,7 +394,7 @@ class LogDatabaseManager:
         
         cursor = None
         try:
-            cursor = connection.cursor()
+            cursor = connection.cursor(DictCursor)
             
             # 检查表是否存在
             check_query = f"""
@@ -381,7 +425,6 @@ class LogDatabaseManager:
             
             connection.commit()
             self.tables_created.add(table_name)
-            logger.info(f"创建日志表 {table_name} 成功")
             return True
             
         except Exception as e:
@@ -580,8 +623,6 @@ class LogDatabaseManager:
             cursor.executemany(sql, values)
             connection.commit()
             
-            logger.debug(f"成功保存{len(logs_to_insert)}条{log_type}日志到表{table_name}")
-            
         except Exception as e:
             logger.error(f"保存{log_type}日志失败: {str(e)}")
             
@@ -659,7 +700,7 @@ class LogDatabaseManager:
                     
                 cursor = None
                 try:
-                    cursor = connection.cursor()
+                    cursor = connection.cursor(DictCursor)
                     
                     # 获取所有表
                     prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
@@ -680,14 +721,14 @@ class LogDatabaseManager:
                         parts = table_name.split('_')
                         for part in parts:
                             if len(part) == 8 and part.isdigit():
-                                table_date = part
-                                if table_date < earliest_date_str:
-                                    logger.info(f"删除过期日志表: {table_name}")
-                                    cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
+                                table_date_str = part
+                                if table_date_str and len(table_date_str) == 8:
+                                    table_date = datetime.strptime(table_date_str, '%Y%m%d')
+                                    if (datetime.now() - table_date).days > retention_days:
+                                        cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
                                 break
                     
                     connection.commit()
-                    logger.info(f"清理过期日志表完成, 保留{retention_days}天内的日志")
                     
                 except Exception as e:
                     logger.error(f"清理过期日志表失败: {str(e)}")
@@ -712,8 +753,19 @@ class LogDatabaseManager:
         # 确保所有日志都写入数据库
         self._save_logs_to_db()
         
-        logger.info("日志数据库管理器已关闭")
-
+        # 停止定期保存线程
+        if hasattr(self, '_save_thread') and self._save_thread.is_alive():
+            self._stop_event.set()
+            self._save_thread.join(timeout=5)
+        
+        # 停止清理过期日志表的线程
+        if hasattr(self, '_cleanup_thread') and self._cleanup_thread.is_alive():
+            self._stop_event.set()
+            self._cleanup_thread.join(timeout=5)
+        
+        # 清理连接池
+        if hasattr(self, '_pool'):
+            self._pool.clear()
 
 # 全局单例
 log_db_manager = LogDatabaseManager() if LOG_DB_CONFIG.get('enabled', False) else None

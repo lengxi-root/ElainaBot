@@ -18,7 +18,7 @@ import os
 # ===== 3. 自定义模块导入 =====
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
-from config import USE_MARKDOWN, IMAGE_BED, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE
+from config import USE_MARKDOWN, IMAGE_BED, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, HIDE_AVATAR_GLOBAL
 from function.log_db import add_log_to_db
 from core.plugin.message_templates import MessageTemplate, MSG_TYPE_WELCOME, MSG_TYPE_USER_WELCOME, MSG_TYPE_API_ERROR
 from function.httpx_pool import sync_post
@@ -208,7 +208,7 @@ class MessageEvent:
         self.welcome_allowed = False
 
     # --- API交互相关 ---
-    def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=False, auto_delete_time=None):
+    def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None):
         if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
             return None
             
@@ -231,6 +231,10 @@ class MessageEvent:
             elif isinstance(media, list) and media:
                 media_payload = media[0]
                 
+        # 如果没有明确指定hide_avatar_and_center，则使用全局配置
+        if hide_avatar_and_center is None:
+            hide_avatar_and_center = HIDE_AVATAR_GLOBAL
+            
         payload = self._build_message_payload(content, buttons, media_payload, hide_avatar_and_center)
         
         if self.message_type == self.INTERACTION and self.is_private:

@@ -170,29 +170,16 @@ def BOTAPI(Address, method, json_data):
     headers = {"Authorization": f"QQBot {BOT凭证()}", 'Content-Type': 'application/json'}
     return curl(url, method, headers, json_data)
 
-# JSON处理优化：缓存解析结果
-_json_cache = {}
+# JSON处理优化：删除缓存相关代码
 def Json(content):
     """将内容转换为JSON字符串"""
     return json.dumps(content, ensure_ascii=False)
 
 def Json取(json_str, path):
-    """从JSON字符串中获取数据，优化：缓存解析结果"""
+    """从JSON字符串中获取数据"""
     if isinstance(json_str, str):
-        # 使用缓存避免重复解析相同的JSON字符串
-        cache_key = hash(json_str)
-        if cache_key in _json_cache:
-            data = _json_cache[cache_key]
-        else:
             try:
                 data = json.loads(json_str)
-                # 只缓存大于100字符的JSON，避免缓存过多小对象
-                if len(json_str) > 20:
-                    _json_cache[cache_key] = data
-                    # 限制缓存大小，避免内存泄漏
-                    if len(_json_cache) > 100:
-                        # 简单清理策略：清除全部缓存
-                        _json_cache.clear()
             except:
                 return "null"
     else:

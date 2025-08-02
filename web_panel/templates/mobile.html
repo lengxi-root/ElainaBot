@@ -461,13 +461,94 @@
             display: block;
         }
         
-        /* 插件卡片样式 */
-        .plugin-card {
-            margin-bottom: 10px;
-            border-radius: 8px;
+        /* 文件夹样式 */
+        .plugin-folder {
+            margin-bottom: 15px;
+            border-radius: 10px;
             overflow: hidden;
             background: #fff;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .folder-header {
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            padding: 12px 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e0e0e0;
+            transition: all 0.3s ease;
+        }
+        
+        .folder-header:hover {
+            background: linear-gradient(135deg, #e9ecef, #dee2e6);
+        }
+        
+        .folder-header.expanded {
+            background: linear-gradient(135deg, #4361ee, #3f37c9);
+            color: white;
+        }
+        
+        .folder-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .folder-icon {
+            font-size: 16px;
+            transition: transform 0.3s ease;
+        }
+        
+        .folder-header.expanded .folder-icon {
+            transform: rotate(90deg);
+        }
+        
+        .folder-count {
+            background: rgba(0,0,0,0.1);
+            color: #666;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        
+        .folder-header.expanded .folder-count {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+        
+        .folder-content {
+            display: none;
+            padding: 10px;
+            animation: slideDown 0.3s ease;
+        }
+        
+        .folder-content.expanded {
+            display: block;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                max-height: 0;
+            }
+            to {
+                opacity: 1;
+                max-height: 1000px;
+            }
+        }
+
+        /* 插件卡片样式 */
+        .plugin-card {
+            margin-bottom: 8px;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
             transition: all 0.2s ease;
             border-left: 3px solid #ccc;
         }
@@ -552,21 +633,129 @@
             padding: 20px;
         }
         
-        .spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #4361ee;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
+        /* 统计页面样式 */
+        .mobile-date-selector {
+            font-size: 14px;
+            padding: 6px 10px;
+            border-radius: 6px;
         }
         
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .mobile-date-selector option {
+            padding: 6px 10px;
         }
         
+        /* 手机端图表样式 */
+        .mobile-chart-container {
+            position: relative;
+            height: 230px;
+            margin-top: 10px;
+            padding-top: 30px;
+        }
+        
+        #mobileStatisticsChart {
+            width: 100% !important;
+            height: 200px !important;
+        }
+        
+        .mobile-chart-average-display {
+            position: absolute;
+            top: 35px;
+            right: 10px;
+            z-index: 10;
+            font-size: 11px;
+            font-weight: bold;
+            color: #666;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 3px 6px;
+            border-radius: 3px;
+            border: 1px solid #e0e0e0;
+            backdrop-filter: blur(2px);
+            pointer-events: none;
+            display: none;
+        }
+        
+        .mobile-chart-controls {
+            margin-bottom: 15px;
+        }
+        
+        .mobile-chart-toggle {
+            font-size: 11px;
+            padding: 6px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        
+        .mobile-chart-toggle.active {
+            background-color: #4361ee;
+            border-color: #4361ee;
+            color: white;
+        }
+        
+        .mobile-chart-toggle:hover {
+            background-color: #3f37c9;
+            border-color: #3f37c9;
+            color: white;
+        }
+        
+        /* 活跃排行切换按钮 */
+        .btn-group .btn {
+            font-size: 12px;
+            padding: 6px 12px;
+        }
+        
+        .btn-group .btn.active {
+            background-color: #4361ee;
+            border-color: #4361ee;
+            color: white;
+        }
+        
+        /* 表格优化 */
+        .table th, .table td {
+            padding: 8px;
+            font-size: 13px;
+            vertical-align: middle;
+        }
+        
+        .table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        /* 用户昵称样式 */
+        .mobile-nickname-loading {
+            color: #007bff;
+            font-size: 0.7em;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .mobile-nickname-display {
+            color: #28a745;
+            font-size: 0.75em;
+            font-style: italic;
+        }
+        
+        /* 数据源标识样式 */
+        .table-info td, .table-warning td, .table-success td {
+            font-size: 11px;
+            font-style: italic;
+        }
+        
+        .table-info td {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .table-warning td {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .table-success td {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
         /* 响应式调整 */
         @media (max-width: 360px) {
             .mobile-content {
@@ -591,6 +780,37 @@
             .system-mini-card {
                 padding: 12px; /* 小屏幕减少内边距 */
             }
+            
+            /* 统计页面手机端优化 */
+            .mobile-date-selector {
+                font-size: 12px;
+                max-width: 150px;
+            }
+            
+            .btn-group .btn {
+                font-size: 11px;
+                padding: 5px 8px;
+            }
+            
+            .table th, .table td {
+                padding: 6px;
+                font-size: 12px;
+            }
+            
+            /* 小屏幕图表优化 */
+            .mobile-chart-container {
+                height: 210px;
+                padding-top: 30px;
+            }
+            
+            .mobile-chart-toggle {
+                font-size: 10px;
+                padding: 4px 6px;
+            }
+            
+            #mobileStatisticsChart {
+                height: 180px !important;
+            }
         }
     </style>
 </head>
@@ -608,7 +828,7 @@
                 <button class="refresh-btn" id="refresh-btn" title="刷新数据">
                     <i class="bi bi-arrow-clockwise"></i>
                 </button>
-                <a href="?device=pc" class="pc-switch-btn">
+                <a href="#" id="pc-switch-btn" class="pc-switch-btn me-2">
                     <i class="bi bi-laptop"></i> 切换PC
                 </a>
             </div>
@@ -753,10 +973,7 @@
                     <button class="log-tab" data-type="error">错误日志</button>
                 </div>
                 <div class="logs-container" id="mobile-logs-container">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <div style="margin-top: 10px;">加载日志中...</div>
-                    </div>
+                    <div class="loading"></div>
                 </div>
             </div>
         </div>
@@ -773,10 +990,135 @@
                     </button>
                 </h6>
                 <div id="mobile-plugins-container">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <div style="margin-top: 10px;">加载插件中...</div>
+                    <div class="loading"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 统计页面 -->
+    <div class="page-section" id="mobile-statistics-section">
+        <div class="dashboard-container">
+            <!-- 日期选择器 -->
+            <div class="dashboard-card">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <label for="mobile-date-selector" style="font-size: 14px; font-weight: 600; color: #333;">查看日期:</label>
+                    <select class="form-select mobile-date-selector" id="mobile-date-selector" style="flex: 1; max-width: 200px;">
+                        <option value="today">今日数据</option>
+                    </select>
+                    <button class="btn btn-warning btn-sm" id="mobile-complete-dau">
+                        <i class="bi bi-plus-circle"></i>
+                    </button>
+                    <button class="btn btn-primary btn-sm" id="mobile-refresh-statistics">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 数据趋势图表 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-graph-up"></i> 数据趋势 (近15天)
+                </h6>
+                
+                <!-- 指标切换按钮 -->
+                <div class="mobile-chart-controls mb-3">
+                    <div class="btn-group-vertical w-100" role="group">
+                        <div class="btn-group mb-2" role="group">
+                            <button class="btn btn-outline-primary btn-sm mobile-chart-toggle active" data-metric="total_messages">总消息量</button>
+                            <button class="btn btn-outline-primary btn-sm mobile-chart-toggle" data-metric="active_users">活跃用户</button>
+                            <button class="btn btn-outline-primary btn-sm mobile-chart-toggle" data-metric="active_groups">活跃群聊</button>
+                        </div>
+                        <div class="btn-group mb-2" role="group">
+                            <button class="btn btn-outline-primary btn-sm mobile-chart-toggle" data-metric="private_messages">私聊消息</button>
+                            <button class="btn btn-outline-primary btn-sm mobile-chart-toggle" data-metric="total_users">总用户数</button>
+                            <button class="btn btn-outline-primary btn-sm mobile-chart-toggle" data-metric="total_groups">总群组数</button>
+                        </div>
+
                     </div>
+                </div>
+                
+                <!-- 图表容器 -->
+                <div class="mobile-chart-container">
+                    <div id="mobile-chart-average-display" class="mobile-chart-average-display"></div>
+                    <canvas id="mobileStatisticsChart" width="400" height="200"></canvas>
+                </div>
+            </div>
+
+            <!-- 今日数据概览 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;" id="mobile-stats-table-title">
+                    <i class="bi bi-bar-chart-fill"></i> 今日数据概览
+                </h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <tbody id="mobile-today-stats-table">
+                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 最活跃群组和用户 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-people-fill"></i> 活跃排行
+                </h6>
+                
+                <!-- 切换按钮 -->
+                <div class="btn-group w-100 mb-3" role="group">
+                    <button class="btn btn-outline-primary active" id="mobile-groups-tab">最活跃群组</button>
+                    <button class="btn btn-outline-primary" id="mobile-users-tab">最活跃用户</button>
+                </div>
+                
+                <!-- 群组表格 -->
+                <div class="table-responsive" id="mobile-groups-table-container">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>群组ID</th>
+                                <th>消息数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mobile-top-groups-table">
+                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 用户表格 -->
+                <div class="table-responsive" id="mobile-users-table-container" style="display: none;">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>用户ID</th>
+                                <th>消息数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mobile-top-users-table">
+                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 指令使用排行 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-terminal-fill"></i> 指令使用排行
+                </h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>指令</th>
+                                <th>使用次数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mobile-command-stats-table">
+                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -798,12 +1140,18 @@
                 <i class="bi bi-grid"></i>
                 <span>插件</span>
             </a>
+            <a href="#" class="nav-item" data-section="statistics">
+                <i class="bi bi-bar-chart-fill"></i>
+                <span>统计</span>
+            </a>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.1/dist/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script>
         // 全局变量
         const URL_PREFIX = "{{ prefix }}";
@@ -812,6 +1160,12 @@
         let currentLogType = 'received';
         const connectionIndicator = document.getElementById('connection-indicator');
         const connectionText = document.getElementById('connection-text');
+        
+        // 统计相关全局变量
+        let mobileStatisticsData = null;
+        const mobileNicknameCache = new Map();
+        let mobileChart = null;
+        let mobileCurrentMetric = 'total_messages';
 
         // 设置连接状态
         function setConnectionStatus(connected) {
@@ -834,13 +1188,20 @@
                 const port = currentUrl.port || (currentUrl.protocol === 'https:' ? '443' : '80');
                 const protocol = currentUrl.protocol === 'https:' ? 'https' : 'http';
                 
+                // 获取token参数
+                const urlParams = new URLSearchParams(window.location.search);
+                const token = urlParams.get('token');
+                
                 socket = io(`${protocol}://${host}:${port}${URL_PREFIX}`, {
                     path: "/socket.io",
                     reconnectionAttempts: 10,
                     reconnectionDelay: 1000,
                     timeout: 20000,
                     forceNew: true,
-                    transports: ['polling', 'websocket']
+                    transports: ['polling', 'websocket'],
+                    query: {
+                        token: token
+                    }
                 });
 
                 socket.on('connect', () => {
@@ -1068,7 +1429,7 @@
             
             // 清空日志容器并显示加载状态
             const container = document.getElementById('mobile-logs-container');
-            container.innerHTML = '<div class="loading"><div class="spinner"></div><div style="margin-top: 10px;">加载日志中...</div></div>';
+            container.innerHTML = '<div class="loading"></div>';
             
             // 请求日志数据
             if (socket && socket.connected) {
@@ -1103,6 +1464,20 @@
         function updateTime() {
             const now = new Date();
             document.getElementById('current-time').textContent = now.toLocaleTimeString('zh-CN');
+        }
+
+
+
+        // 初始化设备切换链接
+        function initDeviceSwitchLinks() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            if (token) {
+                const pcSwitchBtn = document.getElementById('pc-switch-btn');
+                if (pcSwitchBtn) {
+                    pcSwitchBtn.href = `?device=pc&token=${token}`;
+                }
+            }
         }
 
         // 页面切换功能
@@ -1147,8 +1522,56 @@
                 return;
             }
             
-            let html = '';
+            // 按目录分组插件
+            const pluginsByDirectory = {};
             plugins.forEach(plugin => {
+                const directory = plugin.directory || (plugin.name.startsWith('example/') ? 'example' : 
+                               plugin.name.startsWith('system/') ? 'system' : 'other');
+                if (!pluginsByDirectory[directory]) {
+                    pluginsByDirectory[directory] = [];
+                }
+                pluginsByDirectory[directory].push(plugin);
+            });
+            
+            // 按组顺序排序
+            const directoryOrder = ['system', 'example', 'alone'];
+            const sortedDirectories = Object.keys(pluginsByDirectory).sort((a, b) => {
+                const indexA = directoryOrder.indexOf(a);
+                const indexB = directoryOrder.indexOf(b);
+                if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+                if (indexA === -1) return 1;
+                if (indexB === -1) return -1;
+                return indexA - indexB;
+            });
+            
+            let html = '';
+            sortedDirectories.forEach(directory => {
+                const directoryPlugins = pluginsByDirectory[directory];
+                if (directoryPlugins && directoryPlugins.length > 0) {
+                    // 获取目录中文名
+                    const directoryNames = {
+                        'system': '系统插件',
+                        'example': '示例插件', 
+                        'alone': '独立插件',
+                        'other': '其他插件'
+                    };
+                    const dirDisplayName = directoryNames[directory] || directory.toUpperCase();
+                    
+                    // 添加文件夹容器
+                    html += `
+                    <div class="plugin-folder">
+                        <div class="folder-header" onclick="toggleFolder('${directory}')">
+                            <div class="folder-title">
+                                <i class="bi bi-chevron-right folder-icon" id="folder-icon-${directory}"></i>
+                                <i class="bi bi-folder-fill"></i>
+                                <span>${dirDisplayName}</span>
+                                <span class="folder-count">${directoryPlugins.length}</span>
+                            </div>
+                        </div>
+                        <div class="folder-content" id="folder-content-${directory}">`;
+                    
+                    // 添加该目录的所有插件
+                    directoryPlugins.forEach(plugin => {
                 const statusClass = plugin.status === 'loaded' ? 'loaded' : 'error';
                 let statusBadge = plugin.status === 'loaded' 
                     ? `<span class="badge bg-success plugin-badge">已加载</span>` 
@@ -1209,9 +1632,700 @@
                         ${handlersHtml}
                     </div>
                 </div>`;
+                    });
+                    
+                    html += `</div></div>`;
+                }
             });
             
             container.innerHTML = html;
+        }
+        
+        // 文件夹展开/折叠功能
+        function toggleFolder(directory) {
+            const header = document.querySelector(`[onclick="toggleFolder('${directory}')"]`);
+            const content = document.getElementById(`folder-content-${directory}`);
+            const icon = document.getElementById(`folder-icon-${directory}`);
+            
+            if (content && header && icon) {
+                const isExpanded = content.classList.contains('expanded');
+                
+                if (isExpanded) {
+                    // 折叠
+                    content.classList.remove('expanded');
+                    header.classList.remove('expanded');
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                } else {
+                    // 展开
+                    content.classList.add('expanded');
+                    header.classList.add('expanded');
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                }
+            }
+        }
+
+        // ===== 统计功能相关函数 =====
+        
+        // 手机端自定义平均值显示插件
+        const mobileAverageDisplayPlugin = {
+            id: 'mobileAverageDisplay',
+            beforeDraw: function(chart) {
+                const options = chart.options.plugins.mobileAverageDisplay;
+                if (!options || !options.display) return;
+                
+                const ctx = chart.ctx;
+                const chartArea = chart.chartArea;
+                
+                ctx.save();
+                
+                // 绘制指标名称
+                ctx.font = 'bold 14px Arial';
+                ctx.fillStyle = options.color || '#333';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'bottom';
+                
+                const metricName = chart.data.datasets[0].label || '';
+                const x = chartArea.left;
+                const y = chartArea.top - 25;
+                
+                ctx.fillText(metricName, x, y);
+                
+                // 绘制平均值
+                ctx.font = 'normal 12px Arial';
+                ctx.fillStyle = '#666';
+                const avgText = ` (${options.text})`;
+                const metricWidth = ctx.measureText(metricName).width;
+                
+                ctx.fillText(avgText, x + metricWidth, y);
+                
+                ctx.restore();
+            }
+        };
+        
+        // 初始化手机端图表
+        function initMobileChart() {
+            // 检查Chart.js是否已加载
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js未加载');
+                return;
+            }
+            
+            // 检查ChartDataLabels插件是否已加载
+            if (typeof ChartDataLabels === 'undefined') {
+                console.error('ChartDataLabels插件未加载');
+                return;
+            }
+            
+            const ctx = document.getElementById('mobileStatisticsChart').getContext('2d');
+            
+            try {
+                mobileChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '总消息量',
+                        data: [],
+                        borderColor: '#4361ee',
+                        backgroundColor: 'rgba(67, 97, 238, 0.15)',
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                plugins: [ChartDataLabels, mobileAverageDisplayPlugin],
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: {
+                        legend: {
+                            display: false  // 手机端隐藏图例
+                        },
+                        tooltip: {
+                            enabled: true,
+                            backgroundColor: 'rgba(0,0,0,0.8)',
+                            titleColor: 'white',
+                            bodyColor: 'white',
+                            cornerRadius: 6,
+                            displayColors: false
+                        },
+                        datalabels: {
+                            display: function(context) {
+                                // 只在数据点较少时显示标签
+                                return context.chart.data.labels.length <= 10;
+                            },
+                            backgroundColor: 'rgba(67, 97, 238, 0.8)',
+                            borderColor: 'white',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                            color: 'white',
+                            font: {
+                                size: 9,
+                                weight: 'bold'
+                            },
+                            padding: {
+                                top: 2,
+                                bottom: 2,
+                                left: 4,
+                                right: 4
+                            },
+                            formatter: function(value) {
+                                return formatMobileNumber(value);
+                            },
+                            anchor: 'end',
+                            align: 'top',
+                            offset: 4
+                        },
+                        mobileAverageDisplay: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 10
+                                },
+                                maxRotation: 45,
+                                minRotation: 0
+                            }
+                        },
+                        y: {
+                            display: true,
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            },
+                            ticks: {
+                                font: {
+                                    size: 10
+                                },
+                                callback: function(value) {
+                                    return formatMobileNumber(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            } catch (error) {
+                console.error('初始化图表失败:', error);
+                // 在图表容器中显示错误信息
+                const container = document.querySelector('.mobile-chart-container');
+                if (container) {
+                    container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 200px; color: #666; font-size: 14px;">图表加载失败</div>';
+                }
+            }
+        }
+        
+        // 更新手机端图表
+        function updateMobileChart(metric = mobileCurrentMetric) {
+            if (!mobileChart || !mobileStatisticsData || !mobileStatisticsData.historical) {
+                console.log('图表未初始化或数据未加载，跳过更新');
+                return;
+            }
+            
+            // 检查图表是否仍然有效
+            if (mobileChart.destroyed) {
+                console.log('图表已被销毁，跳过更新');
+                return;
+            }
+            
+            mobileCurrentMetric = metric;
+            
+            // 获取近15天数据
+            const historical = mobileStatisticsData.historical.slice(-15);
+            const today = mobileStatisticsData.today;
+            
+            // 合并数据（历史数据 + 今日数据）
+            let allData = [...historical];
+            if (today) {
+                allData.push(today);
+            }
+            
+            const labels = allData.map(item => {
+                const date = new Date(item.date);
+                return `${date.getMonth() + 1}/${date.getDate()}`;
+            });
+            
+            const metricLabels = {
+                'total_messages': '总消息量',
+                'active_users': '活跃用户数',
+                'active_groups': '活跃群聊数',
+                'private_messages': '私聊消息数',
+                'total_users': '总用户数',
+                'total_groups': '总群组数',
+                'total_friends': '总好友数'
+            };
+            
+            let data;
+            if (['total_messages', 'active_users', 'active_groups', 'private_messages'].includes(metric)) {
+                data = allData.map(item => item.message_stats ? item.message_stats[metric] || 0 : 0);
+            } else {
+                data = allData.map(item => item.user_stats ? item.user_stats[metric] || 0 : 0);
+            }
+            
+            // 计算平均值（只对前4个指标）
+            let averageText = '';
+            const shouldShowAverage = ['total_messages', 'active_users', 'active_groups', 'private_messages'].includes(metric);
+            if (shouldShowAverage && data.length > 0) {
+                const average = data.reduce((sum, val) => sum + val, 0) / data.length;
+                averageText = `平均: ${formatMobileNumber(Math.round(average))}`;
+            }
+            
+            mobileChart.data.labels = labels;
+            mobileChart.data.datasets[0].label = metricLabels[metric] || metric;
+            mobileChart.data.datasets[0].data = data;
+            
+            // 根据数据类型调整颜色
+            const colors = {
+                'total_messages': { border: '#4361ee', bg: 'rgba(67, 97, 238, 0.15)' },
+                'active_users': { border: '#f72585', bg: 'rgba(247, 37, 133, 0.15)' },
+                'active_groups': { border: '#4cc9f0', bg: 'rgba(76, 201, 240, 0.15)' },
+                'private_messages': { border: '#7209b7', bg: 'rgba(114, 9, 183, 0.15)' },
+                'total_users': { border: '#f77f00', bg: 'rgba(247, 127, 0, 0.15)' },
+                'total_groups': { border: '#fcbf49', bg: 'rgba(252, 191, 73, 0.15)' },
+                'total_friends': { border: '#606c38', bg: 'rgba(96, 108, 56, 0.15)' }
+            };
+            
+            const color = colors[metric] || colors['total_messages'];
+            mobileChart.data.datasets[0].borderColor = color.border;
+            mobileChart.data.datasets[0].backgroundColor = color.bg;
+            
+            // 更新图表外部的平均值显示
+            const mobileAverageDisplayElement = document.getElementById('mobile-chart-average-display');
+            if (shouldShowAverage && mobileAverageDisplayElement) {
+                mobileAverageDisplayElement.textContent = averageText;
+                mobileAverageDisplayElement.style.color = color.border;
+                mobileAverageDisplayElement.style.display = 'block';
+            } else if (mobileAverageDisplayElement) {
+                mobileAverageDisplayElement.style.display = 'none';
+            }
+            
+            // 禁用原来的插件显示
+            mobileChart.options.plugins.mobileAverageDisplay = {
+                display: false
+            };
+            
+            try {
+                mobileChart.update();
+            } catch (error) {
+                console.error('更新图表失败:', error);
+            }
+        }
+        
+        // 手机端数字格式化函数
+        function formatMobileNumber(num) {
+            if (num === undefined || num === null || num === 0) return '0';
+            
+            const absNum = Math.abs(num);
+            
+            if (absNum >= 10000) {
+                const wValue = absNum / 10000;
+                if (wValue >= 10) {
+                    return Math.round(wValue) + 'w';
+                } else {
+                    const rounded = Math.round(wValue * 100) / 100;
+                    return (rounded % 1 === 0) ? rounded + 'w' : rounded.toFixed(1).replace(/\.0$/, '') + 'w';
+                }
+            } else if (absNum >= 1000) {
+                const kValue = absNum / 1000;
+                if (kValue >= 10) {
+                    return Math.round(kValue) + 'k';
+                } else {
+                    const rounded = Math.round(kValue * 100) / 100;
+                    return (rounded % 1 === 0) ? rounded + 'k' : rounded.toFixed(1).replace(/\.0$/, '') + 'k';
+                }
+            }
+            
+            return Math.round(absNum).toString();
+        }
+        
+        // 加载可用日期列表
+        function loadMobileAvailableDates() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            if (!token) {
+                console.error('未找到访问token');
+                return;
+            }
+            
+            fetch(`${URL_PREFIX}/api/available_dates?token=${encodeURIComponent(token)}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        populateMobileDateSelector(data.dates);
+                    } else {
+                        console.error('加载可用日期失败:', data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('获取可用日期时出错:', error);
+                });
+        }
+        
+        // 填充日期选择器
+        function populateMobileDateSelector(dates) {
+            const selector = document.getElementById('mobile-date-selector');
+            selector.innerHTML = ''; // 清空现有选项
+            
+            dates.forEach(dateItem => {
+                const option = document.createElement('option');
+                option.value = dateItem.value;
+                option.textContent = dateItem.display;
+                if (dateItem.is_today) {
+                    option.selected = true; // 默认选中今日
+                }
+                selector.appendChild(option);
+            });
+        }
+        
+        // 加载统计数据
+        function loadMobileStatisticsData(forceRefresh = false) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            if (!token) {
+                console.error('未找到访问token');
+                return;
+            }
+            
+            // 构建API URL，如果需要强制刷新则添加参数
+            let apiUrl = `${URL_PREFIX}/api/statistics?token=${encodeURIComponent(token)}`;
+            if (forceRefresh) {
+                apiUrl += '&force_refresh=true';
+            }
+            
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        mobileStatisticsData = data.data;
+                        // 只有在加载完整统计数据时才更新表格和图表
+                        if (data.data.historical && data.data.today) {
+                            updateMobileTables(data.data.today || {});
+                            updateMobileChart(mobileCurrentMetric); // 更新图表
+                        } else if (data.data.selected_date_data) {
+                            // 这是历史日期数据，只更新表格
+                            updateMobileTables(data.data.selected_date_data);
+                        }
+                    } else {
+                        console.error('加载统计数据失败:', data.error);
+                        showMobileStatisticsError('加载统计数据失败: ' + (data.error || '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    console.error('获取统计数据时出错:', error);
+                    showMobileStatisticsError('获取统计数据时出错: ' + error.message);
+                });
+        }
+        
+        // 加载特定日期的数据
+        function loadMobileDateSpecificData(selectedDate) {
+            if (selectedDate === 'today') {
+                // 加载今日数据
+                loadMobileStatisticsData();
+            } else {
+                // 加载历史数据
+                loadMobileHistoricalDateData(selectedDate);
+            }
+        }
+        
+        // 加载历史日期数据
+        function loadMobileHistoricalDateData(dateStr) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            if (!token) {
+                console.error('未找到访问token');
+                return;
+            }
+            
+            // 构建API URL查询特定日期
+            const apiUrl = `${URL_PREFIX}/api/statistics?token=${encodeURIComponent(token)}&date=${dateStr}`;
+            
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        // 更新表格数据
+                        if (data.data.selected_date_data) {
+                            updateMobileTables(data.data.selected_date_data);
+                        } else {
+                            showMobileStatisticsError('该日期没有可用数据');
+                        }
+                    } else {
+                        console.error('加载历史数据失败:', data.error);
+                        showMobileStatisticsError('加载历史数据失败: ' + (data.error || '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    console.error('获取历史数据时出错:', error);
+                    showMobileStatisticsError('获取历史数据时出错: ' + error.message);
+                });
+        }
+        
+        // 更新表格数据
+        function updateMobileTables(todayData) {
+            // 更新今日数据概览表格
+            const todayStatsTable = document.getElementById('mobile-today-stats-table');
+            const messageStats = todayData.message_stats || {};
+            const userStats = todayData.user_stats || {};
+            
+            // 确定数据源信息
+            let dataSourceInfo = '';
+            if (todayData.is_historical) {
+                dataSourceInfo = `<tr class="table-info"><td colspan="2" class="text-center"><small>📁 数据源: 本地文件</small></td></tr>`;
+                if (todayData.generated_at) {
+                    try {
+                        const genTime = new Date(todayData.generated_at);
+                        const timeStr = genTime.toLocaleString('zh-CN', { 
+                            month: '2-digit', 
+                            day: '2-digit', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                        });
+                        dataSourceInfo += `<tr class="table-info"><td colspan="2" class="text-center"><small>🕒 生成时间: ${timeStr}</small></td></tr>`;
+                    } catch (e) {
+                        // 时间解析失败，忽略
+                    }
+                }
+            } else if (todayData.is_realtime) {
+                dataSourceInfo = `<tr class="table-warning"><td colspan="2" class="text-center"><small>📊 数据源: 实时数据库查询</small></td></tr>`;
+            } else {
+                dataSourceInfo = `<tr class="table-success"><td colspan="2" class="text-center"><small>📁 数据源: 本地文件</small></td></tr>`;
+            }
+
+            todayStatsTable.innerHTML = `
+                <tr><td>总消息量</td><td>${messageStats.total_messages || 0}</td></tr>
+                <tr><td>活跃用户数</td><td>${messageStats.active_users || 0}</td></tr>
+                <tr><td>活跃群聊数</td><td>${messageStats.active_groups || 0}</td></tr>
+                <tr><td>私聊消息数</td><td>${messageStats.private_messages || 0}</td></tr>
+                <tr><td>最活跃时段</td><td>${messageStats.peak_hour || 0}点 (${messageStats.peak_hour_count || 0}条)</td></tr>
+                <tr><td>总用户数</td><td>${userStats.total_users || 0}</td></tr>
+                <tr><td>总群组数</td><td>${userStats.total_groups || 0}</td></tr>
+                <tr><td>总好友数</td><td>${userStats.total_friends || 0}</td></tr>
+                ${dataSourceInfo}
+            `;
+            
+            // 更新最活跃群组表格
+            const topGroupsTable = document.getElementById('mobile-top-groups-table');
+            const topGroups = messageStats.top_groups || [];
+            if (topGroups.length > 0) {
+                topGroupsTable.innerHTML = topGroups.slice(0, 5).map(group => 
+                    `<tr><td>${maskMobileId(group.group_id)}</td><td>${group.message_count}</td></tr>`
+                ).join('');
+            } else {
+                topGroupsTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+            }
+            
+            // 更新最活跃用户表格
+            const topUsersTable = document.getElementById('mobile-top-users-table');
+            const topUsers = messageStats.top_users || [];
+            if (topUsers.length > 0) {
+                topUsersTable.innerHTML = topUsers.slice(0, 5).map(user => 
+                    `<tr><td><span class="mobile-user-id-with-nickname" data-user-id="${user.user_id}">${maskMobileId(user.user_id)} <span class="mobile-nickname-loading">📝</span></span></td><td>${user.message_count}</td></tr>`
+                ).join('');
+                
+                // 异步加载昵称
+                loadMobileNicknamesForUsers(topUsers.slice(0, 5));
+            } else {
+                topUsersTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+            }
+            
+            // 更新指令使用排行表格
+            const commandStatsTable = document.getElementById('mobile-command-stats-table');
+            const commandStats = todayData.command_stats || [];
+            if (commandStats.length > 0) {
+                commandStatsTable.innerHTML = commandStats.slice(0, 5).map(cmd => 
+                    `<tr><td>${cmd.command}</td><td>${cmd.count}</td></tr>`
+                ).join('');
+            } else {
+                commandStatsTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+            }
+        }
+        
+        // 脱敏处理ID
+        function maskMobileId(id) {
+            if (!id || typeof id !== 'string') return '未知';
+            if (id.length <= 6) return id;
+            return id.substring(0, 3) + '***' + id.substring(id.length - 3);
+        }
+        
+        // 为用户列表加载昵称
+        function loadMobileNicknamesForUsers(users) {
+            users.forEach(user => {
+                if (user.user_id && !mobileNicknameCache.has(user.user_id)) {
+                    fetchMobileUserNickname(user.user_id);
+                } else if (mobileNicknameCache.has(user.user_id)) {
+                    updateMobileUserNickname(user.user_id, mobileNicknameCache.get(user.user_id));
+                }
+            });
+        }
+        
+        // 获取单个用户昵称
+        function fetchMobileUserNickname(userId) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            if (!token) {
+                return;
+            }
+            
+            fetch(`${URL_PREFIX}/api/get_nickname/${encodeURIComponent(userId)}?token=${encodeURIComponent(token)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.nickname) {
+                        mobileNicknameCache.set(userId, data.nickname);
+                        updateMobileUserNickname(userId, data.nickname);
+                    } else {
+                        // 获取失败，移除加载图标
+                        const elements = document.querySelectorAll(`[data-user-id="${userId}"] .mobile-nickname-loading`);
+                        elements.forEach(el => el.remove());
+                    }
+                })
+                .catch(error => {
+                    // 错误处理，移除加载图标
+                    const elements = document.querySelectorAll(`[data-user-id="${userId}"] .mobile-nickname-loading`);
+                    elements.forEach(el => el.remove());
+                });
+        }
+        
+        // 更新页面上的用户昵称显示
+        function updateMobileUserNickname(userId, nickname) {
+            const elements = document.querySelectorAll(`[data-user-id="${userId}"]`);
+            elements.forEach(element => {
+                const loadingEl = element.querySelector('.mobile-nickname-loading');
+                if (loadingEl) {
+                    loadingEl.textContent = `(${nickname})`;
+                    loadingEl.classList.remove('mobile-nickname-loading');
+                    loadingEl.classList.add('mobile-nickname-display');
+                }
+            });
+        }
+        
+        // 显示统计错误信息
+        function showMobileStatisticsError(message) {
+            const tables = ['mobile-today-stats-table', 'mobile-top-groups-table', 'mobile-top-users-table', 'mobile-command-stats-table'];
+            tables.forEach(tableId => {
+                const table = document.getElementById(tableId);
+                if (table) {
+                    table.innerHTML = `<tr><td colspan="2" class="text-center text-danger">${message}</td></tr>`;
+                }
+            });
+        }
+        
+        // 补全DAU数据
+        function completeMobileDauData() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            if (!token) {
+                console.error('未找到访问token');
+                return;
+            }
+            
+            // 禁用按钮，显示加载状态
+            const btn = document.getElementById('mobile-complete-dau');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+            
+            fetch(`${URL_PREFIX}/api/complete_dau?token=${encodeURIComponent(token)}`, {
+                method: 'POST'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        const result = data.result;
+                        let message = `📊 DAU数据补全完成！\n\n`;
+                        message += `📈 处理结果:\n`;
+                        message += `✅ 成功生成: ${result.generated_count}天\n`;
+                        message += `❌ 生成失败: ${result.failed_count}天\n`;
+                        message += `📅 总计处理: ${result.total_missing}天`;
+                        
+                        if (result.generated_dates && result.generated_dates.length > 0) {
+                            message += `\n\n✅ 新生成的日期:\n`;
+                            const displayDates = result.generated_dates.slice(-3);
+                            displayDates.forEach(date => {
+                                message += `• ${date}\n`;
+                            });
+                            if (result.generated_dates.length > 3) {
+                                message += `• ... 等共${result.generated_dates.length}个日期\n`;
+                            }
+                        }
+                        
+                        alert(message);
+                        
+                        // 如果有新数据生成，自动刷新统计数据
+                        if (result.generated_count > 0) {
+                            loadMobileStatisticsData(true);
+                            loadMobileAvailableDates(); // 重新加载可用日期
+                        }
+                    } else {
+                        alert('补全DAU数据失败: ' + (data.error || '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    console.error('补全DAU数据时出错:', error);
+                    alert('补全DAU数据时出错: ' + error.message);
+                })
+                .finally(() => {
+                    // 恢复按钮状态
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                });
+        }
+        
+        // 切换活跃排行表格
+        function switchMobileActiveTable(type) {
+            const groupsTab = document.getElementById('mobile-groups-tab');
+            const usersTab = document.getElementById('mobile-users-tab');
+            const groupsContainer = document.getElementById('mobile-groups-table-container');
+            const usersContainer = document.getElementById('mobile-users-table-container');
+            
+            if (type === 'groups') {
+                groupsTab.classList.add('active');
+                usersTab.classList.remove('active');
+                groupsContainer.style.display = 'block';
+                usersContainer.style.display = 'none';
+            } else {
+                usersTab.classList.add('active');
+                groupsTab.classList.remove('active');
+                usersContainer.style.display = 'block';
+                groupsContainer.style.display = 'none';
+            }
         }
 
         // 页面初始化
@@ -1222,6 +2336,9 @@
             
             // 初始化Socket连接
             initSocket();
+            
+            // 初始化设备切换链接
+            initDeviceSwitchLinks();
             
             // 日志标签切换事件
             document.querySelectorAll('.log-tab').forEach(tab => {
@@ -1248,6 +2365,30 @@
                     e.preventDefault();
                     const section = item.dataset.section;
                     switchToPage(`mobile-${section}-section`);
+                    
+                    // 如果切换到统计页面，初始化图表并加载统计数据
+                    if (section === 'statistics') {
+                        setTimeout(() => {
+                            // 初始化图表（如果还没有初始化）
+                            if (!mobileChart) {
+                                // 等待Chart.js完全加载后再初始化
+                                const tryInitChart = () => {
+                                    if (typeof Chart !== 'undefined' && typeof ChartDataLabels !== 'undefined') {
+                                        initMobileChart();
+                                    } else {
+                                        console.log('等待Chart.js和插件加载...');
+                                        setTimeout(tryInitChart, 200);
+                                    }
+                                };
+                                tryInitChart();
+                            }
+                            
+                            loadMobileAvailableDates(); // 先加载可用日期
+                            setTimeout(() => {
+                                loadMobileStatisticsData(); // 然后加载统计数据
+                            }, 500); // 增加延迟确保图表初始化完成
+                        }, 100);
+                    }
                 });
             });
 
@@ -1255,9 +2396,81 @@
             document.getElementById('mobile-refresh-plugins').addEventListener('click', () => {
                 if (socket && socket.connected) {
                     const container = document.getElementById('mobile-plugins-container');
-                    container.innerHTML = '<div class="loading"><div class="spinner"></div><div style="margin-top: 10px;">刷新插件中...</div></div>';
+                    container.innerHTML = '<div class="loading"></div>';
                     socket.emit('refresh_plugins');
                 }
+            });
+
+            // ===== 统计功能事件监听器 =====
+            
+            // 日期选择器变化事件
+            document.getElementById('mobile-date-selector').addEventListener('change', function() {
+                const selectedDate = this.value;
+                const selectedText = this.options[this.selectedIndex].text;
+                
+                // 更新表格标题
+                document.getElementById('mobile-stats-table-title').innerHTML = 
+                    selectedDate === 'today' ? '<i class="bi bi-bar-chart-fill"></i> 今日数据概览' : `<i class="bi bi-bar-chart-fill"></i> ${selectedText.split(' ')[0]} 数据概览`;
+                
+                // 显示加载状态
+                const tables = ['mobile-today-stats-table', 'mobile-top-groups-table', 'mobile-top-users-table', 'mobile-command-stats-table'];
+                tables.forEach(tableId => {
+                    const table = document.getElementById(tableId);
+                    if (table) {
+                        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>';
+                    }
+                });
+                
+                // 加载选中日期的数据
+                loadMobileDateSpecificData(selectedDate);
+            });
+            
+            // 补全DAU按钮
+            document.getElementById('mobile-complete-dau').addEventListener('click', completeMobileDauData);
+            
+            // 刷新统计数据按钮
+            document.getElementById('mobile-refresh-statistics').addEventListener('click', function() {
+                const btn = this;
+                const originalText = btn.innerHTML;
+                
+                // 显示加载状态
+                btn.disabled = true;
+                btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+                
+                // 强制刷新数据
+                loadMobileStatisticsData(true);
+                
+                // 2秒后恢复按钮状态
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }, 2000);
+            });
+            
+            // 活跃排行切换按钮
+            document.getElementById('mobile-groups-tab').addEventListener('click', () => {
+                switchMobileActiveTable('groups');
+            });
+            
+            document.getElementById('mobile-users-tab').addEventListener('click', () => {
+                switchMobileActiveTable('users');
+            });
+            
+            // 图表指标切换按钮
+            document.querySelectorAll('.mobile-chart-toggle').forEach(button => {
+                button.addEventListener('click', function() {
+                    // 移除所有按钮的active状态
+                    document.querySelectorAll('.mobile-chart-toggle').forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+                    
+                    // 激活当前按钮
+                    this.classList.add('active');
+                    
+                    // 更新图表
+                    const metric = this.dataset.metric;
+                    updateMobileChart(metric);
+                });
             });
 
             // 初始加载日志

@@ -34,8 +34,6 @@ _blacklist_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(o
 
 # 新增：插件加载优化相关全局变量
 _last_quick_check_time = 0  # 上次快速检查时间
-_quick_check_interval = 2   # 快速检查间隔(秒)，大大减少检查频率
-_plugin_dirs_mtime = {}     # 插件目录修改时间缓存
 _plugins_loaded = False     # 插件是否已加载标记
 
 # ===== 5. 插件接口类 =====
@@ -132,19 +130,21 @@ class PluginManager:
     @classmethod
     def load_plugins(cls):
         """
-        优化的插件加载方法：只在文件真正变化时才重新加载插件。
-        大大减少不必要的文件系统操作，提升消息处理速度。
+        加载所有插件目录下的插件。
+        同时检查已加载插件的更新情况，实现热更新功能。
+        新增：插件加载优化，减少不必要的文件系统检查。
         """
-        global _last_plugin_gc_time, _last_quick_check_time, _plugin_dirs_mtime, _plugins_loaded
+        global _last_plugin_gc_time, _last_quick_check_time, _plugins_loaded
         
         current_time = time.time()
         
-        # 快速检查：如果距离上次检查时间太短，直接返回已加载的插件数
-        if (current_time - _last_quick_check_time < _quick_check_interval and 
-            _plugins_loaded and cls._regex_handlers):
+        # 轻量级快速检查：减少过于频繁的检查，但不影响热加载
+        if (_plugins_loaded and 
+            current_time - _last_quick_check_time < 0.1):  # 改为0.1秒，避免阻塞热加载
             return len(cls._plugins)
         
         _last_quick_check_time = current_time
+        
         script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         plugins_dir = os.path.join(script_dir, 'plugins')
         
@@ -156,31 +156,6 @@ class PluginManager:
             except Exception as e:
                 add_error_log(f"创建插件目录失败: {str(e)}")
                 return 0
-        
-        # 快速目录变化检查：比较目录修改时间
-        need_reload = False
-        try:
-            for dir_name in os.listdir(plugins_dir):
-                dir_path = os.path.join(plugins_dir, dir_name)
-                if os.path.isdir(dir_path):
-                    try:
-                        current_mtime = os.path.getmtime(dir_path)
-                        cached_mtime = _plugin_dirs_mtime.get(dir_path, 0)
-                        if current_mtime > cached_mtime:
-                            need_reload = True
-                            _plugin_dirs_mtime[dir_path] = current_mtime
-                    except OSError:
-                        # 目录可能被删除，需要重新加载
-                        need_reload = True
-                        if dir_path in _plugin_dirs_mtime:
-                            del _plugin_dirs_mtime[dir_path]
-        except OSError:
-            # 插件目录访问失败，强制重新加载
-            need_reload = True
-        
-        # 如果目录没有变化且插件已加载，直接返回
-        if not need_reload and _plugins_loaded and cls._regex_handlers:
-            return len(cls._plugins)
         
         # 检查已加载插件的文件是否被删除
         deleted_files = []
@@ -315,6 +290,7 @@ class PluginManager:
                     enhanced_pattern = f"^{pattern}"
                 
                 try:
+                    # 自动添加DOTALL标志以支持换行符匹配
                     compiled_regex = re.compile(enhanced_pattern, re.DOTALL)
                     cls._regex_cache[enhanced_pattern] = compiled_regex
                 except Exception as e:
@@ -660,26 +636,26 @@ class PluginManager:
             
         return len(removed)
 
-    # ===== 插件注册与分发相关 =====
-    @classmethod
+    # ===== 正则处理器优化 =====
+    @classmethod 
     def _rebuild_sorted_handlers(cls):
-        """重新构建按优先级排序的处理器列表，提升匹配性能"""
+        """重建排序的处理器列表，避免每次消息处理都重新排序"""
         handlers_with_priority = []
+        
         for pattern, handler_info in cls._regex_handlers.items():
             plugin_class = handler_info.get('class')
-            priority = cls._plugins.get(plugin_class, 10)
-            compiled_regex = cls._regex_cache.get(pattern)
-            if compiled_regex:
-                handlers_with_priority.append({
-                    'pattern': pattern,
-                    'regex': compiled_regex,
-                    'handler_info': handler_info,
-                    'priority': priority
-                })
+            priority = cls._plugins.get(plugin_class, 10)  # 默认优先级10
+            
+            handlers_with_priority.append({
+                'pattern': pattern,
+                'handler_info': handler_info,
+                'priority': priority
+            })
         
-        # 按优先级排序（数字越小优先级越高）
+        # 按优先级排序（数字越小，优先级越高）
         cls._sorted_handlers = sorted(handlers_with_priority, key=lambda x: x['priority'])
-    
+
+    # ===== 插件注册与分发相关 =====
     @classmethod
     def register_plugin(cls, plugin_class, skip_log=False):
         """
@@ -706,6 +682,7 @@ class PluginManager:
             else:
                 enhanced_pattern = f"^{pattern}"
             try:
+                # 自动添加DOTALL标志以支持换行符匹配
                 compiled_regex = re.compile(enhanced_pattern, re.DOTALL)
                 cls._regex_cache[enhanced_pattern] = compiled_regex
             except Exception as e:
@@ -725,15 +702,16 @@ class PluginManager:
                 handler_text += "(仅群聊)"
             handlers_info.append(handler_text)
             handlers_count += 1
+        
+        # 重建排序的处理器列表
+        cls._rebuild_sorted_handlers()
+        
         if not skip_log:
             if handlers_info:
                 handlers_text = "，".join(handlers_info)
                 add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，处理器：{handlers_text}")
             else:
                 add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，无处理器")
-        
-        # 重新构建排序的处理器列表
-        cls._rebuild_sorted_handlers()
         return handlers_count
 
     @classmethod
@@ -881,24 +859,33 @@ class PluginManager:
     @classmethod
     def _find_matched_handlers(cls, event_content, event, is_owner, is_group, permission_denied=None):
         """
-        优化的处理器匹配方法：使用预排序列表，避免每次重新排序。
-        显著提升消息匹配性能，特别是在有很多插件时。
+        查找匹配内容的所有处理器，使用预排序优化性能。
+        同时检查权限条件，过滤掉不符合条件的处理器
         
         @param event_content: 消息内容
         @param event: 消息事件对象
         @param is_owner: 是否为主人
         @param is_group: 是否在群聊中
         @param permission_denied: 权限拒绝信息记录
-        @return: 满足所有条件并按优先级排序的处理器列表
+        @return: 满足所有条件的处理器列表（已按优先级排序）
         """
         matched_handlers = []
         
         # 使用预排序的处理器列表，避免每次重新排序
         for handler_data in cls._sorted_handlers:
-            compiled_regex = handler_data['regex']
+            pattern = handler_data['pattern'] 
             handler_info = handler_data['handler_info']
             
-            # 1. 匹配正则表达式（已预编译）
+            # 1. 编译并匹配正则
+            compiled_regex = cls._regex_cache.get(pattern)
+            if not compiled_regex:
+                try:
+                    # 自动添加DOTALL标志以支持换行符匹配
+                    compiled_regex = re.compile(pattern, re.DOTALL)
+                    cls._regex_cache[pattern] = compiled_regex
+                except Exception:
+                    continue
+                    
             match = compiled_regex.search(event_content)
             if not match:
                 continue
@@ -922,16 +909,15 @@ class PluginManager:
                     permission_denied['group_denied'] = True
                 continue
                 
-            # 4. 添加通过所有检查的处理器（已按优先级排序）
+            # 4. 添加通过所有检查的处理器（无需再排序，已预排序）
             matched_handlers.append({
-                'pattern': handler_data['pattern'],
+                'pattern': pattern,
                 'match': match,
                 'plugin_class': plugin_class,
                 'handler_name': handler_name,
                 'priority': handler_data['priority']
             })
-        
-        # 无需再次排序，因为已经使用了预排序列表
+            
         return matched_handlers
 
     @classmethod
@@ -969,6 +955,17 @@ class PluginManager:
                 stack_trace = traceback.format_exc()
                 add_plugin_log(error_msg)
                 add_error_log(error_msg, stack_trace)
+                
+                # 记录到数据库日志
+                try:
+                    add_log_to_db('error', {
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'content': error_msg,
+                        'traceback': stack_trace
+                    })
+                except Exception:
+                    pass
+                    
                 matched = True
                 break
                 
@@ -1019,61 +1016,7 @@ class PluginManager:
             return original_reply(content, *args, **kwargs)
         event.reply = reply_with_log
         
-        # 临时替换re模块函数，让插件内部的正则表达式支持换行符
-        original_re_search = re.search
-        original_re_match = re.match
-        original_re_findall = re.findall
-        original_re_finditer = re.finditer
-        original_re_sub = re.sub
-        original_re_subn = re.subn
-        
-        def patched_search(pattern, string, flags=0):
-            # 安全检查：直接检查类型而不是属性，避免递归
-            if hasattr(pattern, 'pattern'):  # 检查是否为已编译的Pattern对象
-                return pattern.search(string)
-            # 使用数值常量避免枚举操作导致的递归
-            DOTALL_FLAG = 16  # re.DOTALL的数值
-            return original_re_search(pattern, string, flags | DOTALL_FLAG)
-        
-        def patched_match(pattern, string, flags=0):
-            if hasattr(pattern, 'pattern'):
-                return pattern.match(string)
-            DOTALL_FLAG = 16
-            return original_re_match(pattern, string, flags | DOTALL_FLAG)
-        
-        def patched_findall(pattern, string, flags=0):
-            if hasattr(pattern, 'pattern'):
-                return pattern.findall(string)
-            DOTALL_FLAG = 16
-            return original_re_findall(pattern, string, flags | DOTALL_FLAG)
-        
-        def patched_finditer(pattern, string, flags=0):
-            if hasattr(pattern, 'pattern'):
-                return pattern.finditer(string)
-            DOTALL_FLAG = 16
-            return original_re_finditer(pattern, string, flags | DOTALL_FLAG)
-        
-        def patched_sub(pattern, repl, string, count=0, flags=0):
-            if hasattr(pattern, 'pattern'):
-                return pattern.sub(repl, string, count)
-            DOTALL_FLAG = 16
-            return original_re_sub(pattern, repl, string, count, flags | DOTALL_FLAG)
-        
-        def patched_subn(pattern, repl, string, count=0, flags=0):
-            if hasattr(pattern, 'pattern'):
-                return pattern.subn(repl, string, count)
-            DOTALL_FLAG = 16
-            return original_re_subn(pattern, repl, string, count, flags | DOTALL_FLAG)
-        
         try:
-            # 替换re模块的函数
-            re.search = patched_search
-            re.match = patched_match
-            re.findall = patched_findall
-            re.finditer = patched_finditer
-            re.sub = patched_sub
-            re.subn = patched_subn
-            
             handler = getattr(plugin_class, handler_name)
             result = handler(event)
             
@@ -1092,13 +1035,6 @@ class PluginManager:
                 
             return result
         finally:
-            # 恢复原始的re模块函数
-            re.search = original_re_search
-            re.match = original_re_match
-            re.findall = original_re_findall
-            re.finditer = original_re_finditer
-            re.sub = original_re_sub
-            re.subn = original_re_subn
             event.reply = original_reply
 
     # ===== 默认回复相关 =====
@@ -1188,6 +1124,6 @@ class PluginManager:
             
             # 写入数据库
             success = add_log_to_db('unmatched', log_data)
- 
+
         except Exception as e:
             add_error_log(f"记录未匹配消息时出错: {str(e)}", traceback.format_exc()) 

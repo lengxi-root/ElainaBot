@@ -7,6 +7,10 @@
     <base href="{{ prefix }}/">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script>
+        // 全局配置将由后端API提供
+        window.websocketEnabled = false; // 将由API更新
+    </script>
     <style>
         :root {
             --primary-color: #4361ee;
@@ -184,6 +188,40 @@
             padding: 20px;
         }
         
+        /* 机器人信息卡片样式 */
+        .robot-info-card {
+            background: linear-gradient(135deg, #4361ee 0%, #3f37c9 100%);
+            color: white;
+            border: none;
+            box-shadow: 0 4px 20px rgba(67, 97, 238, 0.15);
+        }
+        
+        .robot-info-card .card-body {
+            padding: 1.5rem;
+        }
+        
+        .robot-info h5 {
+            color: white;
+            margin-bottom: 0.5rem;
+        }
+        
+        .robot-info p {
+            color: rgba(255, 255, 255, 0.8) !important;
+        }
+        
+        .robot-info .badge {
+            background-color: rgba(255, 255, 255, 0.2) !important;
+            color: white;
+        }
+        
+        .robot-info span {
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .robot-avatar {
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
         .system-card {
             height: 100%;
         }
@@ -346,6 +384,129 @@
             backdrop-filter: blur(2px);
             pointer-events: none;
             display: none;
+        }
+        
+        /* 沙盒测试专用样式 */
+        .sandbox-markdown {
+            line-height: 1.6;
+        }
+        
+        .sandbox-markdown pre {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 8px 0;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        
+        .sandbox-markdown code {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 13px;
+            color: #e83e8c;
+        }
+        
+        .sandbox-markdown pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            color: #333;
+        }
+        
+        .sandbox-markdown h1, .sandbox-markdown h2, .sandbox-markdown h3 {
+            margin: 16px 0 8px 0;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .sandbox-markdown h1 { font-size: 20px; }
+        .sandbox-markdown h2 { font-size: 18px; }
+        .sandbox-markdown h3 { font-size: 16px; }
+        
+        .sandbox-markdown ul {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        
+        .sandbox-markdown li {
+            margin: 4px 0;
+        }
+        
+        .sandbox-markdown .image-placeholder-small {
+            display: inline-block;
+            border: 1px dashed #dee2e6;
+            border-radius: 3px;
+            padding: 3px 6px;
+            margin: 2px 0;
+            background: #f8f9fa;
+            vertical-align: middle;
+        }
+        
+        .sandbox-markdown a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        
+        .sandbox-markdown a:hover {
+            text-decoration: underline;
+        }
+        
+        .sandbox-markdown .blockquote-custom {
+            border-left: 4px solid #007bff;
+            padding-left: 12px;
+            margin: 12px 0;
+            background: #f8f9fa;
+            font-style: italic;
+            opacity: 0.7;
+            color: #6c757d;
+        }
+        
+        .sandbox-markdown del {
+            color: #6c757d;
+            text-decoration: line-through;
+        }
+        
+        .sandbox-markdown hr {
+            border: none;
+            border-top: 2px solid #e9ecef;
+            margin: 16px 0;
+        }
+        
+        .sandbox-markdown table {
+            margin: 12px 0;
+            font-size: 13px;
+        }
+        
+        .sandbox-markdown kbd {
+            font-size: 11px;
+            padding: 2px 4px;
+        }
+        
+        .sandbox-markdown ol, .sandbox-markdown ul {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        
+        .sandbox-markdown h4 { 
+            font-size: 15px;
+            margin: 12px 0 6px 0;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        /* QQ特有语法样式 */
+        .sandbox-markdown .qq-at-user {
+            color: #007bff;
+            font-weight: 500;
+        }
+        
+        .sandbox-markdown .qq-cmd-text {
+            color: #007bff;
+            font-weight: 500;
         }
         
         .data-source-info {
@@ -717,6 +878,35 @@
             box-shadow: 0 0 5px #e84118;
         }
         
+        /* 开放平台二维码样式 */
+        #openapi-qr-image {
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        #openapi-qr-image:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        }
+        
+        #openapi-qr-container .card {
+            border: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        
+        #openapi-qr-container .card:hover {
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        }
+        
+        #openapi-login-loading {
+            min-height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
         /* 自定义滚动条 */
         .logs-container::-webkit-scrollbar {
             width: 8px;
@@ -1047,6 +1237,14 @@
                     <i class="bi bi-graph-up"></i>
                     <span class="item-text">统计</span>
                 </div>
+                <div class="sidebar-item" data-page="sandbox">
+                    <i class="bi bi-play-circle"></i>
+                    <span class="item-text">沙盒测试</span>
+                </div>
+                <div class="sidebar-item" data-page="openapi">
+                    <i class="bi bi-cloud-arrow-up"></i>
+                    <span class="item-text">开放平台</span>
+                </div>
             </div>
         </div>
 
@@ -1055,6 +1253,62 @@
             <div class="container-fluid main-content">
                 <!-- 页面内容区域 -->
                 <div class="page-section active" id="dashboard-section">
+                    <!-- 机器人信息卡片 -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card robot-info-card">
+                                <div class="card-body">
+                                    <div class="row align-items-center">
+                                        <div class="col-auto">
+                                            <img id="robot-avatar" src="" alt="机器人头像" class="robot-avatar" style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid #4361ee; object-fit: cover; display: none;">
+                                        </div>
+                                        <div class="col">
+                                            <div class="robot-info">
+                                                <h5 class="mb-1">
+                                                    <i class="bi bi-robot"></i> 
+                                                    <span id="robot-name">加载中...</span>
+                                                    <span class="badge bg-primary ms-2" id="connection-type">WebHook</span>
+                                                </h5>
+                                                <p class="text-muted mb-2" id="robot-desc">正在获取机器人信息...</p>
+                                                                                <div class="d-flex align-items-center flex-wrap">
+                                    <span class="me-3 mb-1">
+                                        <i class="bi bi-link-45deg"></i>
+                                        连接状态: <span class="badge" id="connection-status">检测中...</span>
+                                    </span>
+                                    <span class="me-3 mb-1">
+                                        <i class="bi bi-hash"></i>
+                                        QQ号: <span id="robot-qq">{{ ROBOT_QQ }}</span>
+                                    </span>
+                                    <span class="me-3 mb-1">
+                                        <i class="bi bi-key"></i>
+                                        APPID: <span id="robot-appid">{{ appid }}</span>
+                                    </span>
+                                    <span class="me-3 mb-1">
+                                        <i class="bi bi-tag"></i>
+                                        类型: <span id="robot-type">-</span>
+                                    </span>
+                                    <span class="me-3 mb-1">
+                                        <i class="bi bi-person"></i>
+                                        开发者: <span id="robot-developer">-</span>
+                                    </span>
+                                    <span class="mb-1">
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                        <a href="#" id="robot-link" target="_blank" style="color: rgba(255,255,255,0.9);">机器人链接</a>
+                                    </span>
+                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-auto">
+                                            <button class="btn btn-outline-primary btn-sm" onclick="refreshRobotInfo()">
+                                                <i class="bi bi-arrow-clockwise"></i> 刷新
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <!-- 系统信息卡片 -->
                     <div class="row mb-4">
                         <div class="col-md-3">
@@ -1427,6 +1681,371 @@
                                                 <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
                                             </tbody>
                                         </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 沙盒测试页面 -->
+                <div class="page-section" id="sandbox-section">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h5 class="mb-0">沙盒测试</h5>
+                        <small class="text-muted">在此测试插件功能，无需真实消息</small>
+                    </div>
+                    
+                    <!-- 测试配置 -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="card-title">测试配置</h6>
+                                    <form id="sandbox-form">
+                                        <div class="mb-3">
+                                            <label for="sandbox-message" class="form-label">消息内容 <span class="text-danger">*</span></label>
+                                            <textarea class="form-control" id="sandbox-message" rows="3" placeholder="输入要测试的消息内容，如：菜单、签到、今日运势等"></textarea>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <div class="mb-3">
+                                                    <label for="sandbox-group" class="form-label">群组ID <small class="text-muted">(私聊可留空)</small></label>
+                                                    <input type="text" class="form-control" id="sandbox-group" placeholder="群聊时填写，如：123456789" value="">
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="mb-3">
+                                                    <label for="sandbox-user" class="form-label">用户ID <span class="text-danger">*</span></label>
+                                                    <input type="text" class="form-control" id="sandbox-user" placeholder="如：987654321" value="987654321">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="bi bi-play-circle"></i> 开始测试
+                                            </button>
+                                            <button type="button" class="btn btn-secondary" id="sandbox-clear">
+                                                <i class="bi bi-arrow-clockwise"></i> 清空结果
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="card-title">使用说明</h6>
+                                    <div class="small text-muted">
+                                        <p><strong>消息类型：</strong></p>
+                                        <ul class="mb-0">
+                                            <li><strong>群聊消息：</strong> 需要输入群组ID和用户ID</li>
+                                            <li><strong>私聊消息：</strong> 只需要输入用户ID，群组ID可留空</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 测试结果 -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="card-title">测试结果</h6>
+                                    <div id="sandbox-results">
+                                        <div class="empty-results text-center text-muted py-4">
+                                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                            <p>尚未进行测试，请配置参数后点击"开始测试"</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 开放平台页面 -->
+                <div class="page-section" id="openapi-section">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h5 class="mb-0">开放平台管理</h5>
+                        <small class="text-muted">管理QQ开发者平台的机器人数据</small>
+                    </div>
+                    
+                    <!-- 登录状态卡片 -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card" id="openapi-login-card">
+                                <div class="card-body">
+                                    <div id="openapi-not-logged-in" class="text-center">
+                                        <h6 class="card-title"><i class="bi bi-shield-lock"></i> 开放平台登录</h6>
+                                        <p class="text-muted mb-3">请先登录QQ开发者平台以查看和管理机器人数据</p>
+                                        <button class="btn btn-primary" id="openapi-start-login">
+                                            <i class="bi bi-qr-code"></i> 开始登录
+                                        </button>
+                                                                                 <div id="openapi-login-progress" class="mt-3" style="display: none;">
+                                             <div class="d-flex flex-column align-items-center">
+                                                 <div id="openapi-login-loading" class="mb-3">
+                                                     <div class="spinner-border text-primary mb-2" role="status">
+                                                         <span class="visually-hidden">生成二维码中...</span>
+                                                     </div>
+                                                     <p class="text-muted mb-2">正在生成登录二维码...</p>
+                                                 </div>
+                                                 <div id="openapi-qr-container" style="display: none;">
+                                                     <div class="card" style="max-width: 300px;">
+                                                         <div class="card-header text-center">
+                                                             <h6 class="mb-0"><i class="bi bi-qr-code"></i> 扫描二维码登录</h6>
+                                                         </div>
+                                                         <div class="card-body text-center">
+                                                             <img id="openapi-qr-image" src="" alt="登录二维码" class="img-fluid mb-3" style="max-width: 200px; border: 1px solid #ddd; border-radius: 8px;">
+                                                             <p class="text-muted small mb-2">请使用手机QQ扫描上方二维码</p>
+                                                             <button class="btn btn-outline-secondary btn-sm" id="openapi-login-url" target="_blank">
+                                                                 <i class="bi bi-box-arrow-up-right"></i> 或点击打开登录页面
+                                                             </button>
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             </div>
+                                         </div>
+                                    </div>
+                                    
+                                    <div id="openapi-logged-in" style="display: none;">
+                                        <div class="row align-items-center">
+                                            <div class="col">
+                                                <h6 class="card-title mb-1">
+                                                    <i class="bi bi-person-check text-success"></i> 已登录开放平台
+                                                </h6>
+                                                                                                 <div class="d-flex flex-wrap gap-3">
+                                                     <span class="badge bg-primary">
+                                                         <i class="bi bi-hash"></i> UIN: <span id="openapi-uin">-</span>
+                                                     </span>
+                                                     <span class="badge bg-secondary">
+                                                         <i class="bi bi-tag"></i> 类型: <span id="openapi-app-type">-</span>
+                                                     </span>
+                                                 </div>
+                                            </div>
+                                            <div class="col-auto">
+                                                <button class="btn btn-outline-danger btn-sm" id="openapi-logout">
+                                                    <i class="bi bi-box-arrow-right"></i> 重新登录
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                                         <!-- 机器人列表 -->
+                     <div class="row" id="openapi-main-content" style="display: none;">
+                         <div class="col-12">
+                             <div class="card">
+                                 <div class="card-header d-flex justify-content-between align-items-center">
+                                     <h6 class="mb-0"><i class="bi bi-robot"></i> 机器人列表</h6>
+                                     <div class="d-flex gap-2">
+                                                                                 <button class="btn btn-outline-info btn-sm" id="openapi-get-notifications">
+                                            <i class="bi bi-bell"></i> 查看通知消息
+                                        </button>
+                                        <button class="btn btn-outline-success btn-sm" id="openapi-get-templates">
+                                            <i class="bi bi-layout-text-sidebar-reverse"></i> 查看模板
+                                        </button>
+                                        <button class="btn btn-outline-primary btn-sm" id="openapi-refresh-botlist">
+                                            <i class="bi bi-arrow-clockwise"></i> 刷新
+                                        </button>
+                                     </div>
+                                 </div>
+                                 <div class="card-body">
+                                     <div id="openapi-botlist-loading" class="text-center">
+                                         <div class="spinner-border text-primary" role="status">
+                                             <span class="visually-hidden">加载中...</span>
+                                         </div>
+                                         <p class="text-muted mt-2">正在获取机器人列表...</p>
+                                     </div>
+                                     <div id="openapi-botlist-container" style="display: none;">
+                                         <div class="table-responsive">
+                                             <table class="table table-hover">
+                                                 <thead>
+                                                     <tr>
+                                                         <th style="width: 40%;">机器人名称</th>
+                                                         <th style="width: 35%;">AppID</th>
+                                                         <th style="width: 25%;">操作</th>
+                                                     </tr>
+                                                 </thead>
+                                                 <tbody id="openapi-botlist-table">
+                                                 </tbody>
+                                             </table>
+                                         </div>
+                                     </div>
+                                 </div>
+                             </div>
+                         </div>
+                     </div>
+                    
+                    <!-- 数据展示区域 -->
+                    <div class="row mt-4" id="openapi-data-section" style="display: none;">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0" id="openapi-data-title"><i class="bi bi-table"></i> 数据详情</h6>
+                                    <div class="d-flex gap-2">
+                                                                                 <span class="badge bg-primary">30天数据</span>
+                                        <button class="btn btn-outline-secondary btn-sm" id="openapi-close-data">
+                                            <i class="bi bi-x-lg"></i> 关闭
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div id="openapi-data-loading" class="text-center">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">加载中...</span>
+                                        </div>
+                                        <p class="text-muted mt-2">正在获取数据...</p>
+                                    </div>
+                                    
+                                                                         <!-- 隐藏的数据存储 -->
+                                     <div id="openapi-data-summary" style="display: none;">
+                                         <span id="openapi-data-appid" style="display: none;">-</span>
+                                         <span id="openapi-data-avg-dau" style="display: none;">-</span>
+                                     </div>
+                                    
+                                    <!-- 数据表格 -->
+                                    <div id="openapi-data-table-container" style="display: none;">
+                                        <div class="table-responsive">
+                                                                                         <table class="table table-striped table-hover">
+                                                 <thead class="table-dark">
+                                                     <tr>
+                                                         <th>日期</th>
+                                                         <th>上行消息</th>
+                                                         <th>活跃用户</th>
+                                                         <th>下行消息</th>
+                                                         <th>总消息</th>
+                                                         <th>群组(新增/现有)</th>
+                                                         <th>好友(新增/现有)</th>
+                                                     </tr>
+                                                     <tr class="table-info">
+                                                         <td colspan="7" class="text-center">
+                                                             <strong>平均DAU: <span id="openapi-avg-dau-display">-</span></strong>
+                                                         </td>
+                                                     </tr>
+                                                 </thead>
+                                                <tbody id="openapi-data-table">
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 通知消息表格 -->
+                                    <div id="openapi-notifications-container" style="display: none;">
+                                        <div class="table-responsive">
+                                            <table class="table table-striped table-hover">
+                                                <thead class="table-dark">
+                                                    <tr>
+                                                        <th>时间</th>
+                                                        <th>标题</th>
+                                                        <th>内容</th>
+                                                        <th>类型</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="openapi-notifications-table">
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 模板列表 -->
+                                    <div id="openapi-templates-container" style="display: none;">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <h6 class="mb-3"><i class="bi bi-layout-text-sidebar-reverse"></i> 模板列表</h6>
+                                                <div class="table-responsive">
+                                                    <table class="table table-striped table-hover">
+                                                        <thead class="table-dark">
+                                                            <tr>
+                                                                <th style="width: 40%;">模板名称</th>
+                                                                <th style="width: 25%;">类型</th>
+                                                                <th style="width: 20%;">状态</th>
+                                                                <th style="width: 15%;">操作</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="openapi-templates-table">
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div id="openapi-template-detail" style="display: none;">
+                                                    <h6 class="mb-3">
+                                                        <i class="bi bi-info-circle"></i> 模板详情
+                                                        <span class="badge bg-primary ms-2" id="template-detail-index">1/1</span>
+                                                    </h6>
+                                                    <div class="card">
+                                                        <div class="card-body">
+                                                            <div class="mb-3">
+                                                                <div class="row">
+                                                                    <div class="col-sm-3"><strong>模板ID:</strong></div>
+                                                                    <div class="col-sm-9" id="template-detail-id">-</div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="mb-3">
+                                                                <div class="row">
+                                                                    <div class="col-sm-3"><strong>名称:</strong></div>
+                                                                    <div class="col-sm-9" id="template-detail-name">-</div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="mb-3">
+                                                                <div class="row">
+                                                                    <div class="col-sm-3"><strong>类型:</strong></div>
+                                                                    <div class="col-sm-9" id="template-detail-type">-</div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="mb-3">
+                                                                <div class="row">
+                                                                    <div class="col-sm-3"><strong>状态:</strong></div>
+                                                                    <div class="col-sm-9" id="template-detail-status">-</div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="mb-3">
+                                                                <div class="row">
+                                                                    <div class="col-sm-3"><strong>创建时间:</strong></div>
+                                                                    <div class="col-sm-9" id="template-detail-create-time">-</div>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <!-- 模板内容展示 -->
+                                                            <div class="mb-3">
+                                                                <strong>模板内容:</strong>
+                                                                <div id="template-content-text" class="mt-2">
+                                                                    <pre class="bg-light p-3 rounded" style="max-height: 200px; overflow-y: auto; font-size: 12px;" id="template-detail-content">-</pre>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <!-- 按钮模板预览 -->
+                                                            <div id="template-button-preview" style="display: none;">
+                                                                <strong>按钮预览:</strong>
+                                                                <div class="mt-2 p-3 bg-light rounded">
+                                                                    <div id="template-button-rows"></div>
+                                                                    <small class="text-muted mt-2 d-block">
+                                                                        <i class="bi bi-info-circle"></i> 按钮仅供参考，实际效果以实际为准<br>
+                                                                        类型: 0=跳转链接, 1=回调, 2=回车命令
+                                                                    </small>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <!-- 导航按钮 -->
+                                                            <div class="mt-3 d-flex justify-content-between">
+                                                                <button class="btn btn-outline-secondary btn-sm" id="template-prev-btn" style="display: none;">
+                                                                    <i class="bi bi-chevron-left"></i> 上一个
+                                                                </button>
+                                                                <button class="btn btn-outline-secondary btn-sm" id="template-next-btn" style="display: none;">
+                                                                    下一个 <i class="bi bi-chevron-right"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -2406,6 +3025,7 @@
             initSocket();
             initEventListeners();
             initDeviceSwitchLinks();
+            initOpenAPI();
             Object.keys(logContainers).forEach(type => {
                 goToPage(type, 1);
             });
@@ -3204,9 +3824,1264 @@
             // 初始化统计功能
             initStatistics();
             
+            // =====================
+            // 沙盒测试功能
+            // =====================
+            function initSandbox() {
+                const sandboxForm = document.getElementById('sandbox-form');
+                const sandboxMessage = document.getElementById('sandbox-message');
+                const sandboxGroup = document.getElementById('sandbox-group');
+                const sandboxUser = document.getElementById('sandbox-user');
+                const sandboxResults = document.getElementById('sandbox-results');
+                const sandboxClear = document.getElementById('sandbox-clear');
+                
+                // 移除快速配置功能
+                
+                // 清空结果
+                sandboxClear.addEventListener('click', function() {
+                    sandboxResults.innerHTML = `
+                        <div class="empty-results text-center text-muted py-4">
+                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                            <p>尚未进行测试，请配置参数后点击"开始测试"</p>
+                        </div>
+                    `;
+                });
+                
+                // 表单提交
+                sandboxForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    const message = sandboxMessage.value.trim();
+                    const groupId = sandboxGroup.value.trim();
+                    const userId = sandboxUser.value.trim();
+                    
+                    if (!message) {
+                        alert('请输入消息内容');
+                        return;
+                    }
+                    if (!userId) {
+                        alert('请输入用户ID');
+                        return;
+                    }
+                    // 群组ID可以为空（私聊模式）
+                    
+                    // 显示加载状态
+                    sandboxResults.innerHTML = `
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">测试中...</span>
+                            </div>
+                            <p class="mt-2 text-muted">正在处理消息，请稍候...</p>
+                        </div>
+                    `;
+                    
+                    // 获取token
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const token = urlParams.get('token');
+                    
+                    if (!token) {
+                        sandboxResults.innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle"></i> 未找到访问token
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    // 发送测试请求
+                    fetch(`${URL_PREFIX}/api/sandbox/test?token=${encodeURIComponent(token)}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            group_id: groupId,
+                            user_id: userId
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        displaySandboxResults(data);
+                    })
+                    .catch(error => {
+                        console.error('沙盒测试错误:', error);
+                        sandboxResults.innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle"></i> 测试请求失败: ${error.message}
+                            </div>
+                        `;
+                    });
+                });
+            }
+            
+            // 显示沙盒测试结果
+            function displaySandboxResults(data) {
+                const sandboxResults = document.getElementById('sandbox-results');
+                let html; // 在函数开头声明html变量
+                
+                if (data.success) {
+                    html = `
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle"></i> 测试完成！插件正常响应
+                        </div>
+                    `;
+                    
+                    // 显示消息信息
+                    if (data.message_info) {
+                        html += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">测试信息</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-3"><strong>消息内容:</strong> ${escapeHtml(data.message_info.content)}</div>
+                                        <div class="col-md-2"><strong>类型:</strong> ${escapeHtml(data.message_info.message_type || '群聊消息')}</div>
+                                        <div class="col-md-3"><strong>群组ID:</strong> ${escapeHtml(data.message_info.group_id)}</div>
+                                        <div class="col-md-2"><strong>用户ID:</strong> ${escapeHtml(data.message_info.user_id)}</div>
+                                        <div class="col-md-2"><strong>时间:</strong> ${escapeHtml(data.message_info.timestamp)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // 显示回复结果
+                    if (data.replies && data.replies.length > 0) {
+                        html += `
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">插件回复 (共${data.replies.length}条)</h6>
+                                </div>
+                                <div class="card-body">
+                        `;
+                        
+                        data.replies.forEach((reply, index) => {
+                            html += `
+                                <div class="border rounded p-3 mb-3 bg-light">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <span class="badge bg-secondary">回复消息</span>
+                                        <small class="text-muted">#${index + 1}</small>
+                                    </div>
+                                    <div class="content sandbox-markdown">
+                                        ${reply.content ? renderMarkdown(reply.content) : '<em>(无内容)</em>'}
+                                        
+                                        ${reply.buttons && reply.buttons.content && Array.isArray(reply.buttons.content.rows) ? `
+                                            <div class="mt-3">
+                                                <small class="text-muted d-block mb-2">交互按钮:</small>
+                                                ${reply.buttons.content.rows.map(row => {
+                                                    if (row && row.buttons && Array.isArray(row.buttons)) {
+                                                        return `<div class="d-flex flex-wrap gap-2 mb-2">
+                                                            ${row.buttons.map(btn => {
+                                                                const buttonText = btn.render_data?.label || btn.action?.data || '';
+                                                                const buttonStyle = btn.render_data?.style || 0;
+                                                                const actionType = btn.action?.type || 2;
+                                                                
+                                                                // 根据样式设置按钮类
+                                                                let btnClass = 'btn btn-sm ';
+                                                                let iconClass = '';
+                                                                
+                                                                switch(buttonStyle) {
+                                                                    case 0: btnClass += 'btn-outline-secondary'; break;
+                                                                    case 1: btnClass += 'btn-outline-primary'; break;
+                                                                    case 2: btnClass += 'btn-outline-secondary'; break;
+                                                                    case 3: btnClass += 'btn-outline-danger'; break;
+                                                                    case 4: btnClass += 'btn-primary'; break;
+                                                                    default: btnClass += 'btn-outline-secondary'; break;
+                                                                }
+                                                                
+                                                                // 根据动作类型设置图标
+                                                                switch(actionType) {
+                                                                    case 0: iconClass = 'bi bi-box-arrow-up-right'; break; // 跳转
+                                                                    case 1: iconClass = 'bi bi-arrow-clockwise'; break; // 回调
+                                                                    case 2: iconClass = 'bi bi-cursor-text'; break; // 回车
+                                                                    default: iconClass = 'bi bi-gear'; break;
+                                                                }
+                                                                
+                                                                return `<button class="${btnClass}" disabled style="cursor: default;">
+                                                                    <i class="${iconClass}"></i> ${escapeHtml(buttonText)}
+                                                                </button>`;
+                                                            }).join('')}
+                                                        </div>`;
+                                                    }
+                                                    return '';
+                                                }).join('')}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                            `;
+                            
+                            // 显示媒体信息
+                            if (reply.media) {
+                                html += `
+                                    <div class="mt-2">
+                                        <small class="text-muted d-block mb-1">媒体附件:</small>
+                                        <span class="badge bg-info">包含媒体文件</span>
+                                    </div>
+                                `;
+                            }
+                            
+                            html += `</div>`;
+                        });
+                        
+                        html += `</div></div>`;
+                    } else {
+                        html += `
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i> 插件已处理消息，但没有返回任何回复内容
+                            </div>
+                        `;
+                    }
+                } else {
+                    // 显示错误信息
+                    html = `
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle"></i> 测试失败: ${escapeHtml(data.error || '未知错误')}
+                        </div>
+                    `;
+                    
+                    // 显示消息信息（如果有）
+                    if (data.message_info) {
+                        html += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">测试信息</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-3"><strong>消息内容:</strong> ${escapeHtml(data.message_info.content)}</div>
+                                        <div class="col-md-2"><strong>类型:</strong> ${escapeHtml(data.message_info.message_type || '群聊消息')}</div>
+                                        <div class="col-md-3"><strong>群组ID:</strong> ${escapeHtml(data.message_info.group_id)}</div>
+                                        <div class="col-md-2"><strong>用户ID:</strong> ${escapeHtml(data.message_info.user_id)}</div>
+                                        <div class="col-md-2"><strong>时间:</strong> ${escapeHtml(data.message_info.timestamp)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // 显示详细错误信息
+                    if (data.traceback) {
+                        html += `
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">错误详情</h6>
+                                </div>
+                                <div class="card-body">
+                                    <pre class="text-danger small" style="max-height: 300px; overflow-y: auto;">${escapeHtml(data.traceback)}</pre>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+                
+                sandboxResults.innerHTML = html;
+            }
+            
+            // HTML转义函数
+            function escapeHtml(text) {
+                if (typeof text !== 'string') return '';
+                const map = {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                };
+                return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+            }
+            
+            // 扩展的Markdown渲染函数
+            function renderMarkdown(text) {
+                if (typeof text !== 'string') return '';
+                
+                // 先转义HTML
+                let html = escapeHtml(text);
+                
+                // 处理代码块（包含语言标识）
+                html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
+                html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+                
+                // 处理删除线
+                html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+                
+                // 处理粗体和斜体
+                html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+                html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+                
+                // ⚠️ 重要：图片处理必须在链接处理之前，避免 ![text](url) 被误识别为链接
+                // 处理图片（客户端加载模式）
+                html = html.replace(/!\[([^\]]*)\]\(([^)]+?)(?:\s+"([^"]+)")?\)/g, function(match, alt, src, title) {
+                    const titleAttr = title ? ` title="${title}"` : '';
+                    return `<div class="image-placeholder-small">
+                        <i class="bi bi-image" style="font-size: 12px; color: #6c757d;"></i>
+                        <small class="text-muted" style="font-size: 11px;">图片: ${alt || '未命名图片'}</small>
+                        <a href="${src}" target="_blank" class="btn btn-outline-primary" style="font-size: 10px; padding: 1px 4px; margin-left: 4px;">
+                            <i class="bi bi-box-arrow-up-right"></i> 打开
+                        </a>
+                    </div>`;
+                });
+                
+                // 处理链接（支持title属性）
+                html = html.replace(/\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)/g, function(match, text, url, title) {
+                    const titleAttr = title ? ` title="${title}"` : '';
+                    return `<a href="${url}" target="_blank"${titleAttr} style="color: #007bff; text-decoration: none;">${text}</a>`;
+                });
+                
+                // 处理QQ特有语法
+                // 处理@用户：<@用户ID> 
+                html = html.replace(/<@(\d+)>/g, '<span class="qq-at-user">@$1</span>');
+                html = html.replace(/<@\{([^}]+)\}>/g, '<span class="qq-at-user">@$1</span>');
+                
+                // 处理QQ Bot交互组件：<qqbot-cmd-input text='xxx' show='xxx' />
+                html = html.replace(/<qqbot-cmd-input\s+text=['"]([^'"]+)['"]\s+show=['"]([^'"]+)['"]\s*\/>/g, 
+                    '$2(<span class="qq-cmd-text">$1</span>)');
+                
+                // 处理标题（支持更多级别）
+                html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+                html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+                html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+                html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+                
+                // 处理引用
+                html = html.replace(/^> (.+)$/gm, '<blockquote class="blockquote-custom">$1</blockquote>');
+                
+                // 处理分割线
+                html = html.replace(/^---$/gm, '<hr>');
+                html = html.replace(/^\*\*\*$/gm, '<hr>');
+                html = html.replace(/^___$/gm, '<hr>');
+                
+                // 处理有序列表
+                html = html.replace(/^(\d+)\. (.+)$/gm, '::OLI::$2::ENDOLI::');
+                html = html.replace(/(::OLI::.*?::ENDOLI::(\s*::OLI::.*?::ENDOLI::)*)/g, '<ol>$1</ol>');
+                html = html.replace(/::OLI::(.*?)::ENDOLI::/g, '<li>$1</li>');
+                
+                // 处理无序列表
+                html = html.replace(/^[\*\-\+] (.+)$/gm, '::ULI::$1::ENDULI::');
+                html = html.replace(/(::ULI::.*?::ENDULI::(\s*::ULI::.*?::ENDULI::)*)/g, '<ul>$1</ul>');
+                html = html.replace(/::ULI::(.*?)::ENDULI::/g, '<li>$1</li>');
+                
+                // 处理表格（简单支持）
+                html = html.replace(/\|(.+)\|/g, function(match, content) {
+                    const cells = content.split('|').map(cell => cell.trim());
+                    const cellElements = cells.map(cell => `<td>${cell}</td>`).join('');
+                    return `<tr>${cellElements}</tr>`;
+                });
+                html = html.replace(/(<tr>.*<\/tr>(\s*<tr>.*<\/tr>)*)/g, '<table class="table table-sm table-bordered">$1</table>');
+                
+                // 处理键盘按键
+                html = html.replace(/<kbd>([^<]+)<\/kbd>/g, '<kbd class="badge bg-secondary">$1</kbd>');
+                
+                // 处理换行（保留双换行为段落）
+                html = html.replace(/\n\n/g, '::PARAGRAPH::');
+                html = html.replace(/\n/g, '<br>');
+                html = html.replace(/::PARAGRAPH::/g, '</p><p>');
+                
+                // 包装段落
+                if (html.indexOf('<p>') === -1 && html.trim()) {
+                    html = '<p>' + html + '</p>';
+                }
+                
+                return html;
+            }
+            
+            // 机器人信息相关函数
+            
+            function loadRobotInfo() {
+                // 获取机器人信息
+                const apiUrl = `{{ prefix }}/api/robot_info`;
+                
+                fetch(apiUrl)
+                    .then(response => response.json())
+                    .then(data => {
+                        updateRobotInfo(data);
+                        
+                        // 显示数据来源信息
+                        if (data.data_source === 'api') {
+                            console.log('机器人信息加载成功（来自API）:', data);
+                        } else if (data.data_source === 'expired_cache') {
+                            console.log('机器人信息加载成功（来自过期缓存）:', data);
+                        } else {
+                            console.log('机器人信息加载成功，数据来源:', data.data_source);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('获取机器人信息异常:', error);
+                        
+                        // 显示错误状态
+                        document.getElementById('robot-name').textContent = '网络错误';
+                        document.getElementById('robot-desc').textContent = '无法连接到服务器获取机器人信息';
+                        document.getElementById('robot-qq').textContent = '{{ ROBOT_QQ }}';
+                        document.getElementById('robot-appid').textContent = '{{ appid }}';
+                        document.getElementById('robot-type').textContent = '未知';
+                        document.getElementById('robot-developer').textContent = '未知';
+                        
+                        // 设置默认连接状态
+                        const connectionTypeEl = document.getElementById('connection-type');
+                        const connectionStatusEl = document.getElementById('connection-status');
+                        connectionTypeEl.textContent = window.websocketEnabled ? 'WebSocket' : 'WebHook';
+                        connectionTypeEl.className = window.websocketEnabled ? 'badge bg-success ms-2' : 'badge bg-primary ms-2';
+                        connectionStatusEl.textContent = window.websocketEnabled ? '检测中...' : '接收中';
+                        connectionStatusEl.className = window.websocketEnabled ? 'badge bg-warning' : 'badge bg-success';
+                    });
+            }
+            
+
+
+            
+            // 将updateRobotInfo也暴露到全局作用域
+            window.updateRobotInfo = function(data) {
+                // 统一的机器人信息更新函数
+                const connectionTypeEl = document.getElementById('connection-type');
+                const connectionStatusEl = document.getElementById('connection-status');
+                
+                // 更新全局WebSocket状态
+                window.websocketEnabled = data.connection_type === 'WebSocket';
+                
+                connectionTypeEl.textContent = data.connection_type;
+                if (data.connection_type === 'WebSocket') {
+                    connectionTypeEl.className = 'badge bg-success ms-2';
+                    // 显示实际的WebSocket连接状态
+                    connectionStatusEl.textContent = data.connection_status || '检测中...';
+                    if (data.connection_status === '连接中') {
+                        connectionStatusEl.className = 'badge bg-success';
+                    } else if (data.connection_status === '连接失败') {
+                        connectionStatusEl.className = 'badge bg-danger';
+                    } else {
+                        connectionStatusEl.className = 'badge bg-warning';
+                    }
+                } else {
+                    connectionTypeEl.className = 'badge bg-primary ms-2';
+                    connectionStatusEl.textContent = '接收中';
+                    connectionStatusEl.className = 'badge bg-success';
+                }
+                
+                if (data.success) {
+                    // 更新机器人基本信息
+                    document.getElementById('robot-name').textContent = data.name;
+                    // 处理介绍中的换行符，将\n转换为<br>标签
+                    document.getElementById('robot-desc').innerHTML = (data.description || '').replace(/\n/g, '<br>');
+                    document.getElementById('robot-qq').textContent = data.qq;
+                    document.getElementById('robot-appid').textContent = data.appid;
+                    document.getElementById('robot-type').textContent = data.type;
+                    document.getElementById('robot-developer').textContent = data.developer;
+                    
+                    // 更新机器人头像
+                    const avatarEl = document.getElementById('robot-avatar');
+                    if (data.avatar) {
+                        avatarEl.onerror = function() {
+                            console.warn('机器人头像加载失败，隐藏头像');
+                            this.style.display = 'none';
+                        };
+                        avatarEl.onload = function() {
+                            console.log('机器人头像加载成功');
+                        };
+                        avatarEl.src = data.avatar;
+                        avatarEl.style.display = 'block';
+                    }
+                    
+                    // 设置机器人链接
+                    const robotLinkEl = document.getElementById('robot-link');
+                    if (data.link) {
+                        robotLinkEl.href = data.link;
+                        robotLinkEl.style.display = 'inline';
+                    } else {
+                        robotLinkEl.href = '#';
+                        robotLinkEl.style.display = 'none';
+                    }
+                    
+                    // 显示数据来源提示
+                    if (data.warning) {
+                        console.warn('数据警告:', data.warning);
+                    }
+                } else {
+                    // 显示错误信息，但仍然显示基本配置信息
+                    document.getElementById('robot-name').textContent = data.name || '加载失败';
+                    // 错误情况下也要处理换行符
+                    document.getElementById('robot-desc').innerHTML = (data.description || '无法获取机器人信息').replace(/\n/g, '<br>');
+                    document.getElementById('robot-qq').textContent = data.qq || '{{ ROBOT_QQ }}';
+                    document.getElementById('robot-appid').textContent = data.appid || '{{ appid }}';
+                    document.getElementById('robot-type').textContent = data.type || '未知';
+                    document.getElementById('robot-developer').textContent = data.developer || '未知';
+                }
+            };
+            
+            // 为了向后兼容，在DOMContentLoaded内部也定义一个别名
+            function updateRobotInfo(data) {
+                window.updateRobotInfo(data);
+            }
+            
+            // 初始化沙盒测试功能
+            initSandbox();
+            
             // 初始化移动端导航
             setupMobileNavigation();
+            
+            // 加载机器人信息
+            loadRobotInfo();
         });
+        
+        // 全局函数定义 - 需要在HTML onclick中使用
+        window.refreshRobotInfo = function() {
+            // 显示加载状态
+            document.getElementById('robot-name').textContent = '刷新中...';
+            document.getElementById('robot-desc').innerHTML = '正在强制刷新机器人信息...';
+            
+            // 调用刷新API，强制更新缓存
+            const refreshUrl = `{{ prefix }}/api/robot_info/refresh`;
+            
+            fetch(refreshUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                // 刷新API直接返回新的机器人信息
+                if (window.updateRobotInfo) {
+                    window.updateRobotInfo(data);
+                } else {
+                    console.error('updateRobotInfo函数不可用，重新加载页面');
+                    location.reload();
+                }
+                
+                if (data.data_source === 'api') {
+                    console.log('机器人信息已强制刷新，获取最新数据');
+                } else {
+                    console.log('刷新完成，数据来源:', data.data_source);
+                }
+            })
+            .catch(error => {
+                console.error('强制刷新失败，重新加载页面:', error);
+                location.reload();
+            });
+        };
+
+        // =====================
+        // 开放平台相关功能
+        // =====================
+        let openapi_login_check_interval = null;
+        let openapi_current_user_id = 'web_user';
+        
+        // 初始化开放平台功能
+        function initOpenAPI() {
+            // 检查登录状态
+            checkOpenAPILoginStatus();
+            
+                         // 绑定事件监听器
+             document.getElementById('openapi-start-login').addEventListener('click', startOpenAPILogin);
+             document.getElementById('openapi-logout').addEventListener('click', logoutOpenAPI);
+             document.getElementById('openapi-refresh-botlist').addEventListener('click', refreshBotList);
+             document.getElementById('openapi-get-notifications').addEventListener('click', getNotifications);
+             document.getElementById('openapi-get-templates').addEventListener('click', getTemplates);
+                          document.getElementById('openapi-close-data').addEventListener('click', closeDataSection);
+             
+             // 模板导航按钮
+             document.getElementById('template-prev-btn').addEventListener('click', showPreviousTemplate);
+             document.getElementById('template-next-btn').addEventListener('click', showNextTemplate);
+        }
+        
+        // 检查登录状态
+        function checkOpenAPILoginStatus() {
+            // 首先验证保存的登录状态
+            fetch(`${URL_PREFIX}/openapi/verify_saved_login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: openapi_current_user_id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.valid) {
+                    // 保存的登录状态有效，直接加载
+                    console.log('使用保存的登录状态');
+                    showLoggedInState(data.data);
+                    loadBotList();
+                } else {
+                    // 保存的登录状态无效或不存在，检查当前登录状态
+                    console.log('保存的登录状态无效，检查当前状态');
+                    checkCurrentLoginStatus();
+                }
+            })
+            .catch(error => {
+                console.error('验证保存的登录状态失败:', error);
+                // 发生错误时，尝试检查当前登录状态
+                checkCurrentLoginStatus();
+            });
+        }
+        
+        // 检查当前登录状态（原来的逻辑）
+        function checkCurrentLoginStatus() {
+            fetch(`${URL_PREFIX}/openapi/get_login_status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: openapi_current_user_id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.logged_in) {
+                    showLoggedInState(data.data);
+                    loadBotList();
+                } else {
+                    showNotLoggedInState();
+                }
+            })
+            .catch(error => {
+                console.error('检查当前登录状态失败:', error);
+                showNotLoggedInState();
+            });
+        }
+        
+                 // 开始登录流程
+         function startOpenAPILogin() {
+             document.getElementById('openapi-start-login').disabled = true;
+             document.getElementById('openapi-login-progress').style.display = 'block';
+             document.getElementById('openapi-login-loading').style.display = 'block';
+             document.getElementById('openapi-qr-container').style.display = 'none';
+             
+             fetch(`${URL_PREFIX}/openapi/start_login`, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ user_id: openapi_current_user_id })
+             })
+             .then(response => response.json())
+             .then(data => {
+                 if (data.success) {
+                     // 生成二维码
+                     generateQRCode(data.login_url);
+                     
+                     // 设置登录链接按钮
+                     const loginUrlBtn = document.getElementById('openapi-login-url');
+                     loginUrlBtn.onclick = () => window.open(data.login_url, '_blank');
+                     
+                     // 开始轮询检查登录状态
+                     startLoginPolling();
+                 } else {
+                     alert('登录失败: ' + data.message);
+                     resetLoginUI();
+                 }
+             })
+             .catch(error => {
+                 console.error('开始登录失败:', error);
+                 alert('开始登录失败，请重试');
+                 resetLoginUI();
+             });
+         }
+         
+         // 生成二维码
+         function generateQRCode(loginUrl) {
+             const qrApiUrl = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(loginUrl)}`;
+             const qrImage = document.getElementById('openapi-qr-image');
+             
+             // 设置二维码图片
+             qrImage.onload = function() {
+                 // 图片加载成功，显示二维码容器，隐藏加载提示
+                 document.getElementById('openapi-login-loading').style.display = 'none';
+                 document.getElementById('openapi-qr-container').style.display = 'block';
+             };
+             
+             qrImage.onerror = function() {
+                 console.warn('二维码生成失败，使用备用方案');
+                 
+                 // 图片加载失败，显示错误提示和备用方案
+                 document.getElementById('openapi-login-loading').innerHTML = `
+                     <div class="alert alert-warning text-center">
+                         <i class="bi bi-exclamation-triangle"></i> 二维码生成失败<br>
+                         <small class="text-muted">请使用下方按钮打开登录页面</small>
+                     </div>
+                 `;
+                 
+                 // 修改二维码容器内容，只显示按钮和提示
+                 const cardBody = document.querySelector('#openapi-qr-container .card-body');
+                 if (cardBody) {
+                     cardBody.innerHTML = `
+                         <div class="text-center">
+                             <i class="bi bi-qr-code-scan" style="font-size: 4rem; color: #ddd; margin-bottom: 1rem;"></i>
+                             <p class="text-muted mb-3">二维码加载失败，请点击下方按钮手动打开登录页面</p>
+                             <button class="btn btn-primary" id="openapi-login-url-fallback">
+                                 <i class="bi bi-box-arrow-up-right"></i> 打开登录页面
+                             </button>
+                         </div>
+                     `;
+                     
+                     // 绑定备用按钮事件
+                     const fallbackBtn = document.getElementById('openapi-login-url-fallback');
+                     if (fallbackBtn) {
+                         fallbackBtn.onclick = function() {
+                             window.open(loginUrl, '_blank');
+                         };
+                     }
+                 }
+                 
+                 document.getElementById('openapi-login-loading').style.display = 'none';
+                 document.getElementById('openapi-qr-container').style.display = 'block';
+             };
+             
+             // 设置二维码加载超时（10秒）
+             const loadTimeout = setTimeout(() => {
+                 console.warn('二维码加载超时');
+                 qrImage.onerror();
+             }, 10000);
+             
+             // 成功加载时清除超时
+             const originalOnload = qrImage.onload;
+             qrImage.onload = function() {
+                 clearTimeout(loadTimeout);
+                 originalOnload.call(this);
+             };
+             
+             // 错误时也清除超时
+             const originalOnerror = qrImage.onerror;
+             qrImage.onerror = function() {
+                 clearTimeout(loadTimeout);
+                 originalOnerror.call(this);
+             };
+             
+             qrImage.src = qrApiUrl;
+         }
+        
+        // 开始轮询登录状态
+        function startLoginPolling() {
+            let attempts = 0;
+            const maxAttempts = 20; // 最多检查20次，约1分钟
+            
+            openapi_login_check_interval = setInterval(() => {
+                attempts++;
+                
+                fetch(`${URL_PREFIX}/openapi/check_login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: openapi_current_user_id })
+                })
+                .then(response => response.json())
+                .then(data => {
+                                         if (data.success && data.status === 'logged_in') {
+                         // 登录成功
+                         clearInterval(openapi_login_check_interval);
+                         resetLoginUI(); // 先重置UI
+                         showLoggedInState(data.data);
+                         loadBotList();
+                         
+                         // 显示成功提示
+                         const successToast = document.createElement('div');
+                         successToast.className = 'alert alert-success alert-dismissible fade show position-fixed';
+                         successToast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+                         successToast.innerHTML = `
+                             <i class="bi bi-check-circle-fill"></i> 开放平台登录成功！
+                             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                         `;
+                         document.body.appendChild(successToast);
+                         
+                         // 3秒后自动移除提示
+                         setTimeout(() => {
+                             if (successToast.parentNode) {
+                                 successToast.parentNode.removeChild(successToast);
+                             }
+                         }, 3000);
+                     } else if (data.status === 'error' || attempts >= maxAttempts) {
+                        // 登录失败或超时
+                        clearInterval(openapi_login_check_interval);
+                        alert(data.message || '登录超时，请重试');
+                        resetLoginUI();
+                    }
+                    // status === 'waiting' 时继续等待
+                })
+                .catch(error => {
+                    console.error('检查登录状态失败:', error);
+                    clearInterval(openapi_login_check_interval);
+                    resetLoginUI();
+                });
+            }, 3000); // 每3秒检查一次
+        }
+        
+                 // 显示已登录状态
+         function showLoggedInState(userData) {
+             document.getElementById('openapi-not-logged-in').style.display = 'none';
+             document.getElementById('openapi-logged-in').style.display = 'block';
+             document.getElementById('openapi-main-content').style.display = 'block';
+             
+             document.getElementById('openapi-uin').textContent = userData.uin || '-';
+             document.getElementById('openapi-app-type').textContent = userData.appType || '-';
+         }
+        
+        // 显示未登录状态
+        function showNotLoggedInState() {
+            document.getElementById('openapi-not-logged-in').style.display = 'block';
+            document.getElementById('openapi-logged-in').style.display = 'none';
+            document.getElementById('openapi-main-content').style.display = 'none';
+            document.getElementById('openapi-data-section').style.display = 'none';
+            resetLoginUI();
+        }
+        
+                 // 重置登录UI
+         function resetLoginUI() {
+             document.getElementById('openapi-start-login').disabled = false;
+             document.getElementById('openapi-login-progress').style.display = 'none';
+             document.getElementById('openapi-login-loading').style.display = 'block';
+             document.getElementById('openapi-qr-container').style.display = 'none';
+             
+             // 重置加载提示内容
+             document.getElementById('openapi-login-loading').innerHTML = `
+                 <div class="spinner-border text-primary mb-2" role="status">
+                     <span class="visually-hidden">生成二维码中...</span>
+                 </div>
+                 <p class="text-muted mb-2">正在生成登录二维码...</p>
+             `;
+             
+             // 重置二维码图片
+             const qrImage = document.getElementById('openapi-qr-image');
+             qrImage.src = '';
+             qrImage.style.display = 'block';
+             qrImage.onload = null;
+             qrImage.onerror = null;
+             
+             if (openapi_login_check_interval) {
+                 clearInterval(openapi_login_check_interval);
+                 openapi_login_check_interval = null;
+             }
+         }
+        
+                 // 登出
+         function logoutOpenAPI() {
+             if (confirm('确定要退出登录吗？这将清除保存的登录信息。')) {
+                 // 清除服务器端保存的数据
+                 fetch(`${URL_PREFIX}/openapi/logout`, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ user_id: openapi_current_user_id })
+                 })
+                 .then(response => response.json())
+                 .then(data => {
+                     console.log('登出结果:', data.message || '已登出');
+                     showNotLoggedInState();
+                 })
+                 .catch(error => {
+                     console.error('登出失败:', error);
+                     // 即使请求失败也显示未登录状态
+                     showNotLoggedInState();
+                 });
+             }
+         }
+        
+        // 加载机器人列表
+        function loadBotList() {
+            document.getElementById('openapi-botlist-loading').style.display = 'block';
+            document.getElementById('openapi-botlist-container').style.display = 'none';
+            
+            fetch(`${URL_PREFIX}/openapi/get_botlist`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: openapi_current_user_id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayBotList(data.data);
+                } else {
+                    alert('获取机器人列表失败: ' + data.message);
+                    if (data.message.includes('登录状态失效')) {
+                        showNotLoggedInState();
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('获取机器人列表失败:', error);
+                alert('获取机器人列表失败，请重试');
+            })
+            .finally(() => {
+                document.getElementById('openapi-botlist-loading').style.display = 'none';
+            });
+        }
+        
+                 // 显示机器人列表
+         function displayBotList(data) {
+             const tbody = document.getElementById('openapi-botlist-table');
+             tbody.innerHTML = '';
+             
+             data.apps.forEach(app => {
+                 const row = document.createElement('tr');
+                 
+                 row.innerHTML = `
+                     <td>
+                         <strong>${app.app_name || '未命名'}</strong>
+                         <br><small class="text-muted">${app.app_desc || '无描述'}</small>
+                     </td>
+                     <td><code>${app.app_id}</code></td>
+                     <td>
+                         <button class="btn btn-outline-primary btn-sm" onclick="getBotData('${app.app_id}')">
+                             <i class="bi bi-graph-up"></i> 查看数据
+                         </button>
+                     </td>
+                 `;
+                 tbody.appendChild(row);
+             });
+             
+             document.getElementById('openapi-botlist-container').style.display = 'block';
+         }
+        
+        // 刷新机器人列表
+        function refreshBotList() {
+            loadBotList();
+        }
+        
+                 // 获取机器人数据
+         function getBotData(appid) {
+             // 固定查询30天
+             const days = 30;
+             
+             document.getElementById('openapi-data-section').style.display = 'block';
+             document.getElementById('openapi-data-loading').style.display = 'block';
+             document.getElementById('openapi-data-table-container').style.display = 'none';
+             document.getElementById('openapi-notifications-container').style.display = 'none';
+             
+             document.getElementById('openapi-data-title').innerHTML = `<i class="bi bi-table"></i> 机器人数据 - ${appid}`;
+             
+             fetch(`${URL_PREFIX}/openapi/get_botdata`, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ 
+                     user_id: openapi_current_user_id,
+                     appid: appid,
+                     days: days
+                 })
+             })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayBotData(data.data);
+                } else {
+                    alert('获取机器人数据失败: ' + data.message);
+                    if (data.message.includes('登录状态失效')) {
+                        showNotLoggedInState();
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('获取机器人数据失败:', error);
+                alert('获取机器人数据失败，请重试');
+            })
+            .finally(() => {
+                document.getElementById('openapi-data-loading').style.display = 'none';
+            });
+        }
+        
+                 // 显示机器人数据
+         function displayBotData(data) {
+             // 存储数据到隐藏元素
+             document.getElementById('openapi-data-appid').textContent = data.appid;
+             document.getElementById('openapi-data-avg-dau').textContent = data.avg_dau;
+             
+             // 更新表格中的平均DAU显示
+             document.getElementById('openapi-avg-dau-display').textContent = Number(data.avg_dau).toLocaleString('zh-CN');
+            
+            // 更新数据表格
+            const tbody = document.getElementById('openapi-data-table');
+            tbody.innerHTML = '';
+            
+            data.days_data.forEach(dayData => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>${dayData.date}</strong></td>
+                    <td>${Number(dayData.up_messages).toLocaleString('zh-CN')}</td>
+                    <td><span class="badge bg-primary">${Number(dayData.up_users).toLocaleString('zh-CN')}</span></td>
+                    <td>${Number(dayData.down_messages).toLocaleString('zh-CN')}</td>
+                    <td><strong>${Number(dayData.total_messages).toLocaleString('zh-CN')}</strong></td>
+                    <td>
+                        <span class="text-success">+${Number(dayData.new_groups).toLocaleString('zh-CN')}</span> / 
+                        <span class="text-info">${Number(dayData.current_groups).toLocaleString('zh-CN')}</span>
+                    </td>
+                    <td>
+                        <span class="text-success">+${Number(dayData.new_friends).toLocaleString('zh-CN')}</span> / 
+                        <span class="text-info">${Number(dayData.current_friends).toLocaleString('zh-CN')}</span>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('openapi-data-table-container').style.display = 'block';
+        }
+        
+        // 获取通知消息
+        function getNotifications() {
+                         document.getElementById('openapi-data-section').style.display = 'block';
+             document.getElementById('openapi-data-loading').style.display = 'block';
+             document.getElementById('openapi-data-table-container').style.display = 'none';
+             document.getElementById('openapi-notifications-container').style.display = 'none';
+            
+            document.getElementById('openapi-data-title').innerHTML = `<i class="bi bi-bell"></i> 通知消息`;
+            
+            fetch(`${URL_PREFIX}/openapi/get_notifications`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: openapi_current_user_id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayNotifications(data.data);
+                } else {
+                    alert('获取通知失败: ' + data.message);
+                    if (data.message.includes('登录状态失效')) {
+                        showNotLoggedInState();
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('获取通知失败:', error);
+                alert('获取通知失败，请重试');
+            })
+            .finally(() => {
+                document.getElementById('openapi-data-loading').style.display = 'none';
+            });
+        }
+        
+        // 显示通知消息
+        function displayNotifications(data) {
+            const tbody = document.getElementById('openapi-notifications-table');
+            tbody.innerHTML = '';
+            
+            if (data.messages.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">暂无通知消息</td></tr>';
+            } else {
+                data.messages.forEach(msg => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td><small>${msg.send_time || '-'}</small></td>
+                        <td><strong>${msg.title || '-'}</strong></td>
+                        <td style="max-width: 300px; word-break: break-word;">${msg.content || '-'}</td>
+                        <td><span class="badge bg-secondary">${msg.type || '-'}</span></td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+            
+            document.getElementById('openapi-notifications-container').style.display = 'block';
+        }
+        
+        
+        
+        // 关闭数据展示区域
+        function closeDataSection() {
+            document.getElementById('openapi-data-section').style.display = 'none';
+        }
+        
+        // 模板相关变量
+        let currentTemplates = [];
+        let currentTemplateIndex = -1;
+        
+        // 获取模板列表
+        function getTemplates() {
+            // 隐藏其他区域
+            document.getElementById('openapi-data-table-container').style.display = 'none';
+            document.getElementById('openapi-notifications-container').style.display = 'none';
+            document.getElementById('openapi-template-detail').style.display = 'none';
+            
+            // 更新标题
+            document.getElementById('openapi-data-title').innerHTML = '<i class="bi bi-layout-text-sidebar-reverse"></i> 模板列表';
+            
+            // 显示数据区域和加载状态
+            document.getElementById('openapi-data-section').style.display = 'block';
+            document.getElementById('openapi-data-loading').style.display = 'block';
+            
+            fetch(`${URL_PREFIX}/openapi/get_templates`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: openapi_current_user_id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('openapi-data-loading').style.display = 'none';
+                
+                if (data.success) {
+                    currentTemplates = data.data.templates;
+                    displayTemplates(data.data.templates);
+                } else {
+                    showToast('error', `获取模板列表失败: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                document.getElementById('openapi-data-loading').style.display = 'none';
+                showToast('error', `获取模板列表失败: ${error.message}`);
+            });
+        }
+        
+        // 显示模板列表
+        function displayTemplates(templates) {
+            const tbody = document.getElementById('openapi-templates-table');
+            tbody.innerHTML = '';
+            
+            if (templates.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td colspan="4" class="text-center text-muted">暂无模板</td>
+                `;
+                tbody.appendChild(row);
+            } else {
+                templates.forEach((template, index) => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td style="max-width: 200px; word-break: break-word;">
+                            <strong>${template.name}</strong>
+                            <br><small class="text-muted">ID: ${template.id}</small>
+                        </td>
+                        <td><span class="badge ${template.type === '按钮模板' ? 'bg-info' : 'bg-secondary'}">${template.type}</span></td>
+                        <td><span class="badge ${getStatusBadgeClass(template.status)}">${template.status}</span></td>
+                        <td>
+                            <button class="btn btn-outline-primary btn-sm" onclick="viewTemplateDetail(${index})">
+                                <i class="bi bi-eye"></i> 查看
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+            
+            document.getElementById('openapi-templates-container').style.display = 'block';
+        }
+        
+        // 获取状态徽章样式
+        function getStatusBadgeClass(status) {
+            switch (status) {
+                case '审核通过': return 'bg-success';
+                case '未通过': return 'bg-danger';
+                case '审核中': return 'bg-primary';
+                case '未提审': return 'bg-warning';
+                default: return 'bg-secondary';
+            }
+        }
+        
+        // 查看模板详情
+        function viewTemplateDetail(index) {
+            if (index < 0 || index >= currentTemplates.length) return;
+            
+            currentTemplateIndex = index;
+            const template = currentTemplates[index];
+            
+            // 更新模板详情
+            document.getElementById('template-detail-index').textContent = `${index + 1}/${currentTemplates.length}`;
+            document.getElementById('template-detail-id').textContent = template.id;
+            document.getElementById('template-detail-name').textContent = template.name;
+            document.getElementById('template-detail-type').innerHTML = `<span class="badge ${template.type === '按钮模板' ? 'bg-info' : 'bg-secondary'}">${template.type}</span>`;
+            document.getElementById('template-detail-status').innerHTML = `<span class="badge ${getStatusBadgeClass(template.status)}">${template.status}</span>`;
+            document.getElementById('template-detail-create-time').textContent = template.create_time || '-';
+            document.getElementById('template-detail-content').textContent = template.content;
+            
+            // 更新导航按钮
+            const prevBtn = document.getElementById('template-prev-btn');
+            const nextBtn = document.getElementById('template-next-btn');
+            
+            if (index > 0) {
+                prevBtn.style.display = 'inline-block';
+            } else {
+                prevBtn.style.display = 'none';
+            }
+            
+            if (index < currentTemplates.length - 1) {
+                nextBtn.style.display = 'inline-block';
+            } else {
+                nextBtn.style.display = 'none';
+            }
+            
+            // 如果是按钮模板，尝试渲染按钮预览
+            if (template.type === '按钮模板') {
+                renderButtonPreview(template);
+            } else {
+                document.getElementById('template-button-preview').style.display = 'none';
+            }
+            
+            document.getElementById('openapi-template-detail').style.display = 'block';
+        }
+        
+        // 渲染按钮预览
+        function renderButtonPreview(template) {
+            try {
+                let buttonData;
+                
+                // 尝试解析按钮数据
+                try {
+                    buttonData = JSON.parse(template.content);
+                } catch (e) {
+                    // 如果是@开头的格式
+                    if (template.content.startsWith('@')) {
+                        buttonData = JSON.parse(template.content.substring(1));
+                    } else {
+                        throw e;
+                    }
+                }
+                
+                const rows = buttonData.rows || [];
+                const buttonRowsContainer = document.getElementById('template-button-rows');
+                buttonRowsContainer.innerHTML = '';
+                
+                rows.slice(0, 5).forEach((row, rowIndex) => {
+                    const buttons = row.buttons || [];
+                    if (buttons.length === 0) return;
+                    
+                    const rowDiv = document.createElement('div');
+                    rowDiv.className = 'mb-2 d-flex gap-2 flex-wrap';
+                    
+                    buttons.slice(0, 5).forEach(button => {
+                        const renderData = button.render_data || {};
+                        const action = button.action || {};
+                        
+                        const btnElement = document.createElement('button');
+                        btnElement.className = `btn btn-sm ${getButtonStyleClass(renderData.style || 0)}`;
+                        btnElement.textContent = renderData.label || 'Button';
+                        btnElement.disabled = true;
+                        btnElement.style.minWidth = '80px';
+                        
+                        // 添加类型图标
+                        const actionType = action.type || 2;
+                        let icon = '';
+                        if (actionType === 0) {
+                            icon = '<i class="bi bi-box-arrow-up-right"></i> ';
+                        } else if (actionType === 1) {
+                            icon = '<i class="bi bi-arrow-clockwise"></i> ';
+                        }
+                        
+                        btnElement.innerHTML = icon + btnElement.textContent;
+                        rowDiv.appendChild(btnElement);
+                    });
+                    
+                    buttonRowsContainer.appendChild(rowDiv);
+                });
+                
+                document.getElementById('template-button-preview').style.display = 'block';
+                
+            } catch (error) {
+                console.error('按钮预览渲染失败:', error);
+                document.getElementById('template-button-preview').style.display = 'none';
+            }
+        }
+        
+        // 获取按钮样式类
+        function getButtonStyleClass(style) {
+            switch (style) {
+                case 0: return 'btn-outline-dark';
+                case 1: return 'btn-outline-primary';
+                case 2: return 'btn-outline-secondary';
+                case 3: return 'btn-outline-danger';
+                case 4: return 'btn-primary';
+                default: return 'btn-outline-dark';
+            }
+        }
+        
+        // 显示上一个模板
+        function showPreviousTemplate() {
+            if (currentTemplateIndex > 0) {
+                viewTemplateDetail(currentTemplateIndex - 1);
+            }
+        }
+        
+        // 显示下一个模板
+        function showNextTemplate() {
+            if (currentTemplateIndex < currentTemplates.length - 1) {
+                viewTemplateDetail(currentTemplateIndex + 1);
+            }
+        }
+
+
     </script>
 </body>
 </html> 

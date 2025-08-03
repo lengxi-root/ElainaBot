@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     "MAX_CONNECTIONS": 200,         # 最大连接数
     "MAX_KEEPALIVE": 75,            # 保持活动的最大连接数 
     "KEEPALIVE_EXPIRY": 30.0,       # 连接保持活动的时间(秒)
-    "TIMEOUT": 20.0,                # 请求超时时间(秒)
+    "TIMEOUT": 30.0,                # 请求超时时间(秒)
     "VERIFY_SSL": False,            # 是否验证SSL证书
     "REBUILD_INTERVAL": 43200       # 客户端重建间隔(秒)，12小时
 }

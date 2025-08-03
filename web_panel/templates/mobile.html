@@ -8,6 +8,10 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        // 全局配置将由后端API提供
+        window.websocketEnabled = false; // 将由API更新
+    </script>
     <style>
         /* 基础样式 */
         * {
@@ -230,6 +234,71 @@
             font-size: 16px;
             font-weight: 600;
             color: #333;
+        }
+        
+        /* 机器人信息卡片 */
+        .mobile-robot-card {
+            background: linear-gradient(135deg, #4361ee 0%, #3f37c9 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 20px rgba(67, 97, 238, 0.15);
+        }
+        
+        .mobile-robot-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .mobile-robot-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 2px solid white;
+            margin-right: 15px;
+            object-fit: cover;
+        }
+        
+        .mobile-robot-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .mobile-robot-desc {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 15px;
+            line-height: 1.4;
+        }
+        
+        .mobile-robot-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 12px;
+        }
+        
+        .mobile-robot-info-item {
+            display: flex;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .mobile-robot-info-item i {
+            margin-right: 6px;
+            width: 16px;
+        }
+        
+        .mobile-robot-badge {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-left: 5px;
         }
         
         /* 系统信息卡片 */
@@ -812,6 +881,132 @@
                 height: 180px !important;
             }
         }
+        
+        /* 沙盒测试专用样式 */
+        .sandbox-markdown {
+            line-height: 1.6;
+        }
+        
+        .sandbox-markdown pre {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 8px;
+            margin: 6px 0;
+            overflow-x: auto;
+            font-size: 11px;
+        }
+        
+        .sandbox-markdown code {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-size: 11px;
+            color: #e83e8c;
+        }
+        
+        .sandbox-markdown pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            color: #333;
+        }
+        
+        .sandbox-markdown h1, .sandbox-markdown h2, .sandbox-markdown h3 {
+            margin: 12px 0 6px 0;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .sandbox-markdown h1 { font-size: 16px; }
+        .sandbox-markdown h2 { font-size: 15px; }
+        .sandbox-markdown h3 { font-size: 14px; }
+        
+        .sandbox-markdown ul {
+            margin: 6px 0;
+            padding-left: 16px;
+        }
+        
+        .sandbox-markdown li {
+            margin: 2px 0;
+        }
+        
+        .sandbox-markdown .image-placeholder-small {
+            display: inline-block;
+            border: 1px dashed #dee2e6;
+            border-radius: 2px;
+            padding: 2px 4px;
+            margin: 1px 0;
+            background: #f8f9fa;
+            vertical-align: middle;
+        }
+        
+        .sandbox-markdown a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        
+        .sandbox-markdown a:hover {
+            text-decoration: underline;
+        }
+        
+        .sandbox-markdown .blockquote-custom {
+            border-left: 3px solid #007bff;
+            padding-left: 8px;
+            margin: 8px 0;
+            background: #f8f9fa;
+            font-style: italic;
+            font-size: 12px;
+            opacity: 0.7;
+            color: #6c757d;
+        }
+        
+        .sandbox-markdown del {
+            color: #6c757d;
+            text-decoration: line-through;
+        }
+        
+        .sandbox-markdown hr {
+            border: none;
+            border-top: 1px solid #e9ecef;
+            margin: 12px 0;
+        }
+        
+        .sandbox-markdown table {
+            margin: 8px 0;
+            font-size: 10px;
+        }
+        
+        .sandbox-markdown kbd {
+            font-size: 9px;
+            padding: 1px 3px;
+        }
+        
+        .sandbox-markdown ol, .sandbox-markdown ul {
+            margin: 6px 0;
+            padding-left: 16px;
+        }
+        
+        .sandbox-markdown h4 { 
+            font-size: 13px;
+            margin: 10px 0 4px 0;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        /* QQ特有语法样式 */
+        .sandbox-markdown .qq-at-user {
+            color: #007bff;
+            font-weight: 500;
+            font-size: 12px;
+        }
+        
+        .sandbox-markdown .qq-cmd-text {
+            color: #007bff;
+            font-weight: 500;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -859,6 +1054,47 @@
 
 
 
+            <!-- 机器人信息卡片 -->
+            <div class="mobile-robot-card">
+                <div class="mobile-robot-header">
+                    <img id="mobile-robot-avatar" src="" alt="机器人头像" class="mobile-robot-avatar" style="display: none;">
+                    <div>
+                        <div class="mobile-robot-name" id="mobile-robot-name">加载中...</div>
+                        <div>
+                            <span id="mobile-connection-type" class="mobile-robot-badge">WebHook</span>
+                            <span id="mobile-connection-status" class="mobile-robot-badge">检测中...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mobile-robot-desc" id="mobile-robot-desc">正在获取机器人信息...</div>
+                <div class="mobile-robot-info">
+                    <div class="mobile-robot-info-item">
+                        <i class="bi bi-hash"></i>
+                        QQ: <span id="mobile-robot-qq">{{ ROBOT_QQ }}</span>
+                    </div>
+                    <div class="mobile-robot-info-item">
+                        <i class="bi bi-key"></i>
+                        ID: <span id="mobile-robot-appid">{{ appid }}</span>
+                    </div>
+                    <div class="mobile-robot-info-item">
+                        <i class="bi bi-tag"></i>
+                        类型: <span id="mobile-robot-type">-</span>
+                    </div>
+                    <div class="mobile-robot-info-item">
+                        <i class="bi bi-person"></i>
+                        开发者: <span id="mobile-robot-developer">-</span>
+                    </div>
+                </div>
+                <div class="text-center mt-3">
+                    <a id="mobile-robot-link" href="#" target="_blank" class="btn btn-outline-light btn-sm me-2">
+                        <i class="bi bi-link-45deg"></i> 机器人链接
+                    </a>
+                    <button onclick="refreshMobileRobotInfo()" class="btn btn-outline-light btn-sm">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                </div>
+            </div>
+            
             <!-- 系统性能卡片 -->
             <div class="dashboard-card">
                 <h6 style="margin-bottom: 15px; color: #333;">
@@ -1123,6 +1359,82 @@
             </div>
         </div>
     </div>
+    
+    <!-- 沙盒测试页面 -->
+    <div class="page-section" id="mobile-sandbox-section">
+        <div class="mobile-content">
+            <!-- 页面标题 -->
+            <div class="dashboard-card">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">沙盒测试</h5>
+                    <i class="bi bi-play-circle text-primary"></i>
+                </div>
+                <p class="text-muted small mb-0">在此测试插件功能，无需真实消息</p>
+            </div>
+            
+            <!-- 测试配置 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-gear-fill"></i> 测试配置
+                </h6>
+                <form id="mobile-sandbox-form">
+                    <div class="mb-3">
+                        <label for="mobile-sandbox-message" class="form-label">消息内容 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="mobile-sandbox-message" rows="3" placeholder="输入要测试的消息内容，如：菜单、签到、今日运势等"></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label for="mobile-sandbox-group" class="form-label">群组ID <small class="text-muted">(可留空)</small></label>
+                                <input type="text" class="form-control" id="mobile-sandbox-group" placeholder="群聊时填写" value="">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label for="mobile-sandbox-user" class="form-label">用户ID <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="mobile-sandbox-user" placeholder="987654321" value="987654321">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-play-circle"></i> 开始测试
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="mobile-sandbox-clear">
+                            <i class="bi bi-arrow-clockwise"></i> 清空结果
+                        </button>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- 使用说明 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-info-circle-fill"></i> 使用说明
+                </h6>
+                <div class="small text-muted">
+                    <p><strong>消息类型：</strong></p>
+                    <ul class="mb-0">
+                        <li><strong>群聊：</strong> 需群组ID+用户ID</li>
+                        <li><strong>私聊：</strong> 只需用户ID</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- 测试结果 -->
+            <div class="dashboard-card">
+                <h6 style="margin-bottom: 15px; color: #333;">
+                    <i class="bi bi-clipboard-data-fill"></i> 测试结果
+                </h6>
+                <div id="mobile-sandbox-results">
+                    <div class="empty-results text-center text-muted py-4">
+                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                        <p>尚未进行测试，请配置参数后点击"开始测试"</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     </div>
 
     <!-- 底部导航 -->
@@ -1143,6 +1455,10 @@
             <a href="#" class="nav-item" data-section="statistics">
                 <i class="bi bi-bar-chart-fill"></i>
                 <span>统计</span>
+            </a>
+            <a href="#" class="nav-item" data-section="sandbox">
+                <i class="bi bi-play-circle"></i>
+                <span>沙盒</span>
             </a>
         </div>
     </div>
@@ -2477,7 +2793,539 @@
             setTimeout(() => {
                 switchLogTab('received');
             }, 1000);
+            
+            // =====================
+            // 沙盒测试功能 (Mobile)
+            // =====================
+            function initMobileSandbox() {
+                const sandboxForm = document.getElementById('mobile-sandbox-form');
+                const sandboxMessage = document.getElementById('mobile-sandbox-message');
+                const sandboxGroup = document.getElementById('mobile-sandbox-group');
+                const sandboxUser = document.getElementById('mobile-sandbox-user');
+                const sandboxResults = document.getElementById('mobile-sandbox-results');
+                const sandboxClear = document.getElementById('mobile-sandbox-clear');
+                
+                // 移除快速配置功能
+                
+                // 清空结果
+                sandboxClear.addEventListener('click', function() {
+                    sandboxResults.innerHTML = `
+                        <div class="empty-results text-center text-muted py-4">
+                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                            <p>尚未进行测试，请配置参数后点击"开始测试"</p>
+                        </div>
+                    `;
+                });
+                
+                // 表单提交
+                sandboxForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    const message = sandboxMessage.value.trim();
+                    const groupId = sandboxGroup.value.trim();
+                    const userId = sandboxUser.value.trim();
+                    
+                    if (!message) {
+                        alert('请输入消息内容');
+                        return;
+                    }
+                    if (!userId) {
+                        alert('请输入用户ID');
+                        return;
+                    }
+                    // 群组ID可以为空（私聊模式）
+                    
+                    // 显示加载状态
+                    sandboxResults.innerHTML = `
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">测试中...</span>
+                            </div>
+                            <p class="mt-2 text-muted">正在处理消息，请稍候...</p>
+                        </div>
+                    `;
+                    
+                    // 获取token
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const token = urlParams.get('token');
+                    
+                    if (!token) {
+                        sandboxResults.innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle"></i> 未找到访问token
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    // 发送测试请求
+                    fetch(`${URL_PREFIX}/api/sandbox/test?token=${encodeURIComponent(token)}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            group_id: groupId,
+                            user_id: userId
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        displayMobileSandboxResults(data);
+                    })
+                    .catch(error => {
+                        console.error('沙盒测试错误:', error);
+                        sandboxResults.innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle"></i> 测试请求失败: ${error.message}
+                            </div>
+                        `;
+                    });
+                });
+            }
+            
+            // 显示移动端沙盒测试结果
+            function displayMobileSandboxResults(data) {
+                const sandboxResults = document.getElementById('mobile-sandbox-results');
+                let html; // 在函数开头声明html变量
+                
+                if (data.success) {
+                    html = `
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle"></i> 测试完成！插件正常响应
+                        </div>
+                    `;
+                    
+                    // 显示消息信息
+                    if (data.message_info) {
+                        html += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">测试信息</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-2"><strong>消息:</strong> ${escapeHtml(data.message_info.content)}</div>
+                                    <div class="mb-2"><strong>类型:</strong> ${escapeHtml(data.message_info.message_type || '群聊消息')}</div>
+                                    <div class="mb-2"><strong>群组ID:</strong> ${escapeHtml(data.message_info.group_id)}</div>
+                                    <div class="mb-2"><strong>用户ID:</strong> ${escapeHtml(data.message_info.user_id)}</div>
+                                    <div><strong>时间:</strong> ${escapeHtml(data.message_info.timestamp)}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // 显示回复结果
+                    if (data.replies && data.replies.length > 0) {
+                        html += `
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">插件回复 (共${data.replies.length}条)</h6>
+                                </div>
+                                <div class="card-body">
+                        `;
+                        
+                        data.replies.forEach((reply, index) => {
+                            html += `
+                                <div class="border rounded p-2 mb-2 bg-light">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="badge bg-secondary">回复消息</span>
+                                        <small class="text-muted">#${index + 1}</small>
+                                    </div>
+                                    <div class="content small sandbox-markdown">
+                                        ${reply.content ? renderMarkdown(reply.content) : '<em>(无内容)</em>'}
+                                        
+                                        ${reply.buttons && reply.buttons.content && Array.isArray(reply.buttons.content.rows) ? `
+                                            <div class="mt-2">
+                                                <small class="text-muted d-block mb-1">交互按钮:</small>
+                                                ${reply.buttons.content.rows.map(row => {
+                                                    if (row && row.buttons && Array.isArray(row.buttons)) {
+                                                        return `<div class="d-flex flex-wrap gap-1 mb-1">
+                                                            ${row.buttons.map(btn => {
+                                                                const buttonText = btn.render_data?.label || btn.action?.data || '';
+                                                                const buttonStyle = btn.render_data?.style || 0;
+                                                                const actionType = btn.action?.type || 2;
+                                                                
+                                                                // 根据样式设置按钮类
+                                                                let btnClass = 'btn btn-sm ';
+                                                                let iconClass = '';
+                                                                
+                                                                switch(buttonStyle) {
+                                                                    case 0: btnClass += 'btn-outline-secondary'; break;
+                                                                    case 1: btnClass += 'btn-outline-primary'; break;
+                                                                    case 2: btnClass += 'btn-outline-secondary'; break;
+                                                                    case 3: btnClass += 'btn-outline-danger'; break;
+                                                                    case 4: btnClass += 'btn-primary'; break;
+                                                                    default: btnClass += 'btn-outline-secondary'; break;
+                                                                }
+                                                                
+                                                                // 根据动作类型设置图标
+                                                                switch(actionType) {
+                                                                    case 0: iconClass = 'bi bi-box-arrow-up-right'; break; // 跳转
+                                                                    case 1: iconClass = 'bi bi-arrow-clockwise'; break; // 回调
+                                                                    case 2: iconClass = 'bi bi-cursor-text'; break; // 回车
+                                                                    default: iconClass = 'bi bi-gear'; break;
+                                                                }
+                                                                
+                                                                return `<button class="${btnClass}" disabled style="cursor: default; font-size: 11px;">
+                                                                    <i class="${iconClass}"></i> ${escapeHtml(buttonText)}
+                                                                </button>`;
+                                                            }).join('')}
+                                                        </div>`;
+                                                    }
+                                                    return '';
+                                                }).join('')}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                            `;
+                            
+                            // 显示媒体信息
+                            if (reply.media) {
+                                html += `
+                                    <div class="mt-1">
+                                        <small class="text-muted d-block mb-1">媒体:</small>
+                                        <span class="badge bg-info small">包含媒体</span>
+                                    </div>
+                                `;
+                            }
+                            
+                            html += `</div>`;
+                        });
+                        
+                        html += `</div></div>`;
+                    } else {
+                        html += `
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i> 插件已处理消息，但没有返回任何回复内容
+                            </div>
+                        `;
+                    }
+                } else {
+                    // 显示错误信息
+                    html = `
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle"></i> 测试失败: ${escapeHtml(data.error || '未知错误')}
+                        </div>
+                    `;
+                    
+                    // 显示消息信息（如果有）
+                    if (data.message_info) {
+                        html += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">测试信息</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-2"><strong>消息:</strong> ${escapeHtml(data.message_info.content)}</div>
+                                    <div class="mb-2"><strong>类型:</strong> ${escapeHtml(data.message_info.message_type || '群聊消息')}</div>
+                                    <div class="mb-2"><strong>群组ID:</strong> ${escapeHtml(data.message_info.group_id)}</div>
+                                    <div class="mb-2"><strong>用户ID:</strong> ${escapeHtml(data.message_info.user_id)}</div>
+                                    <div><strong>时间:</strong> ${escapeHtml(data.message_info.timestamp)}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // 显示详细错误信息
+                    if (data.traceback) {
+                        html += `
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">错误详情</h6>
+                                </div>
+                                <div class="card-body">
+                                    <pre class="text-danger small" style="max-height: 200px; overflow-y: auto; font-size: 10px;">${escapeHtml(data.traceback)}</pre>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+                
+                sandboxResults.innerHTML = html;
+            }
+            
+            // HTML转义函数
+            function escapeHtml(text) {
+                if (typeof text !== 'string') return '';
+                const map = {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                };
+                return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+            }
+            
+            // 扩展的Markdown渲染函数
+            function renderMarkdown(text) {
+                if (typeof text !== 'string') return '';
+                
+                // 先转义HTML
+                let html = escapeHtml(text);
+                
+                // 处理代码块（包含语言标识）
+                html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
+                html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+                
+                // 处理删除线
+                html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+                
+                // 处理粗体和斜体
+                html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+                html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+                
+                // ⚠️ 重要：图片处理必须在链接处理之前，避免 ![text](url) 被误识别为链接
+                // 处理图片（客户端加载模式）
+                html = html.replace(/!\[([^\]]*)\]\(([^)]+?)(?:\s+"([^"]+)")?\)/g, function(match, alt, src, title) {
+                    const titleAttr = title ? ` title="${title}"` : '';
+                    return `<div class="image-placeholder-small">
+                        <i class="bi bi-image" style="font-size: 10px; color: #6c757d;"></i>
+                        <small class="text-muted" style="font-size: 9px;">图片: ${alt || '未命名图片'}</small>
+                        <a href="${src}" target="_blank" class="btn btn-outline-primary" style="font-size: 8px; padding: 1px 3px; margin-left: 3px;">
+                            <i class="bi bi-box-arrow-up-right"></i> 打开
+                        </a>
+                    </div>`;
+                });
+                
+                // 处理链接（支持title属性）
+                html = html.replace(/\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)/g, function(match, text, url, title) {
+                    const titleAttr = title ? ` title="${title}"` : '';
+                    return `<a href="${url}" target="_blank"${titleAttr} style="color: #007bff; text-decoration: none;">${text}</a>`;
+                });
+                
+                // 处理QQ特有语法
+                // 处理@用户：<@用户ID> 
+                html = html.replace(/<@(\d+)>/g, '<span class="qq-at-user">@$1</span>');
+                html = html.replace(/<@\{([^}]+)\}>/g, '<span class="qq-at-user">@$1</span>');
+                
+                // 处理QQ Bot交互组件：<qqbot-cmd-input text='xxx' show='xxx' />
+                html = html.replace(/<qqbot-cmd-input\s+text=['"]([^'"]+)['"]\s+show=['"]([^'"]+)['"]\s*\/>/g, 
+                    '$2(<span class="qq-cmd-text">$1</span>)');
+                
+                // 处理标题（支持更多级别）
+                html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+                html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+                html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+                html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+                
+                // 处理引用
+                html = html.replace(/^> (.+)$/gm, '<blockquote class="blockquote-custom">$1</blockquote>');
+                
+                // 处理分割线
+                html = html.replace(/^---$/gm, '<hr>');
+                html = html.replace(/^\*\*\*$/gm, '<hr>');
+                html = html.replace(/^___$/gm, '<hr>');
+                
+                // 处理有序列表
+                html = html.replace(/^(\d+)\. (.+)$/gm, '::OLI::$2::ENDOLI::');
+                html = html.replace(/(::OLI::.*?::ENDOLI::(\s*::OLI::.*?::ENDOLI::)*)/g, '<ol>$1</ol>');
+                html = html.replace(/::OLI::(.*?)::ENDOLI::/g, '<li>$1</li>');
+                
+                // 处理无序列表
+                html = html.replace(/^[\*\-\+] (.+)$/gm, '::ULI::$1::ENDULI::');
+                html = html.replace(/(::ULI::.*?::ENDULI::(\s*::ULI::.*?::ENDULI::)*)/g, '<ul>$1</ul>');
+                html = html.replace(/::ULI::(.*?)::ENDULI::/g, '<li>$1</li>');
+                
+                // 处理表格（简单支持）
+                html = html.replace(/\|(.+)\|/g, function(match, content) {
+                    const cells = content.split('|').map(cell => cell.trim());
+                    const cellElements = cells.map(cell => `<td>${cell}</td>`).join('');
+                    return `<tr>${cellElements}</tr>`;
+                });
+                html = html.replace(/(<tr>.*<\/tr>(\s*<tr>.*<\/tr>)*)/g, '<table class="table table-sm table-bordered">$1</table>');
+                
+                // 处理键盘按键
+                html = html.replace(/<kbd>([^<]+)<\/kbd>/g, '<kbd class="badge bg-secondary">$1</kbd>');
+                
+                // 处理换行（保留双换行为段落）
+                html = html.replace(/\n\n/g, '::PARAGRAPH::');
+                html = html.replace(/\n/g, '<br>');
+                html = html.replace(/::PARAGRAPH::/g, '</p><p>');
+                
+                // 包装段落
+                if (html.indexOf('<p>') === -1 && html.trim()) {
+                    html = '<p>' + html + '</p>';
+                }
+                
+                return html;
+            }
+            
+            // 移动端机器人信息相关函数
+            
+            function loadMobileRobotInfo() {
+                // 获取机器人信息
+                const apiUrl = `{{ prefix }}/api/robot_info`;
+                
+                fetch(apiUrl)
+                    .then(response => response.json())
+                    .then(data => {
+                        updateMobileRobotInfo(data);
+                        
+                        // 显示数据来源信息
+                        if (data.data_source === 'api') {
+                            console.log('移动端机器人信息加载成功（来自API）:', data);
+                        } else if (data.data_source === 'expired_cache') {
+                            console.log('移动端机器人信息加载成功（来自过期缓存）:', data);
+                        } else {
+                            console.log('移动端机器人信息加载成功，数据来源:', data.data_source);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('获取机器人信息异常:', error);
+                        
+                        // 显示错误状态
+                        document.getElementById('mobile-robot-name').textContent = '网络错误';
+                        document.getElementById('mobile-robot-desc').textContent = '无法连接到服务器获取机器人信息';
+                        document.getElementById('mobile-robot-qq').textContent = '{{ ROBOT_QQ }}';
+                        document.getElementById('mobile-robot-appid').textContent = '{{ appid }}';
+                        document.getElementById('mobile-robot-type').textContent = '未知';
+                        document.getElementById('mobile-robot-developer').textContent = '未知';
+                        
+                        // 设置默认连接状态
+                        const connectionTypeEl = document.getElementById('mobile-connection-type');
+                        const connectionStatusEl = document.getElementById('mobile-connection-status');
+                        connectionTypeEl.textContent = window.websocketEnabled ? 'WebSocket' : 'WebHook';
+                        if (window.websocketEnabled) {
+                            connectionTypeEl.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
+                            connectionStatusEl.textContent = '检测中...';
+                            connectionStatusEl.style.backgroundColor = 'rgba(255, 193, 7, 0.3)';
+                        } else {
+                            connectionTypeEl.style.backgroundColor = 'rgba(0, 123, 255, 0.3)';
+                            connectionStatusEl.textContent = '接收中';
+                            connectionStatusEl.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
+                        }
+                    });
+            }
+            
+                        // 将updateMobileRobotInfo也暴露到全局作用域
+            window.updateMobileRobotInfo = function(data) {
+                // 统一的移动端机器人信息更新函数
+                const connectionTypeEl = document.getElementById('mobile-connection-type');
+                const connectionStatusEl = document.getElementById('mobile-connection-status');
+                
+                // 更新全局WebSocket状态
+                window.websocketEnabled = data.connection_type === 'WebSocket';
+                
+                connectionTypeEl.textContent = data.connection_type;
+                if (data.connection_type === 'WebSocket') {
+                    connectionTypeEl.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
+                    // 显示实际的WebSocket连接状态
+                    connectionStatusEl.textContent = data.connection_status || '检测中...';
+                    if (data.connection_status === '连接中') {
+                        connectionStatusEl.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
+                    } else if (data.connection_status === '连接失败') {
+                        connectionStatusEl.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';
+                    } else {
+                        connectionStatusEl.style.backgroundColor = 'rgba(255, 193, 7, 0.3)';
+                    }
+                } else {
+                    connectionTypeEl.style.backgroundColor = 'rgba(0, 123, 255, 0.3)';
+                    connectionStatusEl.textContent = '接收中';
+                    connectionStatusEl.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
+                }
+                
+                if (data.success) {
+                    // 更新机器人基本信息
+                    document.getElementById('mobile-robot-name').textContent = data.name;
+                    // 处理介绍中的换行符，将\n转换为<br>标签
+                    document.getElementById('mobile-robot-desc').innerHTML = (data.description || '').replace(/\n/g, '<br>');
+                    document.getElementById('mobile-robot-qq').textContent = data.qq;
+                    document.getElementById('mobile-robot-appid').textContent = data.appid;
+                    document.getElementById('mobile-robot-type').textContent = data.type;
+                    document.getElementById('mobile-robot-developer').textContent = data.developer;
+                    
+                    // 更新机器人头像
+                    const avatarEl = document.getElementById('mobile-robot-avatar');
+                    if (data.avatar) {
+                        avatarEl.onerror = function() {
+                            console.warn('移动端机器人头像加载失败，隐藏头像');
+                            this.style.display = 'none';
+                        };
+                        avatarEl.onload = function() {
+                            console.log('移动端机器人头像加载成功');
+                        };
+                        avatarEl.src = data.avatar;
+                        avatarEl.style.display = 'block';
+                    }
+                    
+                    // 设置机器人链接
+                    const mobileRobotLinkEl = document.getElementById('mobile-robot-link');
+                    if (data.link) {
+                        mobileRobotLinkEl.href = data.link;
+                        mobileRobotLinkEl.style.display = 'inline-block';
+                    } else {
+                        mobileRobotLinkEl.href = '#';
+                        mobileRobotLinkEl.style.display = 'none';
+                    }
+                    
+                    // 显示数据来源提示
+                    if (data.warning) {
+                        console.warn('移动端数据警告:', data.warning);
+                    }
+                } else {
+                    // 显示错误信息，但仍然显示基本配置信息
+                    document.getElementById('mobile-robot-name').textContent = data.name || '加载失败';
+                    // 错误情况下也要处理换行符
+                    document.getElementById('mobile-robot-desc').innerHTML = (data.description || '无法获取机器人信息').replace(/\n/g, '<br>');
+                    document.getElementById('mobile-robot-qq').textContent = data.qq || '{{ ROBOT_QQ }}';
+                    document.getElementById('mobile-robot-appid').textContent = data.appid || '{{ appid }}';
+                    document.getElementById('mobile-robot-type').textContent = data.type || '未知';
+                    document.getElementById('mobile-robot-developer').textContent = data.developer || '未知';
+                }
+            };
+            
+            // 为了向后兼容，在DOMContentLoaded内部也定义一个别名
+            function updateMobileRobotInfo(data) {
+                window.updateMobileRobotInfo(data);
+            }
+            
+
+            
+            // 初始化移动端沙盒测试功能
+            initMobileSandbox();
+            
+            // 加载移动端机器人信息
+            loadMobileRobotInfo();
         });
+        
+        // 全局函数定义 - 需要在HTML onclick中使用
+        window.refreshMobileRobotInfo = function() {
+            // 显示加载状态
+            document.getElementById('mobile-robot-name').textContent = '刷新中...';
+            document.getElementById('mobile-robot-desc').innerHTML = '正在强制刷新机器人信息...';
+            
+            // 调用刷新API，强制更新缓存
+            const refreshUrl = `{{ prefix }}/api/robot_info/refresh`;
+            
+            fetch(refreshUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                // 刷新API直接返回新的机器人信息
+                if (window.updateMobileRobotInfo) {
+                    window.updateMobileRobotInfo(data);
+                } else {
+                    console.error('updateMobileRobotInfo函数不可用，重新加载页面');
+                    location.reload();
+                }
+                
+                if (data.data_source === 'api') {
+                    console.log('移动端机器人信息已强制刷新，获取最新数据');
+                } else {
+                    console.log('移动端刷新完成，数据来源:', data.data_source);
+                }
+            })
+            .catch(error => {
+                console.error('移动端强制刷新失败，重新加载页面:', error);
+                location.reload();
+            });
+        };
     </script>
 </body>
 </html> 

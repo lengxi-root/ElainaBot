@@ -1847,9 +1847,6 @@
                                                                                  <button class="btn btn-outline-info btn-sm" id="openapi-get-notifications">
                                             <i class="bi bi-bell"></i> 查看通知消息
                                         </button>
-                                        <button class="btn btn-outline-success btn-sm" id="openapi-get-templates">
-                                            <i class="bi bi-layout-text-sidebar-reverse"></i> 查看模板
-                                        </button>
                                         <button class="btn btn-outline-primary btn-sm" id="openapi-refresh-botlist">
                                             <i class="bi bi-arrow-clockwise"></i> 刷新
                                         </button>
@@ -1957,7 +1954,7 @@
                                     <div id="openapi-templates-container" style="display: none;">
                                         <div class="row">
                                             <div class="col-md-6">
-                                                <h6 class="mb-3"><i class="bi bi-layout-text-sidebar-reverse"></i> 模板列表</h6>
+                                                <h6 class="mb-3" id="template-list-title"><i class="bi bi-layout-text-sidebar-reverse"></i> 模板列表</h6>
                                                 <div class="table-responsive">
                                                     <table class="table table-striped table-hover">
                                                         <thead class="table-dark">
@@ -4375,7 +4372,6 @@
              document.getElementById('openapi-logout').addEventListener('click', logoutOpenAPI);
              document.getElementById('openapi-refresh-botlist').addEventListener('click', refreshBotList);
              document.getElementById('openapi-get-notifications').addEventListener('click', getNotifications);
-             document.getElementById('openapi-get-templates').addEventListener('click', getTemplates);
                           document.getElementById('openapi-close-data').addEventListener('click', closeDataSection);
              
              // 模板导航按钮
@@ -4708,11 +4704,16 @@
                          <br><small class="text-muted">${app.app_desc || '无描述'}</small>
                      </td>
                      <td><code>${app.app_id}</code></td>
-                     <td>
-                         <button class="btn btn-outline-primary btn-sm" onclick="getBotData('${app.app_id}')">
-                             <i class="bi bi-graph-up"></i> 查看数据
-                         </button>
-                     </td>
+                                         <td>
+                        <div class="d-flex gap-1 flex-wrap">
+                            <button class="btn btn-outline-primary btn-sm" onclick="getBotData('${app.app_id}')">
+                                <i class="bi bi-graph-up"></i> 数据
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" onclick="getBotTemplates('${app.app_id}', '${app.app_name}')">
+                                <i class="bi bi-layout-text-sidebar-reverse"></i> 模板
+                            </button>
+                        </div>
+                    </td>
                  `;
                  tbody.appendChild(row);
              });
@@ -4870,24 +4871,35 @@
         let currentTemplates = [];
         let currentTemplateIndex = -1;
         
+        // 获取指定机器人的模板列表
+        function getBotTemplates(appid, appName) {
+            getTemplates(appid, appName);
+        }
+        
         // 获取模板列表
-        function getTemplates() {
+        function getTemplates(appid = null, appName = null) {
             // 隐藏其他区域
             document.getElementById('openapi-data-table-container').style.display = 'none';
             document.getElementById('openapi-notifications-container').style.display = 'none';
             document.getElementById('openapi-template-detail').style.display = 'none';
             
-            // 更新标题
-            document.getElementById('openapi-data-title').innerHTML = '<i class="bi bi-layout-text-sidebar-reverse"></i> 模板列表';
+            // 更新标题 - 只更新区域标题，不改变顶栏
+            document.getElementById('openapi-data-title').innerHTML = '<i class="bi bi-layout-text-sidebar-reverse"></i> 模板管理';
             
             // 显示数据区域和加载状态
             document.getElementById('openapi-data-section').style.display = 'block';
             document.getElementById('openapi-data-loading').style.display = 'block';
             
+            // 构建请求数据
+            const requestData = { user_id: openapi_current_user_id };
+            if (appid) {
+                requestData.appid = appid;
+            }
+            
             fetch(`${URL_PREFIX}/openapi/get_templates`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: openapi_current_user_id })
+                body: JSON.stringify(requestData)
             })
             .then(response => response.json())
             .then(data => {
@@ -4895,7 +4907,7 @@
                 
                 if (data.success) {
                     currentTemplates = data.data.templates;
-                    displayTemplates(data.data.templates);
+                    displayTemplates(data.data.templates, appName);
                 } else {
                     showToast('error', `获取模板列表失败: ${data.message}`);
                 }
@@ -4907,7 +4919,12 @@
         }
         
         // 显示模板列表
-        function displayTemplates(templates) {
+        function displayTemplates(templates, appName = null) {
+            // 更新模板列表标题
+            const titleElement = document.getElementById('template-list-title');
+            const titleText = appName ? `${appName} - 模板列表` : '模板列表';
+            titleElement.innerHTML = `<i class="bi bi-layout-text-sidebar-reverse"></i> ${titleText}`;
+            
             const tbody = document.getElementById('openapi-templates-table');
             tbody.innerHTML = '';
             

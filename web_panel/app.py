@@ -2222,7 +2222,7 @@ openapi_last_login_success = {}
 OPENAPI_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'openapi.json')
 
 # 开放平台相关的常量
-OPENAPI_BASE = 'https://api.elaina.vin/api/bot'
+OPENAPI_BASE = 'https://i.elaina.vin/api/bot'
 OPENAPI_LOGIN_URL = f"{OPENAPI_BASE}/get_login.php"
 OPENAPI_GET_LOGIN = f"{OPENAPI_BASE}/robot.php"
 OPENAPI_MESSAGE = f"{OPENAPI_BASE}/message.php"

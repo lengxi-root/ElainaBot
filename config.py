@@ -3,8 +3,9 @@
 
 """QQ机器人配置文件"""
 
-appid = ""    
-secret = ""
+appid = " "    #机器人appid
+secret = " "    #机器人密钥
+ROBOT_QQ = " "   #机器人qq号，不填写web面板的机器人信息会加载失败
 OWNER_IDS = ["8C7A05AC58E3BCAAA3E83B22486FAF8F"]  # 主人QQ号列表
 
 """message_templates.py 所有的消息模板，可以在这里修改"""

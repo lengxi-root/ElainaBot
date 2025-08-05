@@ -22,7 +22,7 @@ from config import (
     DEFAULT_RESPONSE_EXCLUDED_REGEX
 )
 from core.plugin.message_templates import MessageTemplate, MSG_TYPE_MAINTENANCE, MSG_TYPE_GROUP_ONLY, MSG_TYPE_OWNER_ONLY, MSG_TYPE_DEFAULT, MSG_TYPE_BLACKLIST
-from web_panel.app import add_plugin_log, add_framework_log, add_error_log
+from web.app import add_plugin_log, add_framework_log, add_error_log
 from function.log_db import add_log_to_db
 
 # ===== 4. 全局变量与常量 =====

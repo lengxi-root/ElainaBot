@@ -25,7 +25,7 @@ from function.httpx_pool import sync_post, get_binary_content
 
 # ===== 4. 可选模块导入（带异常处理）=====
 try:
-    from web_panel.app import add_error_log
+    from web.app import add_error_log
 except ImportError:
     def add_error_log(log, traceback_info=None):
         pass

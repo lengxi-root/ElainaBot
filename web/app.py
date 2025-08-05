@@ -43,7 +43,7 @@ def get_websocket_status():
         return "连接失败"
 
 PREFIX = '/web'
-web_panel = Blueprint('web_panel', __name__, 
+web = Blueprint('web', __name__, 
                      static_url_path=f'{PREFIX}/static',
                      static_folder='static',  
                      template_folder='templates')
@@ -663,7 +663,7 @@ def add_error_log(log, traceback_info=None):
     return error_handler.add(log, traceback_info)
 
 # ===== 9. API路由 =====
-@web_panel.route('/login', methods=['POST'])
+@web.route('/login', methods=['POST'])
 @check_ip_ban
 @require_token
 @catch_error
@@ -718,7 +718,7 @@ def login():
 
 
 
-@web_panel.route('/')
+@web.route('/')
 @check_ip_ban
 @require_token
 @require_auth
@@ -768,7 +768,7 @@ def index():
     
     return response
 
-@web_panel.route('/api/logs/<log_type>')
+@web.route('/api/logs/<log_type>')
 @check_ip_ban
 @require_token
 @require_auth
@@ -797,7 +797,7 @@ def get_logs(log_type):
         'total_pages': (len(logs) + page_size - 1) // page_size
     })
 
-@web_panel.route('/status')
+@web.route('/status')
 @check_ip_ban
 @require_token
 @require_auth
@@ -814,7 +814,7 @@ def status():
         }
     })
 
-@web_panel.route('/api/statistics')
+@web.route('/api/statistics')
 @check_ip_ban
 @require_token
 @require_auth
@@ -841,7 +841,7 @@ def get_statistics():
         data = get_statistics_data(force_refresh=force_refresh)
         return api_success_response(data)
 
-@web_panel.route('/api/complete_dau', methods=['POST'])
+@web.route('/api/complete_dau', methods=['POST'])
 @check_ip_ban
 @require_token
 @catch_error
@@ -850,7 +850,7 @@ def complete_dau():
     result = complete_dau_data()
     return api_success_response(result=result)
 
-@web_panel.route('/api/get_nickname/<user_id>')
+@web.route('/api/get_nickname/<user_id>')
 @check_ip_ban
 @require_token
 @require_auth
@@ -860,7 +860,7 @@ def get_user_nickname(user_id):
     nickname = fetch_user_nickname(user_id)
     return api_success_response(nickname=nickname, user_id=user_id)
 
-@web_panel.route('/api/available_dates')
+@web.route('/api/available_dates')
 @check_ip_ban
 @require_token
 @require_auth
@@ -889,7 +889,7 @@ def _build_fallback_robot_info(error_msg, robot_share_url, connection_type, conn
         'qr_code_api': f'/web/api/robot_qrcode?url={robot_share_url}'
     }
 
-@web_panel.route('/api/robot_info')
+@web.route('/api/robot_info')
 @catch_error  
 def get_robot_info():
     """获取机器人信息API"""
@@ -947,7 +947,7 @@ def get_robot_info():
         print(f"获取机器人信息失败: {e}")
         return jsonify(_build_fallback_robot_info(str(e), robot_share_url, connection_type, connection_status)), 500
 
-@web_panel.route('/api/robot_qrcode')
+@web.route('/api/robot_qrcode')
 @catch_error
 def get_robot_qrcode():
     """生成机器人分享链接的二维码"""
@@ -1017,12 +1017,6 @@ def get_system_info():
             cpu_cores = 1
             cpu_percent = 1.0  # 默认值
             system_cpu_percent = 5.0  # 默认值
-        
-        # 简化内存分配估算，减少计算负担
-        framework_mb = max(10.0, rss * 0.40)  # 约40%
-        plugins_mb = max(10.0, rss * 0.30)    # 约30%
-        web_panel_mb = max(5.0, rss * 0.15)   # 约15%
-        other_mb = max(5.0, rss * 0.15)       # 约15%
         
         # 框架运行时间 - 确保格式一致性
         app_uptime_seconds = int((datetime.now() - START_TIME).total_seconds())
@@ -1649,7 +1643,7 @@ def get_today_dau_data(force_refresh=False):
         }
 
 # ===== 11. Web面板启动函数 =====
-def start_web_panel(main_app=None):
+def start_web(main_app=None):
     """
     集成web面板到主应用中，支持独立运行或集成到已有Flask应用。
     自动初始化SocketIO、CORS、日志等。
@@ -1660,7 +1654,7 @@ def start_web_panel(main_app=None):
     # 初始化Web面板，不输出日志
     if main_app is None:
         app = Flask(__name__)
-        app.register_blueprint(web_panel, url_prefix=PREFIX)
+        app.register_blueprint(web, url_prefix=PREFIX)
         CORS(app, resources={r"/*": {"origins": "*"}})
         try:
             socketio = SocketIO(app, 
@@ -1682,8 +1676,8 @@ def start_web_panel(main_app=None):
         return app, socketio
     else:
         # 检查blueprint是否已经注册，避免重复注册
-        if not any(bp.name == 'web_panel' for bp in main_app.blueprints.values()):
-            main_app.register_blueprint(web_panel, url_prefix=PREFIX)
+        if not any(bp.name == 'web' for bp in main_app.blueprints.values()):
+            main_app.register_blueprint(web, url_prefix=PREFIX)
         else:
             pass
         
@@ -1822,7 +1816,7 @@ def fetch_user_nickname(user_id):
         return None
 
 # 沙盒测试路由
-@web_panel.route('/api/sandbox/test', methods=['POST'])
+@web.route('/api/sandbox/test', methods=['POST'])
 @require_auth
 @catch_error
 def sandbox_test():
@@ -2150,7 +2144,7 @@ def get_app_type_name(app_type):
     else:
         return '未知类型'
 
-@web_panel.route('/openapi/start_login', methods=['POST'])
+@web.route('/openapi/start_login', methods=['POST'])
 @require_auth
 def openapi_start_login():
     """开始开放平台登录流程"""
@@ -2190,7 +2184,7 @@ def openapi_start_login():
             'message': f'启动登录失败: {str(e)}'
         })
 
-@web_panel.route('/openapi/check_login', methods=['POST'])
+@web.route('/openapi/check_login', methods=['POST'])
 @require_auth
 def openapi_check_login():
     """检查开放平台登录状态"""
@@ -2254,7 +2248,7 @@ def openapi_check_login():
             'message': f'检查登录状态失败: {str(e)}'
         })
 
-@web_panel.route('/openapi/get_botlist', methods=['POST'])
+@web.route('/openapi/get_botlist', methods=['POST'])
 @require_auth
 def openapi_get_botlist():
     """获取机器人列表"""
@@ -2297,7 +2291,7 @@ def openapi_get_botlist():
             'message': f'获取机器人列表失败: {str(e)}'
         })
 
-@web_panel.route('/openapi/get_botdata', methods=['POST'])
+@web.route('/openapi/get_botdata', methods=['POST'])
 @require_auth  
 @catch_error
 def openapi_get_botdata():
@@ -2375,7 +2369,7 @@ def openapi_get_botdata():
         'days_data': processed_data
     })
 
-@web_panel.route('/openapi/get_notifications', methods=['POST'])
+@web.route('/openapi/get_notifications', methods=['POST'])
 @require_auth
 @catch_error
 def openapi_get_notifications():
@@ -2414,7 +2408,7 @@ def openapi_get_notifications():
         'messages': processed_messages
     })
 
-@web_panel.route('/openapi/logout', methods=['POST'])
+@web.route('/openapi/logout', methods=['POST'])
 @require_auth
 @catch_error  
 def openapi_logout():
@@ -2429,7 +2423,7 @@ def openapi_logout():
     save_openapi_data()
     return openapi_success_response(message='登出成功')
 
-@web_panel.route('/openapi/get_login_status', methods=['POST'])
+@web.route('/openapi/get_login_status', methods=['POST'])
 @require_auth
 @catch_error
 def openapi_get_login_status():
@@ -2481,7 +2475,7 @@ def start_openapi_cleanup_thread():
 # 启动清理线程
 start_openapi_cleanup_thread()
 
-@web_panel.route('/openapi/import_templates', methods=['POST'])
+@web.route('/openapi/import_templates', methods=['POST'])
 @require_auth
 @catch_error
 def openapi_import_templates():
@@ -2685,7 +2679,7 @@ def _extract_template_params(template_content):
     
     return params
 
-@web_panel.route('/openapi/verify_saved_login', methods=['POST'])
+@web.route('/openapi/verify_saved_login', methods=['POST'])
 @require_auth
 def openapi_verify_saved_login():
     """验证保存的登录状态"""
@@ -2745,7 +2739,7 @@ start_openapi_cleanup_thread()
 
 # 在开放平台logout路由之后添加bot模板相关的API
 
-@web_panel.route('/openapi/get_templates', methods=['POST'])
+@web.route('/openapi/get_templates', methods=['POST'])
 @require_auth
 @catch_error
 def openapi_get_templates():
@@ -2796,7 +2790,7 @@ def openapi_get_templates():
         }
     })
 
-@web_panel.route('/openapi/get_template_detail', methods=['POST'])
+@web.route('/openapi/get_template_detail', methods=['POST'])
 @require_auth
 @catch_error
 def openapi_get_template_detail():
@@ -2848,7 +2842,7 @@ def openapi_get_template_detail():
         }
     })
 
-@web_panel.route('/openapi/render_button_template', methods=['POST'])
+@web.route('/openapi/render_button_template', methods=['POST'])
 @require_auth
 def openapi_render_button_template():
     """渲染按钮模板预览"""

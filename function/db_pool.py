@@ -72,7 +72,7 @@ async def async_request(method, url, **kwargs):
 
 # 导入框架日志记录功能，用于重要日志
 try:
-    from web_panel.app import add_framework_log
+    from web.app import add_framework_log
 except ImportError:
     # 如果导入失败，创建一个空函数来避免错误
     def add_framework_log(msg):

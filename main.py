@@ -27,7 +27,7 @@ from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
 # ===== 3. 自定义模块导入 =====
 from config import LOG_CONFIG, LOG_DB_CONFIG, WEBSOCKET_CONFIG, SERVER_CONFIG
-from web_panel.app import start_web_panel, add_received_message, add_plugin_log, add_framework_log, add_error_log
+from web.app import start_web, add_received_message, add_plugin_log, add_framework_log, add_error_log
 try:
     from function.log_db import add_log_to_db
 except ImportError:
@@ -333,6 +333,7 @@ def setup_websocket():
     if not WEBSOCKET_CONFIG.get('enabled', False) or not WEBSOCKET_CONFIG.get('auto_connect', True):
         return
     
+    
     try:
         # 检查认证配置
         from config import appid, secret
@@ -433,9 +434,9 @@ def initialize_app():
     init_systems()
     
     # 初始化Web面板
-    if not any(bp.name == 'web_panel' for bp in app.blueprints.values()):
-        start_web_panel(app)
-        add_framework_log("MBot框架初始化完成")
+    if not any(bp.name == 'web' for bp in app.blueprints.values()):
+        start_web(app)
+    add_framework_log("MBot框架初始化完成")
     
     # 启动DAU分析服务
     if _dau_analytics_available:

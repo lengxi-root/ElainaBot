@@ -1004,17 +1004,69 @@ class PluginManager:
         调用插件处理函数并处理日志记录。
         支持同步和异步处理函数。
         """
+        # 保存原始发送方法
         original_reply = event.reply
+        original_reply_image = getattr(event, 'reply_image', None)
+        original_reply_voice = getattr(event, 'reply_voice', None) 
+        original_reply_video = getattr(event, 'reply_video', None)
+        original_reply_ark = getattr(event, 'reply_ark', None)
+        original_reply_markdown = getattr(event, 'reply_markdown', None)
+        original_reply_md = getattr(event, 'reply_md', None)
+        
         is_first_reply = [True]
-        def reply_with_log(content, *args, **kwargs):
-            text_content = content if isinstance(content, str) else "[非文本内容]"
-            if is_first_reply[0]:
-                add_plugin_log(f"插件 {plugin_name} 回复：{text_content} (处理完成)")
-                is_first_reply[0] = False
-            else:
-                add_plugin_log(f"插件 {plugin_name} 回复：{text_content} (继续处理)")
-            return original_reply(content, *args, **kwargs)
-        event.reply = reply_with_log
+        
+        def _create_logged_method(original_method, method_name):
+            """创建带日志记录的方法"""
+            def logged_method(*args, **kwargs):
+                # 提取内容信息
+                if method_name == 'reply':
+                    content = args[0] if args else kwargs.get('content', '')
+                    text_content = content if isinstance(content, str) else "[非文本内容]"
+                elif method_name == 'reply_image':
+                    content = args[1] if len(args) > 1 else kwargs.get('content', '')
+                    text_content = f"[图片消息] {content}" if content else "[图片消息]"
+                elif method_name == 'reply_voice':
+                    content = args[1] if len(args) > 1 else kwargs.get('content', '')
+                    text_content = f"[语音消息] {content}" if content else "[语音消息]"
+                elif method_name == 'reply_video':
+                    content = args[1] if len(args) > 1 else kwargs.get('content', '')
+                    text_content = f"[视频消息] {content}" if content else "[视频消息]"
+                elif method_name == 'reply_ark':
+                    template_id = args[0] if args else kwargs.get('template_id', '')
+                    content = args[2] if len(args) > 2 else kwargs.get('content', '')
+                    text_content = f"[ARK卡片] 模板ID:{template_id} {content}".strip()
+                elif method_name in ('reply_markdown', 'reply_md'):
+                    template = args[0] if args else kwargs.get('template', '')
+                    text_content = f"[Markdown模板] 模板:{template}"
+                else:
+                    text_content = f"[{method_name}调用]"
+                
+                # 记录日志
+                if is_first_reply[0]:
+                    add_plugin_log(f"插件 {plugin_name} 回复：{text_content} (处理完成)")
+                    is_first_reply[0] = False
+                else:
+                    add_plugin_log(f"插件 {plugin_name} 回复：{text_content} (继续处理)")
+                
+                # 调用原始方法
+                return original_method(*args, **kwargs)
+            return logged_method
+        
+        # 替换所有发送方法
+        event.reply = _create_logged_method(original_reply, 'reply')
+        
+        if original_reply_image:
+            event.reply_image = _create_logged_method(original_reply_image, 'reply_image')
+        if original_reply_voice:
+            event.reply_voice = _create_logged_method(original_reply_voice, 'reply_voice')
+        if original_reply_video:
+            event.reply_video = _create_logged_method(original_reply_video, 'reply_video')
+        if original_reply_ark:
+            event.reply_ark = _create_logged_method(original_reply_ark, 'reply_ark')
+        if original_reply_markdown:
+            event.reply_markdown = _create_logged_method(original_reply_markdown, 'reply_markdown')
+        if original_reply_md:
+            event.reply_md = _create_logged_method(original_reply_md, 'reply_md')
         
         try:
             handler = getattr(plugin_class, handler_name)
@@ -1035,7 +1087,20 @@ class PluginManager:
                 
             return result
         finally:
+            # 恢复原始方法
             event.reply = original_reply
+            if original_reply_image:
+                event.reply_image = original_reply_image
+            if original_reply_voice:
+                event.reply_voice = original_reply_voice
+            if original_reply_video:
+                event.reply_video = original_reply_video
+            if original_reply_ark:
+                event.reply_ark = original_reply_ark
+            if original_reply_markdown:
+                event.reply_markdown = original_reply_markdown
+            if original_reply_md:
+                event.reply_md = original_reply_md
 
     # ===== 默认回复相关 =====
     @classmethod

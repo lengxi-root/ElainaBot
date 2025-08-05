@@ -208,6 +208,50 @@ class MessageEvent:
         self.welcome_allowed = False
 
     # --- API交互相关 ---
+    def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info=""):
+        """通用的发送错误处理方法"""
+        max_retries = 2
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            response = BOTAPI(endpoint, "POST", Json(payload))
+            resp_obj = self._parse_response(response)
+            
+            if resp_obj and all(k in resp_obj for k in ("message", "code", "trace_id")):
+                error_code = resp_obj.get('code')
+                
+                # 特定错误码处理
+                if error_code in self._IGNORE_ERROR_CODES:
+                    return None
+                
+                # Token过期特殊处理
+                if error_code == 11244:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        from function.Access import 获取新Token
+                        获取新Token()
+                        time.sleep(1)
+                        continue
+                    else:
+                        self._log_error(
+                            f"发送{content_type}Token过期重试2次后仍然失败",
+                            f"{extra_info}\npayload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
+                        )
+                        return None
+                
+                # 其他错误码处理
+                self._log_error(
+                    f"发送{content_type}失败：{resp_obj.get('message')} code：{error_code} trace_id：{resp_obj.get('trace_id')}", 
+                    f"resp_obj: {str(resp_obj)}\nsend_payload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
+                )
+                return MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, 
+                                           trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
+            
+            # 没有错误则返回消息ID
+            return self._extract_message_id(response)
+        
+        return None
+
     def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None):
         if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
             return None
@@ -248,56 +292,16 @@ class MessageEvent:
             if 'event_id' not in payload or not payload['event_id']:
                 payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
-        max_retries = 2
-        retry_count = 0
+        message_id = self._send_with_error_handling(payload, endpoint, "消息", f"content: {content}")
         
-        while retry_count < max_retries:
-            response = BOTAPI(endpoint, "POST", Json(payload))
-            resp_obj = self._parse_response(response)
+        # 如果设置了自动撤回时间，启动定时器
+        if message_id and auto_delete_time and isinstance(auto_delete_time, (int, float)) and auto_delete_time > 0:
+            import threading
+            timer = threading.Timer(auto_delete_time, self.recall_message, args=[message_id])
+            timer.daemon = True
+            timer.start()
             
-            if resp_obj and all(k in resp_obj for k in ("message", "code", "trace_id")):
-                error_code = resp_obj.get('code')
-                
-                # 特定错误码处理
-                if error_code in self._IGNORE_ERROR_CODES:
-                    return None
-                
-                # Token过期特殊处理
-                if error_code == 11244:
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        from function.Access import 获取新Token
-                        获取新Token()
-                        time.sleep(1)
-                        continue
-                    else:
-                        self._log_error(
-                            "Token过期重试2次后仍然失败",
-                            f"content: {content}\npayload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
-                        )
-                        return None
-                
-                # 其他错误码处理
-                self._log_error(
-                    f"消息发送失败：{resp_obj.get('message')} code：{error_code} trace_id：{resp_obj.get('trace_id')}", 
-                    f"resp_obj: {str(resp_obj)}\nsend_payload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
-                )
-                return MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, 
-                                           trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
-            
-            # 没有错误则返回消息ID
-            message_id = self._extract_message_id(response)
-            
-            # 如果设置了自动撤回时间，启动定时器
-            if message_id and auto_delete_time and isinstance(auto_delete_time, (int, float)) and auto_delete_time > 0:
-                import threading
-                timer = threading.Timer(auto_delete_time, self.recall_message, args=[message_id])
-                timer.daemon = True
-                timer.start()
-                
-            return message_id
-        
-        return None
+        return message_id
 
     def reply_image(self, image_data, content='', auto_delete_time=None):
         """发送图片消息"""
@@ -323,8 +327,7 @@ class MessageEvent:
         if self.message_type == self.GROUP_ADD_ROBOT:
             payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
-        response = BOTAPI(endpoint, "POST", Json(payload))
-        message_id = self._extract_message_id(response)
+        message_id = self._send_with_error_handling(payload, endpoint, "图片消息", f"content: {content}")
         
         if message_id and auto_delete_time:
             import threading
@@ -360,8 +363,7 @@ class MessageEvent:
         if self.message_type == self.GROUP_ADD_ROBOT:
             payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
-        response = BOTAPI(endpoint, "POST", Json(payload))
-        message_id = self._extract_message_id(response)
+        message_id = self._send_with_error_handling(payload, endpoint, "语音消息", f"content: {content}")
         
         if message_id and auto_delete_time:
             import threading
@@ -393,8 +395,7 @@ class MessageEvent:
         if self.message_type == self.GROUP_ADD_ROBOT:
             payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
-        response = BOTAPI(endpoint, "POST", Json(payload))
-        message_id = self._extract_message_id(response)
+        message_id = self._send_with_error_handling(payload, endpoint, "视频消息", f"content: {content}")
         
         if message_id and auto_delete_time:
             import threading
@@ -418,8 +419,7 @@ class MessageEvent:
         if self.message_type == self.GROUP_ADD_ROBOT:
             payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
-        response = BOTAPI(endpoint, "POST", Json(payload))
-        message_id = self._extract_message_id(response)
+        message_id = self._send_with_error_handling(payload, endpoint, "ark卡片消息", f"template_id: {template_id}, content: {content}")
         
         if message_id and auto_delete_time:
             import threading
@@ -453,8 +453,7 @@ class MessageEvent:
         if self.message_type == self.GROUP_ADD_ROBOT:
             payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
-        response = BOTAPI(endpoint, "POST", Json(payload))
-        message_id = self._extract_message_id(response)
+        message_id = self._send_with_error_handling(payload, endpoint, "markdown模板消息", f"template: {template}, params: {params}")
         
         if message_id and auto_delete_time:
             import threading

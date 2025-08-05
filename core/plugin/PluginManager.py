@@ -1,22 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# ===== 1. 标准库导入 =====
 import os
 import re
 import importlib.util
 import sys
 import traceback
 import time
-import gc  # 垃圾回收
+import gc
 import weakref
-import asyncio  # 异步IO支持
+import asyncio
 import json
 
-# ===== 2. 第三方库导入 =====
-# （本文件暂未用到第三方库）
-
-# ===== 3. 自定义模块导入 =====
 from config import (
     SEND_DEFAULT_RESPONSE, OWNER_IDS, MAINTENANCE_MODE,
     DEFAULT_RESPONSE_EXCLUDED_REGEX
@@ -25,85 +20,129 @@ from core.plugin.message_templates import MessageTemplate, MSG_TYPE_MAINTENANCE,
 from web.app import add_plugin_log, add_framework_log, add_error_log
 from function.log_db import add_log_to_db
 
-# ===== 4. 全局变量与常量 =====
-_last_plugin_gc_time = 0  # 上次插件垃圾回收时间
-_plugin_gc_interval = 30  # 垃圾回收间隔(秒)
-_blacklist_cache = {}     # 黑名单缓存
-_blacklist_last_load = 0  # 上次加载黑名单的时间
+# 全局变量
+_last_plugin_gc_time = 0
+_plugin_gc_interval = 30
+_blacklist_cache = {}
+_blacklist_last_load = 0
 _blacklist_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "blacklist.json")
+_last_quick_check_time = 0
+_plugins_loaded = False
 
-# 新增：插件加载优化相关全局变量
-_last_quick_check_time = 0  # 上次快速检查时间
-_plugins_loaded = False     # 插件是否已加载标记
-
-# ===== 5. 插件接口类 =====
 class Plugin:
-    """
-    插件接口基类，所有插件需继承并实现 get_regex_handlers 方法。
-    """
-    priority = 10  # 插件默认优先级（数字越小，优先级越高）
-    import_from_main = False  # 是否导入主模块插件实例
+    """插件接口基类"""
+    priority = 10
+    import_from_main = False
 
     @staticmethod
     def get_regex_handlers():
-        """
-        注册正则规则与处理函数
-        @return dict: {正则表达式: 处理函数名} 或 {正则表达式: {'handler': 处理函数名, 'owner_only': 是否仅主人可用}}
-        """
+        """注册正则规则与处理函数"""
         raise NotImplementedError("子类必须实现get_regex_handlers方法")
 
-# ===== 6. 插件管理器主类 =====
 class PluginManager:
-    """
-    插件管理器，负责插件的加载、注册、分发、热更新、权限校验等。
-    """
-    _regex_handlers = {}      # 正则处理器表
-    _plugins = {}            # 插件类及优先级
-    _file_last_modified = {} # 插件文件修改时间
-    _unloaded_modules = []   # 待回收模块
-    _regex_cache = {}        # 预编译正则缓存
-    _sorted_handlers = []    # 按优先级排序的处理器列表，避免每次重新排序
+    """插件管理器"""
+    _regex_handlers = {}
+    _plugins = {}
+    _file_last_modified = {}
+    _unloaded_modules = []
+    _regex_cache = {}
+    _sorted_handlers = []
 
-    # ===== 黑名单相关 =====
+    # === 通用辅助方法 ===
+    @classmethod
+    def _safe_execute(cls, func, error_msg_template, *args, **kwargs):
+        """统一的安全执行和错误处理"""
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            error_msg = error_msg_template.format(error=str(e))
+            add_error_log(error_msg, traceback.format_exc())
+            return None
+    
+    @classmethod
+    def _extract_module_info(cls, file_path):
+        """从文件路径提取模块信息"""
+        if not file_path:
+            return "未知目录", "未知模块", "unknown"
+        
+        dir_name = os.path.basename(os.path.dirname(file_path))
+        module_name = os.path.splitext(os.path.basename(file_path))[0]
+        module_fullname = f"plugins.{dir_name}.{module_name}"
+        return dir_name, module_name, module_fullname
+    
+    @classmethod
+    def _check_permissions(cls, handler_info, is_owner, is_group):
+        """统一的权限检查"""
+        owner_only = handler_info.get('owner_only', False)
+        group_only = handler_info.get('group_only', False)
+        
+        if owner_only and not is_owner:
+            return False, 'owner_denied'
+        if group_only and not is_group:
+            return False, 'group_denied'
+        return True, None
+    
+    @classmethod
+    def _cleanup_resources(cls, obj, context=""):
+        """统一的资源清理"""
+        cleanup_methods = ['cleanup', 'close', 'shutdown']
+        for method_name in cleanup_methods:
+            if hasattr(obj, method_name) and callable(getattr(obj, method_name)):
+                try:
+                    method = getattr(obj, method_name)
+                    if method_name == 'shutdown' and hasattr(method, '__code__') and 'wait' in method.__code__.co_varnames:
+                        method(wait=False)
+                    else:
+                        method()
+                    if context:
+                        add_framework_log(f"{context}：执行清理方法 {method_name}")
+                    return True
+                except Exception:
+                    pass
+        return False
+    
+    @classmethod
+    def _enhance_pattern(cls, pattern):
+        """统一的模式增强"""
+        return pattern if pattern.startswith('^') else f"^{pattern}"
+    
+    @classmethod
+    def _compile_and_cache_regex(cls, pattern, error_context=""):
+        """统一的正则编译和缓存"""
+        try:
+            compiled_regex = re.compile(pattern, re.DOTALL)
+            cls._regex_cache[pattern] = compiled_regex
+            return compiled_regex
+        except Exception as e:
+            if error_context:
+                add_error_log(f"{error_context}正则表达式 '{pattern}' 编译失败: {str(e)}")
+            return None
+
+    # === 黑名单管理 ===
     @classmethod
     def load_blacklist(cls):
-        """
-        加载黑名单数据
-        """
+        """加载黑名单数据"""
         global _blacklist_cache, _blacklist_last_load, _blacklist_file
         
-        # 确保data目录存在
+        # 确保文件存在
         data_dir = os.path.dirname(_blacklist_file)
         if not os.path.exists(data_dir):
-            try:
-                os.makedirs(data_dir)
-                add_framework_log("创建数据目录: data")
-            except Exception as e:
-                add_error_log(f"创建数据目录失败: {str(e)}")
+            os.makedirs(data_dir, exist_ok=True)
                 
-        # 检查黑名单文件是否存在，不存在则创建空文件
         if not os.path.exists(_blacklist_file):
-            try:
-                with open(_blacklist_file, 'w', encoding='utf-8') as f:
-                    json.dump({}, f, ensure_ascii=False, indent=2)
-                add_framework_log(f"创建黑名单文件: {_blacklist_file}")
-            except Exception as e:
-                add_error_log(f"创建黑名单文件失败: {str(e)}")
-                return {}
+            with open(_blacklist_file, 'w', encoding='utf-8') as f:
+                json.dump({}, f, ensure_ascii=False, indent=2)
                 
         # 检查是否需要重新加载
         current_time = time.time()
-        if _blacklist_last_load == 0 or (current_time - _blacklist_last_load > 60):  # 每60秒重新加载一次
+        if _blacklist_last_load == 0 or (current_time - _blacklist_last_load > 60):
             try:
-                # 检查文件修改时间
                 if os.path.exists(_blacklist_file):
                     mtime = os.path.getmtime(_blacklist_file)
-                    # 如果文件已更新或缓存为空，则重新加载
                     if not _blacklist_cache or mtime > _blacklist_last_load:
                         with open(_blacklist_file, 'r', encoding='utf-8') as f:
                             _blacklist_cache = json.load(f)
                             _blacklist_last_load = current_time
-                            add_framework_log(f"已加载黑名单数据，共 {len(_blacklist_cache)} 条记录")
             except Exception as e:
                 add_error_log(f"加载黑名单数据失败: {str(e)}", traceback.format_exc())
                 
@@ -111,36 +150,29 @@ class PluginManager:
     
     @classmethod
     def is_blacklisted(cls, user_id):
-        """
-        检查用户是否在黑名单中
-        @return: (是否在黑名单中, 原因)
-        """
+        """检查用户是否在黑名单中"""
         if not user_id:
             return False, ""
             
         blacklist = cls.load_blacklist()
-        user_id = str(user_id)  # 确保用户ID为字符串
+        user_id = str(user_id)
         
         if user_id in blacklist:
             return True, blacklist[user_id]
             
         return False, ""
 
-    # ===== 插件加载相关 =====
+    # === 插件加载管理 ===
     @classmethod
     def load_plugins(cls):
-        """
-        加载所有插件目录下的插件。
-        同时检查已加载插件的更新情况，实现热更新功能。
-        新增：插件加载优化，减少不必要的文件系统检查。
-        """
+        """加载所有插件"""
         global _last_plugin_gc_time, _last_quick_check_time, _plugins_loaded
         
         current_time = time.time()
         
-        # 轻量级快速检查：减少过于频繁的检查，但不影响热加载
+        # 快速检查避免频繁扫描
         if (_plugins_loaded and 
-            current_time - _last_quick_check_time < 0.1):  # 改为0.1秒，避免阻塞热加载
+            current_time - _last_quick_check_time < 0.1):
             return len(cls._plugins)
         
         _last_quick_check_time = current_time
@@ -148,46 +180,48 @@ class PluginManager:
         script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         plugins_dir = os.path.join(script_dir, 'plugins')
         
-        # 确保插件目录存在
         if not os.path.exists(plugins_dir):
-            try:
-                os.makedirs(plugins_dir)
-                add_framework_log("创建插件目录: plugins")
-            except Exception as e:
-                add_error_log(f"创建插件目录失败: {str(e)}")
-                return 0
+            os.makedirs(plugins_dir, exist_ok=True)
+            return 0
         
-        # 检查已加载插件的文件是否被删除
-        deleted_files = []
-        for file_path in list(cls._file_last_modified.keys()):
-            if not os.path.exists(file_path):
-                deleted_files.append(file_path)
+        # 检查已删除的文件
+        cls._cleanup_deleted_files()
         
-        # 处理已删除的文件
-        for file_path in deleted_files:
-            try:
-                dir_name = os.path.basename(os.path.dirname(file_path))
-                module_name = os.path.splitext(os.path.basename(file_path))[0]
-                removed_count = cls._unregister_file_plugins(file_path)
-                if file_path in cls._file_last_modified:
-                    del cls._file_last_modified[file_path]
-                if removed_count > 0:
-                    add_framework_log(f"插件更新：检测到文件已删除 {dir_name}/{module_name}.py，已注销 {removed_count} 个处理器")
-            except Exception as e:
-                add_error_log(f"处理已删除插件文件时出错: {str(e)}", traceback.format_exc())
-        
-        # 直接扫描并加载所有插件目录
+        # 加载插件目录
         loaded_count = 0
         for dir_name in os.listdir(plugins_dir):
             dir_path = os.path.join(plugins_dir, dir_name)
             if os.path.isdir(dir_path):
                 loaded_count += cls._load_plugins_from_directory(script_dir, dir_name)
         
-        # 导入主模块插件实例
+        # 导入主模块实例
         main_module_loaded = cls._import_main_module_instances()
         
         # 定期垃圾回收
+        cls._periodic_gc()
+        
+        _plugins_loaded = True
+        return loaded_count + main_module_loaded
+    
+    @classmethod
+    def _cleanup_deleted_files(cls):
+        """清理已删除的文件"""
+        deleted_files = [fp for fp in cls._file_last_modified.keys() if not os.path.exists(fp)]
+        
+        for file_path in deleted_files:
+            dir_name, module_name, _ = cls._extract_module_info(file_path)
+            removed_count = cls._unregister_file_plugins(file_path)
+            if file_path in cls._file_last_modified:
+                del cls._file_last_modified[file_path]
+            if removed_count > 0:
+                add_framework_log(f"文件已删除 {dir_name}/{module_name}.py，注销 {removed_count} 个处理器")
+    
+    @classmethod
+    def _periodic_gc(cls):
+        """定期垃圾回收"""
+        global _last_plugin_gc_time
         current_time = time.time()
+        
         if cls._unloaded_modules and (current_time - _last_plugin_gc_time >= _plugin_gc_interval):
             for module in cls._unloaded_modules:
                 for attr_name in dir(module):
@@ -200,59 +234,47 @@ class PluginManager:
             gc.collect()
             _last_plugin_gc_time = current_time
         
-        # 标记插件已加载
-        _plugins_loaded = True
-            
-        return loaded_count + main_module_loaded
-        
     @classmethod
     def _import_main_module_instances(cls):
-        """
-        从主模块导入插件类实例并注册它们的处理器。
-        """
+        """从主模块导入插件实例"""
         loaded_count = 0
         for plugin_class in list(cls._plugins.keys()):
             if hasattr(plugin_class, 'import_from_main') and plugin_class.import_from_main:
                 try:
-                    # 找到主模块实例
                     module_name = plugin_class.__module__
                     if module_name.startswith('plugins.'):
-                        try:
-                            module = sys.modules.get(module_name)
-                            if not module:
-                                continue
-                                
-                            # 查找插件实例
-                            for attr_name in dir(module):
-                                if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
-                                    continue
-                                    
-                                attr = getattr(module, attr_name)
-                                # 检查是否为插件实例（非类型）
-                                if not isinstance(attr, type) and hasattr(attr, 'get_regex_handlers'):
-                                    # 如果是插件实例，注册其处理器
-                                    instance_name = f"{plugin_class.__name__}.{attr_name}"
-                                    handlers = cls._register_instance_handlers(plugin_class, attr)
-                                    if handlers > 0:
-                                        loaded_count += 1
-                                        add_framework_log(f"从主模块导入插件实例 {instance_name} 处理器成功，共 {handlers} 个")
-                                    
-                        except Exception as e:
-                            error_msg = f"导入主模块实例处理器失败: {str(e)}"
-                            add_error_log(error_msg, traceback.format_exc())
-                            add_framework_log(error_msg)
+                        module = sys.modules.get(module_name)
+                        if module:
+                            loaded_count += cls._register_module_instances(plugin_class, module)
                 except Exception as e:
-                    add_error_log(f"检查导入主模块配置失败: {str(e)}", traceback.format_exc())
+                    add_error_log(f"导入主模块实例失败: {str(e)}", traceback.format_exc())
+        
+        return loaded_count
+    
+    @classmethod
+    def _register_module_instances(cls, plugin_class, module):
+        """注册模块中的插件实例"""
+        loaded_count = 0
+        for attr_name in dir(module):
+            if attr_name.startswith('__'):
+                continue
+                
+            try:
+                attr = getattr(module, attr_name)
+                if (not isinstance(attr, type) and 
+                    hasattr(attr, 'get_regex_handlers')):
+                    handlers = cls._register_instance_handlers(plugin_class, attr)
+                    if handlers > 0:
+                        loaded_count += 1
+            except Exception as e:
+                add_error_log(f"注册实例处理器失败: {str(e)}", traceback.format_exc())
         
         return loaded_count
 
     @classmethod
     def _register_instance_handlers(cls, plugin_class, instance):
-        """
-        注册插件实例的处理器到主插件类。
-        返回注册的处理器数量。
-        """
-        try:
+        """注册插件实例的处理器"""
+        def _register_handlers():
             handlers = instance.get_regex_handlers()
             if not handlers:
                 return 0
@@ -261,40 +283,27 @@ class PluginManager:
             for pattern, handler_info in handlers.items():
                 if isinstance(handler_info, str):
                     method_name = handler_info
-                    owner_only = False
-                    group_only = False
+                    owner_only = group_only = False
                 else:
                     method_name = handler_info.get('handler')
                     owner_only = handler_info.get('owner_only', False)
                     group_only = handler_info.get('group_only', False)
                 
-                # 确保方法存在于实例中
                 if not hasattr(instance, method_name):
-                    add_framework_log(f"警告：实例没有处理方法 {method_name}")
                     continue
                 
-                # 创建闭包函数，将实例方法绑定到插件类静态方法
+                # 创建处理器闭包
                 def create_handler(inst, method):
                     def handler_method(event):
                         return getattr(inst, method)(event)
                     return handler_method
                 
-                # 为防止命名冲突，创建唯一方法名
                 unique_method_name = f"_instance_handler_{handlers_count}_{method_name}"
                 setattr(plugin_class, unique_method_name, create_handler(instance, method_name))
                 
-                # 向插件类添加处理器
-                if pattern.startswith('^'):
-                    enhanced_pattern = pattern
-                else:
-                    enhanced_pattern = f"^{pattern}"
-                
-                try:
-                    # 自动添加DOTALL标志以支持换行符匹配
-                    compiled_regex = re.compile(enhanced_pattern, re.DOTALL)
-                    cls._regex_cache[enhanced_pattern] = compiled_regex
-                except Exception as e:
-                    add_error_log(f"实例处理器正则表达式 '{enhanced_pattern}' 编译失败: {str(e)}")
+                enhanced_pattern = cls._enhance_pattern(pattern)
+                compiled_regex = cls._compile_and_cache_regex(enhanced_pattern, "实例处理器")
+                if not compiled_regex:
                     continue
                 
                 cls._regex_handlers[enhanced_pattern] = {
@@ -309,74 +318,62 @@ class PluginManager:
                 handlers_count += 1
                 
             return handlers_count
-        except Exception as e:
-            add_error_log(f"注册实例处理器失败: {str(e)}", traceback.format_exc())
-            return 0
+        
+        return cls._safe_execute(_register_handlers, "注册实例处理器失败: {error}") or 0
 
     @classmethod
     def _load_plugins_from_directory(cls, script_dir, dir_name):
-        """
-        加载指定目录下的插件文件。
-        """
+        """加载指定目录下的插件"""
         plugin_dir = os.path.join(script_dir, 'plugins', dir_name)
         if not os.path.exists(plugin_dir) or not os.path.isdir(plugin_dir):
-            # 如果目录不存在，注销该目录下所有已加载的插件
             cls._unregister_directory_plugins(plugin_dir)
             return 0
             
         py_files = [f for f in os.listdir(plugin_dir) if f.endswith('.py') and f != '__init__.py']
         loaded_count = 0
         
-        # 记录当前目录下的所有插件文件的绝对路径
+        # 处理当前目录的文件
         current_files = {os.path.join(plugin_dir, py_file) for py_file in py_files}
+        cls._cleanup_directory_deleted_files(plugin_dir, current_files, dir_name)
         
-        # 处理已删除的文件
+        # 加载或更新文件
+        for py_file in py_files:
+            file_path = os.path.join(plugin_dir, py_file)
+            if os.path.exists(file_path):
+                try:
+                    last_modified = os.path.getmtime(file_path)
+                    if (file_path not in cls._file_last_modified or 
+                        cls._file_last_modified[file_path] < last_modified):
+                        cls._file_last_modified[file_path] = last_modified
+                        loaded_count += cls._load_plugin_file(file_path, dir_name)
+                except (OSError, IOError) as e:
+                    add_error_log(f"获取文件修改时间失败: {file_path}, 错误: {str(e)}")
+                
+        return loaded_count
+    
+    @classmethod
+    def _cleanup_directory_deleted_files(cls, plugin_dir, current_files, dir_name):
+        """清理目录中已删除的文件"""
         dir_files_to_delete = []
         for file_path in list(cls._file_last_modified.keys()):
-            # 只处理当前目录下的文件
-            if file_path.startswith(plugin_dir):
-                # 如果文件不在当前目录中或文件不存在，则需要注销
-                if file_path not in current_files or not os.path.exists(file_path):
-                    dir_files_to_delete.append(file_path)
+            if (file_path.startswith(plugin_dir) and 
+                (file_path not in current_files or not os.path.exists(file_path))):
+                dir_files_to_delete.append(file_path)
         
-        # 注销已删除的文件插件
         for file_path in dir_files_to_delete:
             removed_count = cls._unregister_file_plugins(file_path)
             if file_path in cls._file_last_modified:
                 del cls._file_last_modified[file_path]
             module_name = os.path.splitext(os.path.basename(file_path))[0]
-            add_framework_log(f"插件更新：检测到文件已删除 {dir_name}/{module_name}.py，已注销 {removed_count} 个处理器")
-        
-        # 加载或更新现有文件
-        for py_file in py_files:
-            file_path = os.path.join(plugin_dir, py_file)
-            if not os.path.exists(file_path):
-                continue
-                
-            try:
-                last_modified = os.path.getmtime(file_path)
-                if file_path not in cls._file_last_modified or cls._file_last_modified[file_path] < last_modified:
-                    cls._file_last_modified[file_path] = last_modified
-                    loaded_count += cls._load_plugin_file(file_path, dir_name)
-            except (OSError, IOError) as e:
-                add_error_log(f"获取文件修改时间失败: {file_path}, 错误: {str(e)}")
-                
-        return loaded_count
+            add_framework_log(f"文件已删除 {dir_name}/{module_name}.py，注销 {removed_count} 个处理器")
         
     @classmethod
     def _unregister_directory_plugins(cls, plugin_dir):
-        """
-        注销指定目录下的所有插件。
-        """
+        """注销指定目录下的所有插件"""
         removed_count = 0
-        dir_files_to_delete = []
+        dir_files_to_delete = [fp for fp in cls._file_last_modified.keys() 
+                              if fp.startswith(plugin_dir)]
         
-        # 找出需要删除的文件
-        for file_path in list(cls._file_last_modified.keys()):
-            if file_path.startswith(plugin_dir):
-                dir_files_to_delete.append(file_path)
-        
-        # 注销每个文件的插件
         for file_path in dir_files_to_delete:
             removed_count += cls._unregister_file_plugins(file_path)
             if file_path in cls._file_last_modified:
@@ -384,22 +381,18 @@ class PluginManager:
         
         if removed_count > 0:
             dir_name = os.path.basename(plugin_dir)
-            add_framework_log(f"插件更新：检测到目录已删除 {dir_name}，已注销 {removed_count} 个处理器")
+            add_framework_log(f"目录已删除 {dir_name}，注销 {removed_count} 个处理器")
             
         return removed_count
 
     @classmethod
     def _load_plugin_file(cls, plugin_file, dir_name):
-        """
-        加载单个插件文件。
-        """
+        """加载单个插件文件"""
+        dir_name, module_name, module_fullname = cls._extract_module_info(plugin_file)
         plugin_name = os.path.basename(plugin_file)
-        module_name = os.path.splitext(plugin_name)[0]
         loaded_count = 0
         
         try:
-            # 检查是否为热更新
-            module_fullname = f"plugins.{dir_name}.{module_name}"
             is_hot_reload = module_fullname in sys.modules
             
             # 注销旧插件
@@ -409,10 +402,9 @@ class PluginManager:
             last_modified = os.path.getmtime(plugin_file)
             cls._file_last_modified[plugin_file] = last_modified
             
-            # 保存旧模块引用
-            old_module = None
-            if module_fullname in sys.modules:
-                old_module = sys.modules[module_fullname]
+            # 重新加载模块
+            old_module = sys.modules.get(module_fullname)
+            if old_module:
                 del sys.modules[module_fullname]
                 
             # 加载新模块
@@ -436,80 +428,66 @@ class PluginManager:
                     cls._unloaded_modules.append(old_module)
                     
                 # 处理模块中的插件类
-                plugin_load_results = []
-                plugin_classes_found = False
-                
-                for attr_name in dir(module):
-                    if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
-                        continue
-                        
-                    attr = getattr(module, attr_name)
-                    if isinstance(attr, type) and attr.__module__ == module.__name__:
-                        try:
-                            if hasattr(attr, 'get_regex_handlers'):
-                                plugin_classes_found = True
-                                loaded_count += 1
-                                attr._source_file = plugin_file
-                                attr._is_hot_reload = True
-                                handlers_count = cls.register_plugin(attr)
-                                priority = getattr(attr, 'priority', 10)
-                                plugin_load_results.append(f"{attr_name}(优先级:{priority},处理器:{handlers_count})")
-                        except Exception as e:
-                            error_msg = f"插件类 {attr_name} 注册失败: {str(e)}"
-                            plugin_load_results.append(f"{attr_name}(注册失败:{str(e)})")
-                            add_error_log(error_msg, traceback.format_exc())
-                            
-                if plugin_classes_found:
-                    # 热更新成功日志
-                    if is_hot_reload:
-                        if plugin_load_results:
-                            add_framework_log(f"插件热更新成功: {dir_name}/{plugin_name} 已重新加载: {', '.join(plugin_load_results)}")
-                        else:
-                            add_framework_log(f"插件热更新成功: {dir_name}/{plugin_name} 已重新加载")
-                    # 首次加载日志
-                    else:
-                        if plugin_load_results:
-                            add_framework_log(f"插件加载: {dir_name}/{plugin_name} 加载成功: {', '.join(plugin_load_results)}")
-                        else:
-                            add_framework_log(f"插件加载: {dir_name}/{plugin_name} 加载成功")
-                else:
-                    add_framework_log(f"插件{'热更新' if is_hot_reload else '加载'}: {dir_name}/{plugin_name} 中未找到有效的插件类")
+                loaded_count = cls._register_module_plugins(module, plugin_file, dir_name, plugin_name, is_hot_reload)
+                    
         except Exception as e:
             error_msg = f"插件{'热更新' if module_fullname in sys.modules else '加载'}: {dir_name}/{plugin_name} 失败: {str(e)}"
             add_error_log(error_msg, traceback.format_exc())
-            add_framework_log(error_msg)
+            
+        return loaded_count
+    
+    @classmethod
+    def _register_module_plugins(cls, module, plugin_file, dir_name, plugin_name, is_hot_reload):
+        """注册模块中的插件类"""
+        loaded_count = 0
+        plugin_load_results = []
+        plugin_classes_found = False
+        
+        for attr_name in dir(module):
+            if attr_name.startswith('__'):
+                continue
+                
+            attr = getattr(module, attr_name)
+            if (isinstance(attr, type) and 
+                attr.__module__ == module.__name__ and
+                hasattr(attr, 'get_regex_handlers')):
+                
+                try:
+                    plugin_classes_found = True
+                    loaded_count += 1
+                    attr._source_file = plugin_file
+                    attr._is_hot_reload = True
+                    handlers_count = cls.register_plugin(attr)
+                    priority = getattr(attr, 'priority', 10)
+                    plugin_load_results.append(f"{attr_name}(优先级:{priority},处理器:{handlers_count})")
+                except Exception as e:
+                    error_msg = f"插件类 {attr_name} 注册失败: {str(e)}"
+                    plugin_load_results.append(f"{attr_name}(注册失败:{str(e)})")
+                    add_error_log(error_msg, traceback.format_exc())
+                    
+        # 记录加载结果
+        if plugin_classes_found:
+            status = "热更新" if is_hot_reload else "加载"
+            if plugin_load_results:
+                add_framework_log(f"插件{status}成功: {dir_name}/{plugin_name} - {', '.join(plugin_load_results)}")
+            else:
+                add_framework_log(f"插件{status}成功: {dir_name}/{plugin_name}")
+        else:
+            add_framework_log(f"插件{'热更新' if is_hot_reload else '加载'}: {dir_name}/{plugin_name} 中未找到有效的插件类")
             
         return loaded_count
 
     @classmethod
     def _unregister_file_plugins(cls, plugin_file):
-        """
-        注销指定文件中的所有插件，返回注销的处理器数量。
-        清理插件相关的所有资源，包括线程池、连接池等。
-        """
-        global _last_plugin_gc_time
+        """注销指定文件中的所有插件"""
+        dir_name, module_name, module_fullname = cls._extract_module_info(plugin_file)
         removed = []
         plugin_classes_to_remove = []
         
-        # 获取插件所在目录和模块名，用于日志
-        if plugin_file:
-            module_name = os.path.splitext(os.path.basename(plugin_file))[0]
-            dir_name = os.path.basename(os.path.dirname(plugin_file))
-            module_fullname = f"plugins.{dir_name}.{module_name}"
-            is_hot_reload = module_fullname in sys.modules
-            file_exists = os.path.exists(plugin_file)
-        else:
-            module_name = "未知模块"
-            dir_name = "未知目录"
-            module_fullname = "unknown"
-            is_hot_reload = False
-            file_exists = False
-        
-        # 1. 查找所有需要移除的插件类
+        # 查找需要移除的插件类
         for pattern, handler_info in list(cls._regex_handlers.items()):
             try:
                 plugin_class = handler_info.get('class') if isinstance(handler_info, dict) else handler_info[0]
-                # 检查插件类是否来自指定文件
                 if hasattr(plugin_class, '_source_file') and plugin_class._source_file == plugin_file:
                     removed.append((plugin_class.__name__, pattern))
                     if plugin_class not in plugin_classes_to_remove:
@@ -517,7 +495,7 @@ class PluginManager:
             except Exception as e:
                 add_error_log(f"查找插件类时出错: {str(e)}", traceback.format_exc())
         
-        # 2. 清理正则处理器表中的插件处理器
+        # 清理正则处理器
         for pattern, handler_info in list(cls._regex_handlers.items()):
             try:
                 plugin_class = handler_info.get('class') if isinstance(handler_info, dict) else handler_info[0]
@@ -528,123 +506,77 @@ class PluginManager:
             except Exception as e:
                 add_error_log(f"清理正则处理器时出错: {str(e)}", traceback.format_exc())
         
-        # 3. 清理插件类实例和资源
+        # 清理插件类和资源
         for plugin_class in plugin_classes_to_remove:
-            try:
-                # 移除插件类
-                if plugin_class in cls._plugins:
-                    del cls._plugins[plugin_class]
-                
-                # 尝试调用插件的清理方法（如果存在）
-                if hasattr(plugin_class, 'cleanup') and callable(getattr(plugin_class, 'cleanup')):
-                    try:
-                        plugin_class.cleanup()
-                    except Exception as e:
-                        add_error_log(f"插件 {plugin_class.__name__} 清理资源失败: {str(e)}", traceback.format_exc())
-                
-                # 查找并清理插件类的线程池
-                for attr_name in dir(plugin_class):
-                    if attr_name.startswith('__'):
-                        continue
-                        
-                    try:
-                        attr = getattr(plugin_class, attr_name)
-                        # 清理线程池
-                        if attr_name.endswith('_pool') or attr_name.endswith('_thread_pool'):
-                            if hasattr(attr, 'shutdown') and callable(getattr(attr, 'shutdown')):
-                                try:
-                                    attr.shutdown(wait=False)
-                                    add_framework_log(f"插件热更新：关闭 {plugin_class.__name__} 的线程池 {attr_name}")
-                                except Exception:
-                                    pass
-                        # 清理连接池
-                        elif attr_name.endswith('_conn_pool') or attr_name.endswith('_connection_pool'):
-                            if hasattr(attr, 'close') and callable(getattr(attr, 'close')):
-                                try:
-                                    attr.close()
-                                    add_framework_log(f"插件热更新：关闭 {plugin_class.__name__} 的连接池 {attr_name}")
-                                except Exception:
-                                    pass
-                        # 清理事件循环
-                        elif attr_name.endswith('_loop') and hasattr(attr, 'is_running') and hasattr(attr, 'stop'):
-                            if attr.is_running():
-                                try:
-                                    attr.stop()
-                                    add_framework_log(f"插件热更新：停止 {plugin_class.__name__} 的事件循环 {attr_name}")
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-            except Exception as e:
-                add_error_log(f"清理插件类资源时出错: {str(e)}", traceback.format_exc())
+            cls._cleanup_plugin_class(plugin_class)
         
-        # 4. 清理模块
+        # 清理模块
         if module_fullname != "unknown" and module_fullname in sys.modules:
-            try:
-                module = sys.modules[module_fullname]
-                
-                # 尝试调用模块级别的清理函数
-                if hasattr(module, 'cleanup') and callable(module.cleanup):
-                    try:
-                        module.cleanup()
-                    except Exception as e:
-                        add_error_log(f"模块 {module_fullname} 清理函数执行失败: {str(e)}")
-                
-                # 检查模块中的全局线程池或连接池
-                for attr_name in dir(module):
-                    if attr_name.startswith('__'):
-                        continue
-                        
-                    try:
-                        attr = getattr(module, attr_name)
-                        # 清理线程池
-                        if (attr_name.endswith('_pool') or attr_name.endswith('_thread_pool')) and not isinstance(attr, type):
-                            if hasattr(attr, 'shutdown') and callable(getattr(attr, 'shutdown')):
-                                try:
-                                    attr.shutdown(wait=False)
-                                except Exception:
-                                    pass
-                        # 清理连接池
-                        elif (attr_name.endswith('_conn_pool') or attr_name.endswith('_connection_pool')) and not isinstance(attr, type):
-                            if hasattr(attr, 'close') and callable(getattr(attr, 'close')):
-                                try:
-                                    attr.close()
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-                
-                # 将模块添加到待回收列表
-                cls._unloaded_modules.append(module)
-                
-                # 从sys.modules中删除模块
-                if module_fullname in sys.modules:
-                    del sys.modules[module_fullname]
-                
-                # 记录热更新日志
-                if is_hot_reload:
-                    status = "已删除" if not file_exists else "变更"
-                    add_framework_log(f"插件热更新：检测到文件{status} {dir_name}/{module_name}.py，已注销 {len(removed)} 个处理器")
-            except Exception as e:
-                add_error_log(f"清理模块时出错: {str(e)}", traceback.format_exc())
-        
-        # 5. 执行垃圾回收
-        current_time = time.time()
-        if removed and (current_time - _last_plugin_gc_time >= _plugin_gc_interval):
-            gc.collect()
-            _last_plugin_gc_time = current_time
+            cls._cleanup_module(module_fullname, os.path.exists(plugin_file))
             
         return len(removed)
+    
+    @classmethod
+    def _cleanup_plugin_class(cls, plugin_class):
+        """清理插件类资源"""
+        try:
+            if plugin_class in cls._plugins:
+                del cls._plugins[plugin_class]
+            
+            # 调用插件清理方法
+            cls._cleanup_resources(plugin_class, f"插件清理：{plugin_class.__name__}")
+            
+            # 清理类属性
+            for attr_name in dir(plugin_class):
+                if not attr_name.startswith('__'):
+                    try:
+                        attr = getattr(plugin_class, attr_name)
+                        if not isinstance(attr, type):
+                            cls._cleanup_resources(attr, f"插件清理：{plugin_class.__name__}.{attr_name}")
+                    except Exception:
+                        pass
+                        
+        except Exception as e:
+            add_error_log(f"清理插件类资源时出错: {str(e)}", traceback.format_exc())
+    
+    @classmethod
+    def _cleanup_module(cls, module_fullname, file_exists):
+        """清理模块资源"""
+        try:
+            module = sys.modules[module_fullname]
+            
+            # 调用模块清理函数
+            cls._cleanup_resources(module, f"模块清理：{module_fullname}")
+            
+            # 清理模块属性
+            for attr_name in dir(module):
+                if not attr_name.startswith('__'):
+                    try:
+                        attr = getattr(module, attr_name)
+                        if not isinstance(attr, type):
+                            cls._cleanup_resources(attr, f"模块清理：{module_fullname}.{attr_name}")
+                    except Exception:
+                        pass
+            
+            # 添加到待回收列表
+            cls._unloaded_modules.append(module)
+            
+            # 从sys.modules中删除
+            if module_fullname in sys.modules:
+                del sys.modules[module_fullname]
+                
+        except Exception as e:
+            add_error_log(f"清理模块时出错: {str(e)}", traceback.format_exc())
 
-    # ===== 正则处理器优化 =====
+    # === 处理器优化 ===
     @classmethod 
     def _rebuild_sorted_handlers(cls):
-        """重建排序的处理器列表，避免每次消息处理都重新排序"""
+        """重建排序的处理器列表"""
         handlers_with_priority = []
         
         for pattern, handler_info in cls._regex_handlers.items():
             plugin_class = handler_info.get('class')
-            priority = cls._plugins.get(plugin_class, 10)  # 默认优先级10
+            priority = cls._plugins.get(plugin_class, 10)
             
             handlers_with_priority.append({
                 'pattern': pattern,
@@ -652,42 +584,31 @@ class PluginManager:
                 'priority': priority
             })
         
-        # 按优先级排序（数字越小，优先级越高）
         cls._sorted_handlers = sorted(handlers_with_priority, key=lambda x: x['priority'])
 
-    # ===== 插件注册与分发相关 =====
+    # === 插件注册 ===
     @classmethod
     def register_plugin(cls, plugin_class, skip_log=False):
-        """
-        注册插件，返回注册的处理器数量。
-        """
+        """注册插件"""
         priority = getattr(plugin_class, 'priority', 10)
         cls._plugins[plugin_class] = priority
         handlers = plugin_class.get_regex_handlers()
-        handlers_info = []
         handlers_count = 0
+        
         for pattern, handler_info in handlers.items():
             if isinstance(handler_info, str):
                 handler_name = handler_info
-                owner_only = False
-                group_only = False
+                owner_only = group_only = False
             else:
                 handler_name = handler_info.get('handler')
                 owner_only = handler_info.get('owner_only', False)
                 group_only = handler_info.get('group_only', False)
-                if 'priority' in handler_info and not skip_log:
-                    add_framework_log(f"警告：'{pattern}'指令设置了优先级，但现在优先级应该设置在插件类级别")
-            if pattern.startswith('^'):
-                enhanced_pattern = pattern
-            else:
-                enhanced_pattern = f"^{pattern}"
-            try:
-                # 自动添加DOTALL标志以支持换行符匹配
-                compiled_regex = re.compile(enhanced_pattern, re.DOTALL)
-                cls._regex_cache[enhanced_pattern] = compiled_regex
-            except Exception as e:
-                add_error_log(f"正则表达式 '{enhanced_pattern}' 编译失败: {str(e)}")
+                
+            enhanced_pattern = cls._enhance_pattern(pattern)
+            compiled_regex = cls._compile_and_cache_regex(enhanced_pattern)
+            if not compiled_regex:
                 continue
+                
             cls._regex_handlers[enhanced_pattern] = {
                 'class': plugin_class,
                 'handler': handler_name,
@@ -695,124 +616,64 @@ class PluginManager:
                 'group_only': group_only,
                 'original_pattern': pattern
             }
-            handler_text = f"{enhanced_pattern} -> {handler_name}"
-            if owner_only:
-                handler_text += "(主人专属)"
-            if group_only:
-                handler_text += "(仅群聊)"
-            handlers_info.append(handler_text)
             handlers_count += 1
         
-        # 重建排序的处理器列表
         cls._rebuild_sorted_handlers()
-        
-        if not skip_log:
-            if handlers_info:
-                handlers_text = "，".join(handlers_info)
-                add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，处理器：{handlers_text}")
-            else:
-                add_framework_log(f"插件 {plugin_class.__name__} 已注册(优先级:{priority})，无处理器")
         return handlers_count
 
+    # === 维护模式 ===
     @classmethod
     def is_maintenance_mode(cls):
-        """
-        检查是否在维护模式。
-        """
         return MAINTENANCE_MODE
 
     @classmethod
     def can_user_bypass_maintenance(cls, user_id):
-        """
-        检查用户是否可以在维护模式下使用命令。
-        主人始终可以在维护模式下使用命令。
-        """
         return user_id in OWNER_IDS
 
-    @classmethod
-    def enter_maintenance_mode(cls):
-        """
-        进入维护模式。
-        """
-        global MAINTENANCE_MODE
-        MAINTENANCE_MODE = True
-        add_framework_log(f"系统已进入维护模式")
-
-    @classmethod
-    def exit_maintenance_mode(cls):
-        """
-        退出维护模式。
-        """
-        global MAINTENANCE_MODE
-        MAINTENANCE_MODE = False
-        add_framework_log(f"系统已退出维护模式")
-
-    # ===== 消息分发与权限相关 =====
+    # === 消息分发 ===
     @classmethod
     def dispatch_message(cls, event):
-        """
-        消息分发处理主入口
-        @param event: 事件对象
-        @return: 是否被处理
-        """
+        """消息分发处理主入口"""
         try:
-            # 检查插件更新
             cls.load_plugins()
             
-            # 0. 检查消息是否已被处理（如在MessageEvent中直接处理的消息）
             if hasattr(event, 'handled') and event.handled:
                 return True
             
-            # 0.1 检查用户是否在黑名单中
+            # 黑名单检查
             if hasattr(event, 'user_id') and event.user_id:
                 is_blacklisted, reason = cls.is_blacklisted(event.user_id)
                 if is_blacklisted:
-                    add_plugin_log(f"用户 {event.user_id} 在黑名单中，拒绝处理消息，原因: {reason}")
                     MessageTemplate.send(event, MSG_TYPE_BLACKLIST, reason=reason)
                     return True
                 
-            # 1. 维护模式检查 - 快速判断
+            # 维护模式检查
             if cls.is_maintenance_mode() and not cls.can_user_bypass_maintenance(event.user_id):
-                add_plugin_log(f"系统处于维护模式，拒绝用户 {event.user_id} 的请求")
                 MessageTemplate.send(event, MSG_TYPE_MAINTENANCE)
                 return True
                 
-            # 2. 确定用户环境，提前获取这些状态，避免重复判断
+            # 权限预检查
             is_owner = event.user_id in OWNER_IDS
             is_group = cls._is_group_chat(event)
             
-            # 3. 处理消息并获取匹配结果
-            result = cls._process_message(event, is_owner, is_group)
+            return cls._process_message(event, is_owner, is_group)
             
-            return result
         except Exception as e:
             error_msg = f"消息分发处理失败: {str(e)}"
             add_error_log(error_msg, traceback.format_exc())
-            add_framework_log(error_msg)
             return False
 
     @classmethod
     def _process_message(cls, event, is_owner, is_group):
-        """
-        处理消息并匹配处理器
-        @param event: 消息事件对象
-        @param is_owner: 是否为主人
-        @param is_group: 是否在群聊中
-        @return: 是否被处理
-        """
+        """处理消息并匹配处理器"""
         original_content = event.content
         matched = False
         
-        # 检查斜杠前缀，按照优先级处理
+        # 检查斜杠前缀
         has_slash_prefix = original_content and original_content.startswith('/')
+        permission_denied = {'owner_denied': False, 'group_denied': False}
         
-        # 存储权限拒绝情况
-        permission_denied = {
-            'owner_denied': False, 
-            'group_denied': False
-        }
-        
-        # 1. 尝试处理带斜杠前缀的命令
+        # 尝试处理带斜杠前缀的命令
         if has_slash_prefix:
             event.content = original_content[1:]
             matched_handlers = cls._find_matched_handlers(
@@ -823,7 +684,7 @@ class PluginManager:
             if not matched:
                 event.content = original_content
                 
-        # 2. 处理不带斜杠的原始命令
+        # 处理不带斜杠的原始命令
         if not matched:
             matched_handlers = cls._find_matched_handlers(
                 event.content, event, is_owner, is_group, permission_denied
@@ -831,85 +692,60 @@ class PluginManager:
             if matched_handlers:
                 matched = cls._execute_handlers(event, matched_handlers)
                 
-        # 3. 如果没有匹配到任何处理器，处理权限拒绝或发送默认回复
+        # 处理未匹配的情况
         if not matched:
-            if permission_denied['group_denied']:
-                add_plugin_log(f"用户 {event.user_id} 尝试在非群聊环境使用群聊专用命令，已拒绝")
-                MessageTemplate.send(event, MSG_TYPE_GROUP_ONLY)
-                return True
-            elif permission_denied['owner_denied']:
-                add_plugin_log(f"用户 {event.user_id} 尝试使用主人专属命令，已拒绝")
-                MessageTemplate.send(event, MSG_TYPE_OWNER_ONLY)
-                return True
-            elif SEND_DEFAULT_RESPONSE:
-                should_exclude = cls._should_exclude_default_response(event.content)
-                if not should_exclude:
-                    add_plugin_log("未匹配到任何插件，发送默认回复")
-                    cls.send_default_response(event)
-                else:
-                    add_plugin_log("未匹配到任何插件，但根据配置不发送默认回复")
-            else:
-                add_plugin_log("未匹配到任何插件，且未启用默认回复")
-            
-            # 记录未匹配的消息到数据库
-            cls._log_unmatched_message(event, original_content)
+            matched = cls._handle_unmatched_message(event, permission_denied, original_content)
                     
         return matched
+    
+    @classmethod
+    def _handle_unmatched_message(cls, event, permission_denied, original_content):
+        """处理未匹配的消息"""
+        if permission_denied['group_denied']:
+            MessageTemplate.send(event, MSG_TYPE_GROUP_ONLY)
+            return True
+        elif permission_denied['owner_denied']:
+            MessageTemplate.send(event, MSG_TYPE_OWNER_ONLY)
+            return True
+        elif SEND_DEFAULT_RESPONSE:
+            should_exclude = cls._should_exclude_default_response(event.content)
+            if not should_exclude:
+                cls.send_default_response(event)
+        
+        # 记录未匹配的消息
+        cls._log_unmatched_message(event, original_content)
+        return False
 
     @classmethod
     def _find_matched_handlers(cls, event_content, event, is_owner, is_group, permission_denied=None):
-        """
-        查找匹配内容的所有处理器，使用预排序优化性能。
-        同时检查权限条件，过滤掉不符合条件的处理器
-        
-        @param event_content: 消息内容
-        @param event: 消息事件对象
-        @param is_owner: 是否为主人
-        @param is_group: 是否在群聊中
-        @param permission_denied: 权限拒绝信息记录
-        @return: 满足所有条件的处理器列表（已按优先级排序）
-        """
+        """查找匹配内容的所有处理器"""
         matched_handlers = []
         
-        # 使用预排序的处理器列表，避免每次重新排序
         for handler_data in cls._sorted_handlers:
             pattern = handler_data['pattern'] 
             handler_info = handler_data['handler_info']
             
-            # 1. 编译并匹配正则
+            # 匹配正则
             compiled_regex = cls._regex_cache.get(pattern)
             if not compiled_regex:
-                try:
-                    # 自动添加DOTALL标志以支持换行符匹配
-                    compiled_regex = re.compile(pattern, re.DOTALL)
-                    cls._regex_cache[pattern] = compiled_regex
-                except Exception:
+                compiled_regex = cls._compile_and_cache_regex(pattern)
+                if not compiled_regex:
                     continue
                     
             match = compiled_regex.search(event_content)
             if not match:
                 continue
             
-            # 2. 获取处理器信息
+            # 权限检查
             plugin_class = handler_info.get('class')
             handler_name = handler_info.get('handler')
-            owner_only = handler_info.get('owner_only', False)
-            group_only = handler_info.get('group_only', False)
             
-            # 3. 检查权限条件
-            # 主人权限检查
-            if owner_only and not is_owner:
+            has_permission, deny_reason = cls._check_permissions(handler_info, is_owner, is_group)
+            if not has_permission:
                 if permission_denied is not None:
-                    permission_denied['owner_denied'] = True
+                    permission_denied[deny_reason] = True
                 continue
                 
-            # 群聊限制检查
-            if group_only and not is_group:
-                if permission_denied is not None:
-                    permission_denied['group_denied'] = True
-                continue
-                
-            # 4. 添加通过所有检查的处理器（无需再排序，已预排序）
             matched_handlers.append({
                 'pattern': pattern,
                 'match': match,
@@ -922,18 +758,9 @@ class PluginManager:
 
     @classmethod
     def _execute_handlers(cls, event, matched_handlers, original_content=None):
-        """
-        执行匹配的处理器
-        @param event: 消息事件对象
-        @param matched_handlers: 匹配的处理器列表
-        @param original_content: 原始消息内容
-        @return: 是否成功处理
-        """
+        """执行匹配的处理器"""
         matched = False
         
-        if original_content is not None and matched_handlers:
-            add_plugin_log(f"检测到前缀，插件 {matched_handlers[0]['plugin_class'].__name__} 处理为：{event.content} (原始消息：{original_content})")
-            
         for handler in matched_handlers:
             plugin_class = handler['plugin_class']
             handler_name = handler['handler_name']
@@ -942,9 +769,6 @@ class PluginManager:
             
             try:
                 event.matches = match.groups()
-                if original_content is None:
-                    add_plugin_log(f"插件 {plugin_name} 开始处理消息：{event.content}")
-                    
                 result = cls._call_plugin_handler_with_logging(plugin_class, handler_name, event, plugin_name)
                 matched = True
                 
@@ -952,16 +776,14 @@ class PluginManager:
                     break
             except Exception as e:
                 error_msg = f"插件 {plugin_class.__name__} 处理消息时出错：{str(e)}"
-                stack_trace = traceback.format_exc()
-                add_plugin_log(error_msg)
-                add_error_log(error_msg, stack_trace)
+                add_error_log(error_msg, traceback.format_exc())
                 
-                # 记录到数据库日志
+                # 记录到数据库
                 try:
                     add_log_to_db('error', {
                         'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
                         'content': error_msg,
-                        'traceback': stack_trace
+                        'traceback': traceback.format_exc()
                     })
                 except Exception:
                     pass
@@ -973,12 +795,8 @@ class PluginManager:
 
     @classmethod
     def _is_group_chat(cls, event):
-        """
-        判断消息事件是否来自群聊。
-        """
-        if event.event_type == "GROUP_AT_MESSAGE_CREATE":
-            return True
-        elif event.event_type == "AT_MESSAGE_CREATE":
+        """判断消息事件是否来自群聊"""
+        if event.event_type in ["GROUP_AT_MESSAGE_CREATE", "AT_MESSAGE_CREATE"]:
             return True
         elif event.event_type == "INTERACTION_CREATE":
             chat_type = event.get('d/chat_type') if hasattr(event, 'get') else None
@@ -1000,119 +818,94 @@ class PluginManager:
 
     @classmethod
     def _call_plugin_handler_with_logging(cls, plugin_class, handler_name, event, plugin_name):
-        """
-        调用插件处理函数并处理日志记录。
-        支持同步和异步处理函数。
-        """
-        # 保存原始发送方法
-        original_reply = event.reply
-        original_reply_image = getattr(event, 'reply_image', None)
-        original_reply_voice = getattr(event, 'reply_voice', None) 
-        original_reply_video = getattr(event, 'reply_video', None)
-        original_reply_ark = getattr(event, 'reply_ark', None)
-        original_reply_markdown = getattr(event, 'reply_markdown', None)
-        original_reply_md = getattr(event, 'reply_md', None)
+        """调用插件处理函数并处理日志"""
+        # 保存原始方法
+        original_methods = {
+            'reply': event.reply,
+            'reply_image': getattr(event, 'reply_image', None),
+            'reply_voice': getattr(event, 'reply_voice', None),
+            'reply_video': getattr(event, 'reply_video', None),
+            'reply_ark': getattr(event, 'reply_ark', None),
+            'reply_markdown': getattr(event, 'reply_markdown', None),
+            'reply_md': getattr(event, 'reply_md', None)
+        }
         
         is_first_reply = [True]
         
-        def _create_logged_method(original_method, method_name):
-            """创建带日志记录的方法"""
-            def logged_method(*args, **kwargs):
-                # 提取内容信息
-                if method_name == 'reply':
-                    content = args[0] if args else kwargs.get('content', '')
-                    text_content = content if isinstance(content, str) else "[非文本内容]"
-                elif method_name == 'reply_image':
-                    content = args[1] if len(args) > 1 else kwargs.get('content', '')
-                    text_content = f"[图片消息] {content}" if content else "[图片消息]"
-                elif method_name == 'reply_voice':
-                    content = args[1] if len(args) > 1 else kwargs.get('content', '')
-                    text_content = f"[语音消息] {content}" if content else "[语音消息]"
-                elif method_name == 'reply_video':
-                    content = args[1] if len(args) > 1 else kwargs.get('content', '')
-                    text_content = f"[视频消息] {content}" if content else "[视频消息]"
-                elif method_name == 'reply_ark':
-                    template_id = args[0] if args else kwargs.get('template_id', '')
-                    content = args[2] if len(args) > 2 else kwargs.get('content', '')
-                    text_content = f"[ARK卡片] 模板ID:{template_id} {content}".strip()
-                elif method_name in ('reply_markdown', 'reply_md'):
-                    template = args[0] if args else kwargs.get('template', '')
-                    text_content = f"[Markdown模板] 模板:{template}"
-                else:
-                    text_content = f"[{method_name}调用]"
-                
-                # 记录日志
-                if is_first_reply[0]:
-                    add_plugin_log(f"插件 {plugin_name} 回复：{text_content} (处理完成)")
-                    is_first_reply[0] = False
-                else:
-                    add_plugin_log(f"插件 {plugin_name} 回复：{text_content} (继续处理)")
-                
-                # 调用原始方法
-                return original_method(*args, **kwargs)
-            return logged_method
+        # 创建日志包装器
+        wrapped_methods = cls._create_method_logger(original_methods, plugin_name, is_first_reply)
         
-        # 替换所有发送方法
-        event.reply = _create_logged_method(original_reply, 'reply')
-        
-        if original_reply_image:
-            event.reply_image = _create_logged_method(original_reply_image, 'reply_image')
-        if original_reply_voice:
-            event.reply_voice = _create_logged_method(original_reply_voice, 'reply_voice')
-        if original_reply_video:
-            event.reply_video = _create_logged_method(original_reply_video, 'reply_video')
-        if original_reply_ark:
-            event.reply_ark = _create_logged_method(original_reply_ark, 'reply_ark')
-        if original_reply_markdown:
-            event.reply_markdown = _create_logged_method(original_reply_markdown, 'reply_markdown')
-        if original_reply_md:
-            event.reply_md = _create_logged_method(original_reply_md, 'reply_md')
+        # 替换方法
+        for method_name, wrapped_method in wrapped_methods.items():
+            if wrapped_method:
+                setattr(event, method_name, wrapped_method)
         
         try:
             handler = getattr(plugin_class, handler_name)
             result = handler(event)
             
-            # 检查结果是否为协程对象
+            # 处理异步结果
             if asyncio.iscoroutine(result):
-                # 如果是协程，使用asyncio运行它
                 try:
                     loop = asyncio.get_event_loop()
                 except RuntimeError:
-                    # 如果没有事件循环，创建一个新的
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                 
-                # 运行协程直到完成
                 result = loop.run_until_complete(result)
                 
             return result
         finally:
             # 恢复原始方法
-            event.reply = original_reply
-            if original_reply_image:
-                event.reply_image = original_reply_image
-            if original_reply_voice:
-                event.reply_voice = original_reply_voice
-            if original_reply_video:
-                event.reply_video = original_reply_video
-            if original_reply_ark:
-                event.reply_ark = original_reply_ark
-            if original_reply_markdown:
-                event.reply_markdown = original_reply_markdown
-            if original_reply_md:
-                event.reply_md = original_reply_md
+            for method_name, original_method in original_methods.items():
+                if original_method:
+                    setattr(event, method_name, original_method)
+    
+    @classmethod
+    def _create_method_logger(cls, original_methods_dict, plugin_name, is_first_reply):
+        """创建带日志记录的方法包装器"""
+        def _create_logged_method(original_method, method_name):
+            def logged_method(*args, **kwargs):
+                # 提取内容信息
+                content_extractors = {
+                    'reply': lambda a, k: a[0] if a else k.get('content', ''),
+                    'reply_image': lambda a, k: f"[图片] {a[1] if len(a) > 1 else k.get('content', '')}".strip(),
+                    'reply_voice': lambda a, k: f"[语音] {a[1] if len(a) > 1 else k.get('content', '')}".strip(),
+                    'reply_video': lambda a, k: f"[视频] {a[1] if len(a) > 1 else k.get('content', '')}".strip(),
+                    'reply_ark': lambda a, k: f"[ARK] {a[0] if a else k.get('template_id', '')}",
+                    'reply_markdown': lambda a, k: f"[MD] {a[0] if a else k.get('template', '')}",
+                    'reply_md': lambda a, k: f"[MD] {a[0] if a else k.get('template', '')}"
+                }
+                
+                extractor = content_extractors.get(method_name)
+                text_content = extractor(args, kwargs) if extractor else f"[{method_name}]"
+                if method_name == 'reply' and not isinstance(text_content, str):
+                    text_content = "[非文本内容]"
+                
+                # 记录日志
+                status = "(处理完成)" if is_first_reply[0] else "(继续处理)"
+                add_plugin_log(f"插件 {plugin_name} 回复：{text_content} {status}")
+                if is_first_reply[0]:
+                    is_first_reply[0] = False
+                
+                return original_method(*args, **kwargs)
+            return logged_method
+        
+        # 批量创建包装器
+        wrapped_methods = {}
+        for method_name, original_method in original_methods_dict.items():
+            if original_method:
+                wrapped_methods[method_name] = _create_logged_method(original_method, method_name)
+        
+        return wrapped_methods
 
-    # ===== 默认回复相关 =====
+    # === 默认回复 ===
     @classmethod
     def _should_exclude_default_response(cls, content):
-        """
-        检查是否应该排除默认回复。
-        只使用黑名单模式：匹配排除正则的内容不发送默认回复。
-        """
+        """检查是否应该排除默认回复"""
         for regex_pattern in DEFAULT_RESPONSE_EXCLUDED_REGEX:
             try:
                 if re.search(regex_pattern, content):
-                    add_plugin_log(f"未匹配消息 '{content}' 匹配排除正则: '{regex_pattern}'")
                     return True
             except Exception as e:
                 add_error_log(f"排除正则 '{regex_pattern}' 匹配错误: {str(e)}")
@@ -1120,75 +913,38 @@ class PluginManager:
 
     @classmethod
     def send_default_response(cls, event):
-        """
-        发送默认回复。
-        """
+        """发送默认回复"""
         MessageTemplate.send(event, MSG_TYPE_DEFAULT)
     
     @classmethod
     def _log_unmatched_message(cls, event, original_content):
-        """
-        记录未匹配任何插件的消息到数据库
-        @param event: 消息事件对象
-        @param original_content: 原始消息内容
-        """
+        """记录未匹配的消息到数据库"""
         try:
             import datetime
             
-            # 获取群聊ID，私聊默认为c2c
+            # 获取群聊ID
             group_id = 'c2c'
             if hasattr(event, 'group_id') and event.group_id:
                 group_id = str(event.group_id)
             elif cls._is_group_chat(event):
-                # 从事件中尝试获取群聊ID
                 if hasattr(event, 'get'):
                     group_id = event.get('d/group_openid') or event.get('d/guild_id') or 'unknown_group'
                 else:
                     group_id = 'unknown_group'
             
-            # 获取用户ID
-            user_id = str(event.user_id) if hasattr(event, 'user_id') and event.user_id else '未知用户'
-            
-            # 获取消息内容
-            content = original_content if original_content else (event.content if hasattr(event, 'content') else '')
-            
-            # 构建原始消息数据（JSON格式）
-            raw_message_data = {}
-            if hasattr(event, '__dict__'):
-                # 提取事件对象的关键属性
-                for attr in ['message_id', 'user_id', 'group_id', 'content', 'message_type', 'event_type']:
-                    if hasattr(event, attr):
-                        raw_message_data[attr] = getattr(event, attr)
-                
-                # 如果事件有原始数据，也添加进去（限制大小避免过大）
-                if hasattr(event, 'get') and callable(event.get):
-                    try:
-                        raw_data = {
-                            'd': event.get('d') if event.get('d') else {},
-                            'op': event.get('op'),
-                            's': event.get('s'),
-                            't': event.get('t')
-                        }
-                        raw_message_data['raw'] = raw_data
-                    except Exception:
-                        pass
-            
-            # 转换为JSON字符串，限制长度避免数据库字段溢出
-            raw_message_json = json.dumps(raw_message_data, ensure_ascii=False, default=str)
-            if len(raw_message_json) > 10000:  # 限制为10KB
-                raw_message_json = raw_message_json[:10000] + "...(truncated)"
-            
             # 构建日志数据
             log_data = {
                 'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'user_id': user_id,
+                'user_id': str(event.user_id) if hasattr(event, 'user_id') and event.user_id else '未知用户',
                 'group_id': group_id,
-                'content': content[:5000] if content else '',  # 限制内容长度
-                'raw_message': raw_message_json
+                'content': (original_content if original_content else event.content)[:5000] if hasattr(event, 'content') else '',
+                'raw_message': json.dumps({
+                    attr: getattr(event, attr) for attr in ['message_id', 'user_id', 'group_id', 'content', 'message_type', 'event_type']
+                    if hasattr(event, attr)
+                }, ensure_ascii=False, default=str)[:10000]
             }
             
-            # 写入数据库
-            success = add_log_to_db('unmatched', log_data)
+            add_log_to_db('unmatched', log_data)
 
         except Exception as e:
             add_error_log(f"记录未匹配消息时出错: {str(e)}", traceback.format_exc()) 

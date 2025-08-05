@@ -208,49 +208,69 @@ class MessageEvent:
         self.welcome_allowed = False
 
     # --- API交互相关 ---
-    def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info=""):
-        """通用的发送错误处理方法"""
-        max_retries = 2
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            response = BOTAPI(endpoint, "POST", Json(payload))
-            resp_obj = self._parse_response(response)
+    def _check_send_conditions(self):
+        """检查发送条件"""
+        return not (self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)))
+    
+    def _prepare_media_data(self, data):
+        """准备媒体数据（图片、语音、视频）"""
+        if isinstance(data, str):
+            try:
+                return get_binary_content(data)
+            except Exception:
+                import requests
+                return requests.get(data).content
+        return data
+    
+    def _set_message_id_in_payload(self, payload):
+        """为payload设置消息ID"""
+        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
+            payload["msg_id"] = self.message_id
+        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
+            payload["event_id"] = self.get('id') or self.get('d/id') or ""
+        elif self.message_type == self.CHANNEL_MESSAGE:
+            payload["msg_id"] = self.get('d/id')
+        return payload
+    
+    def _handle_auto_recall(self, message_id, auto_delete_time):
+        """处理自动撤回"""
+        if message_id and auto_delete_time:
+            import threading
+            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
+    
+    def _send_media_message(self, data, content, file_type, content_type, auto_delete_time=None, converter=None):
+        """通用媒体消息发送方法"""
+        if not self._check_send_conditions():
+            return None
             
-            if resp_obj and all(k in resp_obj for k in ("message", "code", "trace_id")):
-                error_code = resp_obj.get('code')
-                
-                # 特定错误码处理
-                if error_code in self._IGNORE_ERROR_CODES:
-                    return None
-                
-                # Token过期特殊处理
-                if error_code == 11244:
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        from function.Access import 获取新Token
-                        获取新Token()
-                        time.sleep(1)
-                        continue
-                    else:
-                        self._log_error(
-                            f"发送{content_type}Token过期重试2次后仍然失败",
-                            f"{extra_info}\npayload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
-                        )
-                        return None
-                
-                # 其他错误码处理
-                self._log_error(
-                    f"发送{content_type}失败：{resp_obj.get('message')} code：{error_code} trace_id：{resp_obj.get('trace_id')}", 
-                    f"resp_obj: {str(resp_obj)}\nsend_payload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
-                )
-                return MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, 
-                                           trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
-            
-            # 没有错误则返回消息ID
-            return self._extract_message_id(response)
+        # 准备媒体数据
+        processed_data = self._prepare_media_data(data)
         
-        return None
+        # 如果有转换器（如语音转silk），应用转换
+        if converter:
+            processed_data = converter(processed_data)
+            if not processed_data:
+                return None
+        
+        # 上传媒体
+        file_info = self.upload_media(processed_data, file_type)
+        if not file_info:
+            return None
+            
+        # 构建payload
+        payload = self._build_media_message_payload(content, file_info)
+        endpoint = self._get_endpoint()
+        
+        if self.message_type == self.GROUP_ADD_ROBOT:
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        
+        # 发送消息
+        message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}")
+        
+        # 处理自动撤回
+        self._handle_auto_recall(message_id, auto_delete_time)
+        
+        return message_id
 
     def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None):
         if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
@@ -305,127 +325,23 @@ class MessageEvent:
 
     def reply_image(self, image_data, content='', auto_delete_time=None):
         """发送图片消息"""
-        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
-            return None
-            
-        # 处理图片数据
-        if isinstance(image_data, str):
-            try:
-                image_data = get_binary_content(image_data)
-            except Exception:
-                import requests
-                image_data = requests.get(image_data).content
-        
-        # 上传图片并发送
-        file_info = self.upload_media(image_data, file_type=1)
-        if not file_info:
-            return None
-            
-        payload = self._build_media_message_payload(content, file_info)
-        endpoint = self._get_endpoint()
-        
-        if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
-        
-        message_id = self._send_with_error_handling(payload, endpoint, "图片消息", f"content: {content}")
-        
-        if message_id and auto_delete_time:
-            import threading
-            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
-            
-        return message_id
+        return self._send_media_message(image_data, content, 1, "图片消息", auto_delete_time)
 
     def reply_voice(self, voice_data, content='', auto_delete_time=None):
         """发送语音消息"""
-        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
-            return None
-            
-        # 处理语音数据
-        if isinstance(voice_data, str):
-            try:
-                voice_data = get_binary_content(voice_data)
-            except Exception:
-                import requests
-                voice_data = requests.get(voice_data).content
-        
-        # 转换为silk格式并发送
-        silk_data = self._convert_to_silk(voice_data)
-        if not silk_data:
-            return None
-        
-        file_info = self.upload_media(silk_data, file_type=3)
-        if not file_info:
-            return None
-            
-        payload = self._build_media_message_payload(content, file_info)
-        endpoint = self._get_endpoint()
-        
-        if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
-        
-        message_id = self._send_with_error_handling(payload, endpoint, "语音消息", f"content: {content}")
-        
-        if message_id and auto_delete_time:
-            import threading
-            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
-            
-        return message_id
+        return self._send_media_message(voice_data, content, 3, "语音消息", auto_delete_time, self._convert_to_silk)
 
     def reply_video(self, video_data, content='', auto_delete_time=None):
         """发送视频消息"""
-        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
-            return None
-            
-        # 处理视频数据
-        if isinstance(video_data, str):
-            try:
-                video_data = get_binary_content(video_data)
-            except Exception:
-                import requests
-                video_data = requests.get(video_data).content
-        
-        # 上传视频并发送
-        file_info = self.upload_media(video_data, file_type=2)
-        if not file_info:
-            return None
-            
-        payload = self._build_media_message_payload(content, file_info)
-        endpoint = self._get_endpoint()
-        
-        if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
-        
-        message_id = self._send_with_error_handling(payload, endpoint, "视频消息", f"content: {content}")
-        
-        if message_id and auto_delete_time:
-            import threading
-            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
-            
-        return message_id
+        return self._send_media_message(video_data, content, 2, "视频消息", auto_delete_time)
 
     def reply_ark(self, template_id, kv_data, content='', auto_delete_time=None):
         """发送ark卡片消息"""
-        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
-            return None
-            
-        # 如果是简化格式（元组/列表），转换为标准格式
-        if isinstance(kv_data, (tuple, list)) and template_id in [23, 24, 37]:
-            kv_data = self._convert_simple_ark_data(template_id, kv_data)
-            
-        # 构建ark消息payload
-        payload = self._build_ark_message_payload(template_id, kv_data, content)
-        endpoint = self._get_endpoint()
-        
-        if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
-        
-        message_id = self._send_with_error_handling(payload, endpoint, "ark卡片消息", f"template_id: {template_id}, content: {content}")
-        
-        if message_id and auto_delete_time:
-            import threading
-            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
-            
-        return message_id
+        return self._send_simple_message(
+            lambda: self._build_ark_message_payload(template_id, self._convert_simple_ark_data(template_id, kv_data) if isinstance(kv_data, (tuple, list)) and template_id in [23, 24, 37] else kv_data, content),
+            "ark卡片消息",
+            auto_delete_time
+        )
 
     def reply_markdown(self, template, params=None, keyboard_id=None, auto_delete_time=None):
         """发送markdown模板消息
@@ -439,15 +355,19 @@ class MessageEvent:
         Returns:
             消息ID或None
         """
-        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
+        def build_payload():
+            template_data = self._build_markdown_template_data(template, params)
+            if not template_data:
+                return None
+            return self._build_markdown_message_payload(template_data, keyboard_id)
+        
+        if not self._check_send_conditions():
             return None
             
-        # 构建markdown模板payload
-        template_data = self._build_markdown_template_data(template, params)
-        if not template_data:
+        payload = build_payload()
+        if not payload:
             return None
             
-        payload = self._build_markdown_message_payload(template_data, keyboard_id)
         endpoint = self._get_endpoint()
         
         if self.message_type == self.GROUP_ADD_ROBOT:
@@ -455,10 +375,8 @@ class MessageEvent:
         
         message_id = self._send_with_error_handling(payload, endpoint, "markdown模板消息", f"template: {template}, params: {params}")
         
-        if message_id and auto_delete_time:
-            import threading
-            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
-            
+        self._handle_auto_recall(message_id, auto_delete_time)
+        
         return message_id
 
     def reply_md(self, template, params=None, keyboard_id=None, auto_delete_time=None):
@@ -470,10 +388,18 @@ class MessageEvent:
         endpoint_template = self._API_ENDPOINTS[self.message_type]['reply_private'] if (self.message_type == self.INTERACTION and self.is_private) else self._API_ENDPOINTS[self.message_type]['reply']
         return self._fill_endpoint_template(endpoint_template)
 
+    def _cleanup_temp_files(self, *file_paths):
+        """清理临时文件"""
+        for path in file_paths:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+
     def _convert_to_silk(self, audio_data):
         """将音频数据转换为silk格式 - 使用ffmpeg+pilk"""
         import tempfile
-        import os
         import subprocess
         
         audio_path = None
@@ -513,12 +439,7 @@ class MessageEvent:
             return None
         finally:
             # 清理临时文件
-            for path in [audio_path, pcm_path, silk_path]:
-                if path and os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except Exception:
-                        pass
+            self._cleanup_temp_files(audio_path, pcm_path, silk_path)
 
     def _parse_response(self, response):
         """解析API响应"""
@@ -553,6 +474,67 @@ class MessageEvent:
         except Exception as e:
             self._log_error(f"撤回消息时发生错误: {str(e)}")
             return None
+
+    def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info=""):
+        """通用的发送错误处理方法"""
+        max_retries = 2
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            response = BOTAPI(endpoint, "POST", Json(payload))
+            resp_obj = self._parse_response(response)
+            
+            if resp_obj and all(k in resp_obj for k in ("message", "code", "trace_id")):
+                error_code = resp_obj.get('code')
+                
+                # 特定错误码处理
+                if error_code in self._IGNORE_ERROR_CODES:
+                    return None
+                
+                # Token过期特殊处理
+                if error_code == 11244:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        from function.Access import 获取新Token
+                        获取新Token()
+                        time.sleep(1)
+                        continue
+                    else:
+                        self._log_error(
+                            f"发送{content_type}Token过期重试2次后仍然失败",
+                            f"{extra_info}\npayload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
+                        )
+                        return None
+                
+                # 其他错误码处理
+                self._log_error(
+                    f"发送{content_type}失败：{resp_obj.get('message')} code：{error_code} trace_id：{resp_obj.get('trace_id')}", 
+                    f"resp_obj: {str(resp_obj)}\nsend_payload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
+                )
+                return MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, 
+                                           trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
+            
+            # 没有错误则返回消息ID
+            return self._extract_message_id(response)
+        
+        return None
+
+    def _send_simple_message(self, payload_builder, content_type, auto_delete_time=None, **kwargs):
+        """通用的简单消息发送方法"""
+        if not self._check_send_conditions():
+            return None
+            
+        payload = payload_builder(**kwargs)
+        endpoint = self._get_endpoint()
+        
+        if self.message_type == self.GROUP_ADD_ROBOT:
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        
+        message_id = self._send_with_error_handling(payload, endpoint, content_type, f"payload: {json.dumps(payload, ensure_ascii=False)}")
+        
+        self._handle_auto_recall(message_id, auto_delete_time)
+        
+        return message_id
 
     def _build_message_payload(self, content, buttons, media, hide_avatar_and_center=False):
         msg_type = 7 if media else (2 if USE_MARKDOWN else 0)
@@ -602,14 +584,7 @@ class MessageEvent:
             "media": {'file_info': file_info}
         }
         
-        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
-            payload["msg_id"] = self.message_id
-        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('id') or self.get('d/id') or ""
-        elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.get('d/id')
-            
-        return payload
+        return self._set_message_id_in_payload(payload)
 
     def _build_ark_message_payload(self, template_id, kv_data, content):
         """构建ark消息payload"""
@@ -623,14 +598,7 @@ class MessageEvent:
             }
         }
         
-        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
-            payload["msg_id"] = self.message_id
-        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('id') or self.get('d/id') or ""
-        elif self.message_type == self.CHANNEL_MESSAGE:  
-            payload["msg_id"] = self.get('d/id')
-            
-        return payload
+        return self._set_message_id_in_payload(payload)
 
     def _convert_simple_ark_data(self, template_id, simple_data):
         """将简化的ark参数转换为标准格式"""
@@ -738,14 +706,7 @@ class MessageEvent:
                 "id": str(keyboard_id)
             }
         
-        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
-            payload["msg_id"] = self.message_id
-        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('id') or self.get('d/id') or ""
-        elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.get('d/id')
-                
-        return payload
+        return self._set_message_id_in_payload(payload)
 
     def _fill_endpoint_template(self, template):
         replacements = {

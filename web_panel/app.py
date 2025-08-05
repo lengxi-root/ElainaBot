@@ -276,28 +276,65 @@ def cleanup_expired_ip_bans():
 load_ip_data()
 
 
+# ===== 统一错误处理系统 =====
+def api_error_response(error_msg, status_code=500, **extra_data):
+    """标准API错误响应"""
+    response_data = {
+        'success': False,
+        'error': str(error_msg)
+    }
+    response_data.update(extra_data)
+    return jsonify(response_data), status_code
+
+def api_success_response(data=None, **extra_data):
+    """标准API成功响应"""
+    response_data = {'success': True}
+    if data is not None:
+        response_data.update(data if isinstance(data, dict) else {'data': data})
+    response_data.update(extra_data)
+    return jsonify(response_data)
+
+def openapi_error_response(error_msg, status_code=200):
+    """OpenAPI错误响应（使用message字段）"""
+    return jsonify({
+        'success': False,
+        'message': str(error_msg)
+    }), status_code
+
+def openapi_success_response(data=None, **extra_data):
+    """OpenAPI成功响应"""
+    response_data = {'success': True}
+    if data is not None:
+        response_data.update(data if isinstance(data, dict) else {'data': data})
+    response_data.update(extra_data)
+    return jsonify(response_data)
+
+def check_openapi_login(user_id):
+    """检查OpenAPI用户登录状态"""
+    if user_id not in openapi_user_data:
+        return None
+    return openapi_user_data[user_id]
+
 def catch_error(func):
-    """捕获错误的装饰器"""
+    """捕获错误的装饰器 - 自动返回JSON错误响应"""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except Exception as e:
             error_msg = f"{func.__name__} 执行出错: {str(e)}"
+            print(error_msg)  # 简化日志记录
             
-            if 'add_error_log' in globals() and 'socketio' in globals() and socketio is not None:
-                add_error_log(error_msg)
-            
+            # 简化的错误记录
             try:
-                log_data = {
+                add_log_to_db('error', {
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'content': error_msg
-                }
-                add_log_to_db('error', log_data)
-            except Exception:
+                })
+            except:
                 pass
                 
-            return None
+            return api_error_response(str(e))
     return wrapper
 
 
@@ -722,6 +759,7 @@ def index():
         response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
         response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+        response.headers['Strict-Transport-Security'] = 'max-age=0'
     
     # 添加缓存控制头
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'  # 生产环境：禁用缓存敏感页面
@@ -783,41 +821,25 @@ def status():
 @catch_error
 def get_statistics():
     """获取统计数据API"""
-    try:
-        # 检查是否强制刷新
-        force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
-        
-        # 检查是否查询特定日期
-        selected_date = request.args.get('date')
-        
-        if selected_date and selected_date != 'today':
-            # 查询特定历史日期的数据
-            date_data = get_specific_date_data(selected_date)
-            if date_data:
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'selected_date_data': date_data,
-                        'date': selected_date
-                    }
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': f'未找到日期 {selected_date} 的数据'
-                }), 404
-        else:
-            # 查询完整统计数据（包含图表数据）
-            data = get_statistics_data(force_refresh=force_refresh)
-            return jsonify({
-                'success': True,
-                'data': data
-            })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    # 检查是否强制刷新
+    force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
+    
+    # 检查是否查询特定日期
+    selected_date = request.args.get('date')
+    
+    if selected_date and selected_date != 'today':
+        # 查询特定历史日期的数据
+        date_data = get_specific_date_data(selected_date)
+        if not date_data:
+            return api_error_response(f'未找到日期 {selected_date} 的数据', 404)
+        return api_success_response({
+            'selected_date_data': date_data,
+            'date': selected_date
+        })
+    else:
+        # 查询完整统计数据（包含图表数据）
+        data = get_statistics_data(force_refresh=force_refresh)
+        return api_success_response(data)
 
 @web_panel.route('/api/complete_dau', methods=['POST'])
 @check_ip_ban
@@ -825,17 +847,8 @@ def get_statistics():
 @catch_error
 def complete_dau():
     """补全DAU数据API"""
-    try:
-        result = complete_dau_data()
-        return jsonify({
-            'success': True,
-            'result': result
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    result = complete_dau_data()
+    return api_success_response(result=result)
 
 @web_panel.route('/api/get_nickname/<user_id>')
 @check_ip_ban
@@ -844,19 +857,8 @@ def complete_dau():
 @catch_error
 def get_user_nickname(user_id):
     """获取用户昵称API"""
-    try:
-        nickname = fetch_user_nickname(user_id)
-        return jsonify({
-            'success': True,
-            'nickname': nickname,
-            'user_id': user_id
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'user_id': user_id
-        }), 500
+    nickname = fetch_user_nickname(user_id)
+    return api_success_response(nickname=nickname, user_id=user_id)
 
 @web_panel.route('/api/available_dates')
 @check_ip_ban
@@ -865,217 +867,107 @@ def get_user_nickname(user_id):
 @catch_error
 def get_available_dates():
     """获取可用的DAU日期列表API"""
-    try:
-        dates = get_available_dau_dates()
-        return jsonify({
-            'success': True,
-            'dates': dates
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    dates = get_available_dau_dates()
+    return api_success_response(dates=dates)
+
+def _build_fallback_robot_info(error_msg, robot_share_url, connection_type, connection_status):
+    """构建错误情况下的机器人信息响应"""
+    return {
+        'success': False,
+        'error': error_msg,
+        'qq': ROBOT_QQ,
+        'name': '加载失败',
+        'description': '无法获取机器人信息',
+        'avatar': '',
+        'appid': appid,
+        'developer': '未知',
+        'link': robot_share_url,
+        'status': '未知',
+        'connection_type': connection_type,
+        'connection_status': connection_status,
+        'data_source': 'fallback',
+        'qr_code_api': f'/web/api/robot_qrcode?url={robot_share_url}'
+    }
 
 @web_panel.route('/api/robot_info')
 @catch_error  
 def get_robot_info():
-    """获取机器人信息API - 支持本地缓存"""
+    """获取机器人信息API"""
+    # 预先构建通用数据
+    robot_share_url = f"https://qun.qq.com/qunpro/robot/qunshare?robot_uin={ROBOT_QQ}"
+    is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
+    connection_type = 'WebSocket' if is_websocket else 'WebHook'
+    connection_status = get_websocket_status() if is_websocket else 'WebHook'
+    
     try:
-        # 缓存文件路径
-        cache_file = os.path.join('data', 'robot_info.json')
-        cache_duration = 365 * 60 * 60  # 缓存365天
-        
-        # 尝试读取缓存文件
-        if os.path.exists(cache_file):
-            try:
-                file_stat = os.path.stat(cache_file)
-                file_age = time.time() - file_stat.st_mtime
-                
-                # 如果缓存未过期，读取缓存数据并更新连接状态
-                if file_age < cache_duration:
-                    with open(cache_file, 'r', encoding='utf-8') as f:
-                        cached_data = json.load(f)
-                    
-                    # 更新当前的连接状态
-                    is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-                    cached_data['connection_type'] = 'WebSocket' if is_websocket else 'WebHook'
-                    cached_data['connection_status'] = get_websocket_status() if is_websocket else 'WebHook'
-                    
-                    print(f"从缓存读取机器人信息: {cached_data.get('name', '未知')}")
-                    return jsonify(cached_data)
-                else:
-                    print(f"缓存已过期，文件年龄: {file_age/3600:.1f}小时")
-            except Exception as e:
-                print(f"读取缓存文件失败: {e}")
-        
-        # 缓存不存在或已过期，调用外部API
-        api_url = f"https://i.elaina.vin/api/bot/xx.php?bot={ROBOT_QQ}"
-        
+        # 调用腾讯官方API
+        api_url = f"https://qun.qq.com/qunng/http2rpc/gotrpc/noauth/trpc.group_pro_robot.manager.TrpcHandler/GetShareInfo?robot_uin={ROBOT_QQ}"
         print(f"正在调用机器人信息API: {api_url}")
+        
         response = requests.get(api_url, timeout=10)
         response.raise_for_status()
+        api_response = response.json()
         
-        robot_data = response.json()
-        print(f"API调用成功，获取到数据: {robot_data.get('名字', '未知')}")
+        # 检查API返回状态
+        if api_response.get('retcode') != 0:
+            raise Exception(f"API返回错误: {api_response.get('message', 'Unknown error')}")
         
-        # 处理头像URL，为腾讯云COS图片添加处理参数
-        avatar_url = robot_data.get('头像', '')
+        # 提取并处理机器人数据
+        robot_data = api_response.get('data', {}).get('data', {})
+        print(f"获取到机器人数据: {robot_data.get('robot_name', '未知')}")
+        
+        # 处理头像URL
+        avatar_url = robot_data.get('robot_avatar', '')
         if avatar_url and 'myqcloud.com' in avatar_url:
-            # 为腾讯云COS图片添加格式转换参数，确保兼容性
-            if '?' in avatar_url:
-                avatar_url += '&imageMogr2/format/png'
-            else:
-                avatar_url += '?imageMogr2/format/png'
+            avatar_url += '&imageMogr2/format/png' if '?' in avatar_url else '?imageMogr2/format/png'
         
-        # 确定连接类型和状态
-        is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-        connection_type = 'WebSocket' if is_websocket else 'WebHook'
-        # 如果是WebSocket，显示实际连接状态；如果是WebHook，显示连接类型
-        connection_status = get_websocket_status() if is_websocket else 'WebHook'
-        
-        # 处理数据，确保所有字段都存在
-        processed_data = {
+        # 返回成功响应
+        return jsonify({
             'success': True,
-            'qq': robot_data.get('QQ号', ROBOT_QQ),
-            'name': robot_data.get('名字', '未知机器人'),
-            'description': robot_data.get('介绍', '暂无描述'),
+            'qq': robot_data.get('robot_uin', ROBOT_QQ),
+            'name': robot_data.get('robot_name', '未知机器人'),
+            'description': robot_data.get('robot_desc', '暂无描述'),
             'avatar': avatar_url,
-            'appid': robot_data.get('APPID', appid),
-            'type': robot_data.get('类型', '未知'),
-            'developer': robot_data.get('开发者', '未知'),
-            'link': robot_data.get('链接', ''),
-            'status': robot_data.get('状态', '未知'),
+            'appid': robot_data.get('appid', appid),
+            'developer': robot_data.get('create_name', '未知'),
+            'link': robot_share_url,
+            'status': '正常' if robot_data.get('robot_offline', 1) == 0 else '离线',
             'connection_type': connection_type,
             'connection_status': connection_status,
-            'cached_at': time.time(),  # 添加缓存时间戳
-            'data_source': 'api'  # 标记数据来源
-        }
-        
-        # 保存到缓存文件
-        try:
-            os.makedirs('data', exist_ok=True)  # 确保data目录存在
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(processed_data, f, ensure_ascii=False, indent=2)
-            print(f"机器人信息已缓存到: {cache_file}")
-        except Exception as e:
-            print(f"保存缓存文件失败: {e}")
-        
-        return jsonify(processed_data)
-        
-    except requests.RequestException as e:
-        print(f"API请求失败: {e}")
-        # API调用失败时，尝试使用过期的缓存数据
-        cache_file = os.path.join('data', 'robot_info.json')
-        if os.path.exists(cache_file):
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    cached_data = json.load(f)
-                
-                # 更新当前的连接状态
-                is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-                cached_data['connection_type'] = 'WebSocket' if is_websocket else 'WebHook'
-                cached_data['connection_status'] = get_websocket_status() if is_websocket else 'WebHook'
-                
-                # 标记数据来源和过期状态
-                cached_data['data_source'] = 'expired_cache'
-                cached_data['success'] = True
-                cached_data['warning'] = '使用过期缓存数据，API暂时不可用'
-                
-                print(f"API失败，使用过期缓存数据: {cached_data.get('name', '未知')}")
-                return jsonify(cached_data)
-            except Exception as cache_error:
-                print(f"读取过期缓存失败: {cache_error}")
-        
-        # 确定连接类型和状态
-        is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-        connection_type = 'WebSocket' if is_websocket else 'WebHook'
-        connection_status = get_websocket_status() if is_websocket else 'WebHook'
-        
-        return jsonify({
-            'success': False,
-            'error': f'网络请求失败: {str(e)}',
-            'qq': ROBOT_QQ,
-            'name': '网络错误',
-            'description': '无法获取机器人信息',
-            'avatar': '',
-            'appid': appid,
-            'type': '未知',
-            'developer': '未知',
-            'link': '',
-            'status': '未知',
-            'connection_type': connection_type,
-            'connection_status': connection_status,
-            'data_source': 'fallback'
-        }), 500
+            'data_source': 'api',
+            'is_banned': robot_data.get('robot_ban', False),
+            'mute_status': robot_data.get('mute_status', 0),
+            'commands_count': len(robot_data.get('commands', [])),
+            'is_sharable': robot_data.get('is_sharable', False),
+            'service_note': robot_data.get('service_note', ''),
+            'qr_code_api': f'/web/api/robot_qrcode?url={robot_share_url}'
+        })
         
     except Exception as e:
-        print(f"内部错误: {e}")
-        # 内部错误时，也尝试使用缓存数据
-        cache_file = os.path.join('data', 'robot_info.json')
-        if os.path.exists(cache_file):
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    cached_data = json.load(f)
-                
-                # 更新当前的连接状态
-                is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-                cached_data['connection_type'] = 'WebSocket' if is_websocket else 'WebHook'
-                cached_data['connection_status'] = get_websocket_status() if is_websocket else 'WebHook'
-                
-                cached_data['data_source'] = 'error_fallback'
-                cached_data['success'] = True
-                cached_data['warning'] = '服务器错误，使用缓存数据'
-                
-                print(f"内部错误，使用缓存数据: {cached_data.get('name', '未知')}")
-                return jsonify(cached_data)
-            except Exception as cache_error:
-                print(f"读取错误回退缓存失败: {cache_error}")
-        
-        # 确定连接类型和状态
-        is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-        connection_type = 'WebSocket' if is_websocket else 'WebHook'
-        connection_status = get_websocket_status() if is_websocket else 'WebHook'
-        
-        return jsonify({
-            'success': False,
-            'error': f'内部错误: {str(e)}',
-            'qq': ROBOT_QQ,
-            'name': '加载失败',
-            'description': '服务器内部错误',
-            'avatar': '',
-            'appid': appid,
-            'type': '未知',
-            'developer': '未知',
-            'link': '',
-            'status': '未知',
-            'connection_type': connection_type,
-            'connection_status': connection_status,
-            'data_source': 'fallback'
-        }), 500
+        print(f"获取机器人信息失败: {e}")
+        return jsonify(_build_fallback_robot_info(str(e), robot_share_url, connection_type, connection_status)), 500
 
-@web_panel.route('/api/robot_info/refresh', methods=['POST'])
-@require_auth
+@web_panel.route('/api/robot_qrcode')
 @catch_error
-def refresh_robot_info():
-    """刷新机器人信息缓存"""
-    try:
-        cache_file = os.path.join('data', 'robot_info.json')
-        
-        # 删除缓存文件
-        if os.path.exists(cache_file):
-            os.remove(cache_file)
-            print(f"已删除缓存文件: {cache_file}")
-        
-        # 重新获取机器人信息（这会触发新的API调用并生成新缓存）
-        return get_robot_info()
-        
-    except Exception as e:
-        print(f"刷新缓存失败: {e}")
-        return jsonify({
-            'success': False,
-            'error': f'刷新失败: {str(e)}'
-        }), 500
+def get_robot_qrcode():
+    """生成机器人分享链接的二维码"""
+    # 获取URL参数
+    url = request.args.get('url')
+    if not url:
+        return api_error_response('缺少URL参数', 400)
+    
+    # 调用草料二维码API
+    qr_api_url = f"https://api.2dcode.biz/v1/create-qr-code?data={url}"
+    print(f"正在生成二维码: {qr_api_url}")
+    
+    response = requests.get(qr_api_url, timeout=10)
+    response.raise_for_status()
+    
+    # 返回二维码图片数据
+    return response.content, 200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=3600'  # 缓存1小时
+    }
 
 # ===== 10. 系统信息与插件管理 =====
 @catch_error
@@ -1946,157 +1838,135 @@ def fetch_user_nickname(user_id):
 # 沙盒测试路由
 @web_panel.route('/api/sandbox/test', methods=['POST'])
 @require_auth
+@catch_error
 def sandbox_test():
     """沙盒测试插件功能"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': '缺少请求数据'})
-        
-        # 获取测试参数
-        message_content = data.get('message', '').strip()
-        group_id = data.get('group_id', '').strip()
-        user_id = data.get('user_id', '').strip()
-        
-        if not message_content:
-            return jsonify({'success': False, 'error': '消息内容不能为空'})
-        if not user_id:
-            return jsonify({'success': False, 'error': '用户ID不能为空'})
-        # 群组ID可以为空（私聊模式）
-        
-        # 根据是否有群组ID决定消息类型
-        is_private = not group_id  # 群组ID为空则为私聊
-        message_type = "C2C_MESSAGE_CREATE" if is_private else "GROUP_AT_MESSAGE_CREATE"
-        
-        # 构造模拟的MessageEvent数据
-        mock_data = {
-            "s": 1,
-            "op": 0,
-            "t": message_type,
-            "d": {
-                "id": f"sandbox_test_{int(time.time())}",
-                "content": message_content,
-                "timestamp": datetime.now().isoformat(),
-                "author": {
-                    "id": user_id,
-                    "username": f"测试用户{user_id}",
-                    "avatar": "",
-                    "bot": False
-                },
-                "attachments": [],
-                "embeds": [],
-                "mentions": [],
-                "mention_roles": [],
-                "pinned": False,
-                "mention_everyone": False,
-                "tts": False,
-                "edited_timestamp": None,
-                "flags": 0,
-                "referenced_message": None,
-                "interaction": None,
-                "thread": None,
-                "components": [],
-                "sticker_items": [],
-                "position": None
-            }
+    data = request.get_json()
+    if not data:
+        return api_error_response('缺少请求数据', 400)
+    
+    # 获取测试参数
+    message_content = data.get('message', '').strip()
+    group_id = data.get('group_id', '').strip()
+    user_id = data.get('user_id', '').strip()
+    
+    if not message_content:
+        return api_error_response('消息内容不能为空', 400)
+    if not user_id:
+        return api_error_response('用户ID不能为空', 400)
+    
+    # 群组ID可以为空（私聊模式）
+    
+    # 根据是否有群组ID决定消息类型
+    is_private = not group_id  # 群组ID为空则为私聊
+    message_type = "C2C_MESSAGE_CREATE" if is_private else "GROUP_AT_MESSAGE_CREATE"
+    
+    # 构造模拟的MessageEvent数据
+    mock_data = {
+        "s": 1,
+        "op": 0,
+        "t": message_type,
+        "d": {
+            "id": f"sandbox_test_{int(time.time())}",
+            "content": message_content,
+            "timestamp": datetime.now().isoformat(),
+            "author": {
+                "id": user_id,
+                "username": f"测试用户{user_id}",
+                "avatar": "",
+                "bot": False
+            },
+            "attachments": [],
+            "embeds": [],
+            "mentions": [],
+            "mention_roles": [],
+            "pinned": False,
+            "mention_everyone": False,
+            "tts": False,
+            "edited_timestamp": None,
+            "flags": 0,
+            "referenced_message": None,
+            "interaction": None,
+            "thread": None,
+            "components": [],
+            "sticker_items": [],
+            "position": None
         }
+    }
+    
+    # 根据消息类型添加特定字段
+    if is_private:
+        # 私聊消息不需要群组相关字段
+        pass
+    else:
+        # 群聊消息需要群组相关字段
+        mock_data["d"]["channel_id"] = group_id
+        mock_data["d"]["guild_id"] = group_id
+        mock_data["d"]["group_id"] = group_id
+        mock_data["d"]["member"] = {
+            "user": {
+                "id": user_id,
+                "username": f"测试用户{user_id}",
+                "avatar": "",
+                "bot": False
+            },
+            "nick": f"测试用户{user_id}",
+            "roles": [],
+            "joined_at": datetime.now().isoformat()
+        }
+    
+    # 创建MessageEvent实例
+    try:
+        event = MessageEvent(mock_data)
         
-        # 根据消息类型添加特定字段
-        if is_private:
-            # 私聊消息不需要群组相关字段
-            pass
-        else:
-            # 群聊消息需要群组相关字段
-            mock_data["d"]["channel_id"] = group_id
-            mock_data["d"]["guild_id"] = group_id
-            mock_data["d"]["group_id"] = group_id
-            mock_data["d"]["member"] = {
-                "user": {
-                    "id": user_id,
-                    "username": f"测试用户{user_id}",
-                    "avatar": "",
-                    "bot": False
-                },
-                "nick": f"测试用户{user_id}",
-                "roles": [],
-                "joined_at": datetime.now().isoformat()
+        # 收集回复内容
+        replies = []
+        original_reply = event.reply
+        
+        def mock_reply(content, buttons=None, media=None, *args, **kwargs):
+            reply_data = {
+                'type': 'reply',
+                'content': str(content) if content else '',
+                'buttons': buttons,
+                'media': media
             }
+            replies.append(reply_data)
+            return reply_data
         
-        # 创建MessageEvent实例
+        # 替换回复方法
+        event.reply = mock_reply
+        
+        # 获取插件管理器并处理消息
         try:
-            event = MessageEvent(mock_data)
+            # 导入插件管理器
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
             
-            # 收集回复内容
-            replies = []
-            original_reply = event.reply
+            from core.plugin.PluginManager import PluginManager
             
-            def mock_reply(content, buttons=None, media=None, *args, **kwargs):
-                reply_data = {
-                    'type': 'reply',
-                    'content': str(content) if content else '',
-                    'buttons': buttons,
-                    'media': media
+            # 处理消息事件（使用类方法）
+            PluginManager.dispatch_message(event)
+            
+            # 恢复原始方法
+            event.reply = original_reply
+            
+            return api_success_response({
+                'replies': replies,
+                'message_info': {
+                    'content': message_content,
+                    'group_id': group_id or '(私聊)',
+                    'user_id': user_id,
+                    'message_type': '私聊消息' if is_private else '群聊消息',
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }
-                replies.append(reply_data)
-                return reply_data
-            
-            # 替换回复方法
-            event.reply = mock_reply
-            
-            # 获取插件管理器并处理消息
-            try:
-                # 导入插件管理器
-                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                if project_root not in sys.path:
-                    sys.path.insert(0, project_root)
-                
-                from core.plugin.PluginManager import PluginManager
-                
-                # 处理消息事件（使用类方法）
-                PluginManager.dispatch_message(event)
-                
-                # 恢复原始方法
-                event.reply = original_reply
-                
-                return jsonify({
-                    'success': True,
-                    'replies': replies,
-                    'message_info': {
-                        'content': message_content,
-                        'group_id': group_id or '(私聊)',
-                        'user_id': user_id,
-                        'message_type': '私聊消息' if is_private else '群聊消息',
-                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                })
-                
-            except Exception as plugin_error:
-                return jsonify({
-                    'success': False,
-                    'error': f'插件处理错误: {str(plugin_error)}',
-                    'traceback': traceback.format_exc(),
-                    'message_info': {
-                        'content': message_content,
-                        'group_id': group_id or '(私聊)',
-                        'user_id': user_id,
-                        'message_type': '私聊消息' if is_private else '群聊消息',
-                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                })
-                
-        except Exception as event_error:
-            return jsonify({
-                'success': False,
-                'error': f'MessageEvent创建错误: {str(event_error)}',
-                'traceback': traceback.format_exc()
             })
             
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': f'沙盒测试错误: {str(e)}',
-            'traceback': traceback.format_exc()
-        })
+        except Exception as plugin_error:
+            return api_error_response(f'插件处理错误: {str(plugin_error)}')
+            
+    except Exception as event_error:
+        return api_error_response(f'MessageEvent创建错误: {str(event_error)}')
 
 def get_available_dau_dates():
     """获取可用的DAU日期列表（近30天）"""
@@ -2229,6 +2099,7 @@ OPENAPI_MESSAGE = f"{OPENAPI_BASE}/message.php"
 OPENAPI_BOTLIST = f"{OPENAPI_BASE}/bot_list.php"
 OPENAPI_BOTDATA = f"{OPENAPI_BASE}/bot_data.php"
 OPENAPI_MSGTPL = f"{OPENAPI_BASE}/md.php"
+OPENAPI_MSGTPL_DETAIL = f"{OPENAPI_BASE}/md_detail.php"
 
 def create_openapi_session():
     """创建开放平台专用的requests session"""
@@ -2458,210 +2329,154 @@ def openapi_get_botlist():
         })
 
 @web_panel.route('/openapi/get_botdata', methods=['POST'])
-@require_auth
+@require_auth  
+@catch_error
 def openapi_get_botdata():
     """获取机器人30天数据"""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        target_appid = data.get('appid')
-        days = data.get('days', 30)
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    days = data.get('days', 30)
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    session = create_openapi_session()
+    
+    # 如果指定了appid，则使用指定的appid，否则使用当前登录的appid
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    base_url = f"{OPENAPI_BOTDATA}?appid={appid_to_use}&uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}"
+    
+    # 同步获取三种数据
+    response1 = session.get(f"{base_url}&type=1", verify=False)
+    data1_json = response1.json()
+    
+    response2 = session.get(f"{base_url}&type=2", verify=False)
+    data2_json = response2.json()
+    
+    response3 = session.get(f"{base_url}&type=3", verify=False)
+    data3_json = response3.json()
+    
+    if any(x.get('retcode', -1) != 0 for x in [data1_json, data2_json, data3_json]):
+        return openapi_error_response('登录状态失效，请重新登录')
+    
+    msg_data = data1_json.get('data', {}).get('msg_data', [])
+    group_data = data2_json.get('data', {}).get('group_data', [])
+    friend_data = data3_json.get('data', {}).get('friend_data', [])
+    
+    # 处理数据，最多返回指定天数的数据
+    max_days = min(len(msg_data), len(group_data), len(friend_data))
+    actual_days = min(days, max_days)
+    
+    processed_data = []
+    total_up_msg_people = 0
+    
+    for i in range(actual_days):
+        msg_item = msg_data[i] if i < len(msg_data) else {}
+        group_item = group_data[i] if i < len(group_data) else {}
+        friend_item = friend_data[i] if i < len(friend_data) else {}
         
-        if user_id not in openapi_user_data:
-            return jsonify({
-                'success': False,
-                'message': '未登录，请先登录开放平台'
-            })
-        
-        user_data = openapi_user_data[user_id]
-        session = create_openapi_session()
-        
-        # 如果指定了appid，则使用指定的appid，否则使用当前登录的appid
-        appid_to_use = target_appid if target_appid else user_data.get('appId')
-        
-        base_url = f"{OPENAPI_BOTDATA}?appid={appid_to_use}&uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}"
-        
-        # 同步获取三种数据
-        response1 = session.get(f"{base_url}&type=1", verify=False)
-        data1_json = response1.json()
-        
-        response2 = session.get(f"{base_url}&type=2", verify=False)
-        data2_json = response2.json()
-        
-        response3 = session.get(f"{base_url}&type=3", verify=False)
-        data3_json = response3.json()
-        
-        if any(x.get('retcode', -1) != 0 for x in [data1_json, data2_json, data3_json]):
-            return jsonify({
-                'success': False,
-                'message': '登录状态失效，请重新登录'
-            })
-        
-        msg_data = data1_json.get('data', {}).get('msg_data', [])
-        group_data = data2_json.get('data', {}).get('group_data', [])
-        friend_data = data3_json.get('data', {}).get('friend_data', [])
-        
-        # 处理数据，最多返回指定天数的数据
-        max_days = min(len(msg_data), len(group_data), len(friend_data))
-        actual_days = min(days, max_days)
-        
-        processed_data = []
-        total_up_msg_people = 0
-        
-        for i in range(actual_days):
-            msg_item = msg_data[i] if i < len(msg_data) else {}
-            group_item = group_data[i] if i < len(group_data) else {}
-            friend_item = friend_data[i] if i < len(friend_data) else {}
-            
-            day_data = {
-                "date": msg_item.get('报告日期', '0'),
-                "up_messages": msg_item.get('上行消息量', '0'),
-                "up_users": msg_item.get('上行消息人数', '0'),
-                "down_messages": msg_item.get('下行消息量', '0'),
-                "total_messages": msg_item.get('总消息量', '0'),
-                "current_groups": group_item.get('现有群组', '0'),
-                "used_groups": group_item.get('已使用群组', '0'),
-                "new_groups": group_item.get('新增群组', '0'),
-                "removed_groups": group_item.get('移除群组', '0'),
-                "current_friends": friend_item.get('现有好友数', '0'),
-                "used_friends": friend_item.get('已使用好友数', '0'),
-                "new_friends": friend_item.get('新增好友数', '0'),
-                "removed_friends": friend_item.get('移除好友数', '0')
-            }
-            processed_data.append(day_data)
-            total_up_msg_people += int(day_data['up_users'])
-        
-        # 计算平均DAU
-        avg_dau = round(total_up_msg_people / 30, 2) if len(msg_data) > 0 else 0
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'uin': user_data.get('uin'),
-                'appid': appid_to_use,
-                'avg_dau': avg_dau,
-                'days_data': processed_data
-            }
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'获取机器人数据失败: {str(e)}'
-        })
+        day_data = {
+            "date": msg_item.get('报告日期', '0'),
+            "up_messages": msg_item.get('上行消息量', '0'),
+            "up_users": msg_item.get('上行消息人数', '0'),
+            "down_messages": msg_item.get('下行消息量', '0'),
+            "total_messages": msg_item.get('总消息量', '0'),
+            "current_groups": group_item.get('现有群组', '0'),
+            "used_groups": group_item.get('已使用群组', '0'),
+            "new_groups": group_item.get('新增群组', '0'),
+            "removed_groups": group_item.get('移除群组', '0'),
+            "current_friends": friend_item.get('现有好友数', '0'),
+            "used_friends": friend_item.get('已使用好友数', '0'),
+            "new_friends": friend_item.get('新增好友数', '0'),
+            "removed_friends": friend_item.get('移除好友数', '0')
+        }
+        processed_data.append(day_data)
+        total_up_msg_people += int(day_data['up_users'])
+    
+    # 计算平均DAU
+    avg_dau = round(total_up_msg_people / 30, 2) if len(msg_data) > 0 else 0
+    
+    return openapi_success_response({
+        'uin': user_data.get('uin'),
+        'appid': appid_to_use,
+        'avg_dau': avg_dau,
+        'days_data': processed_data
+    })
 
 @web_panel.route('/openapi/get_notifications', methods=['POST'])
 @require_auth
+@catch_error
 def openapi_get_notifications():
     """获取机器人通知"""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        
-        if user_id not in openapi_user_data:
-            return jsonify({
-                'success': False,
-                'message': '未登录，请先登录开放平台'
-            })
-        
-        user_data = openapi_user_data[user_id]
-        session = create_openapi_session()
-        
-        url = f"{OPENAPI_MESSAGE}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}"
-        response = session.get(url, verify=False)
-        res = response.json()
-        
-        if res.get('code') != 0:
-            return jsonify({
-                'success': False,
-                'message': '登录状态失效，请重新登录'
-            })
-        
-        messages = res.get('messages', [])
-        
-        # 处理消息，最多返回前20条
-        processed_messages = []
-        for msg in messages[:20]:
-            processed_messages.append({
-                'content': msg.get('content', ''),
-                'send_time': msg.get('send_time', ''),
-                'type': msg.get('type', ''),
-                'title': msg.get('title', '')
-            })
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'uin': user_data.get('uin'),
-                'appid': user_data.get('appId'),
-                'messages': processed_messages
-            }
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    session = create_openapi_session()
+    
+    url = f"{OPENAPI_MESSAGE}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}"
+    response = session.get(url, verify=False)
+    res = response.json()
+    
+    if res.get('code') != 0:
+        return openapi_error_response('登录状态失效，请重新登录')
+    
+    messages = res.get('messages', [])
+    
+    # 处理消息，最多返回前20条
+    processed_messages = []
+    for msg in messages[:20]:
+        processed_messages.append({
+            'content': msg.get('content', ''),
+            'send_time': msg.get('send_time', ''),
+            'type': msg.get('type', ''),
+            'title': msg.get('title', '')
         })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'获取通知失败: {str(e)}'
-        })
-
-
+    
+    return openapi_success_response({
+        'uin': user_data.get('uin'),
+        'appid': user_data.get('appId'),
+        'messages': processed_messages
+    })
 
 @web_panel.route('/openapi/logout', methods=['POST'])
 @require_auth
+@catch_error  
 def openapi_logout():
-    """登出开放平台"""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        
-        if user_id in openapi_user_data:
-            del openapi_user_data[user_id]
-            save_openapi_data()
-            
-        return jsonify({
-            'success': True,
-            'message': '已退出登录'
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'退出登录失败: {str(e)}'
-        })
+    """用户登出"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    
+    if user_id in openapi_user_data:
+        del openapi_user_data[user_id]
+        print(f"用户 {user_id} 已登出开放平台")
+    
+    save_openapi_data()
+    return openapi_success_response(message='登出成功')
 
 @web_panel.route('/openapi/get_login_status', methods=['POST'])
 @require_auth
+@catch_error
 def openapi_get_login_status():
-    """获取当前登录状态"""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        
-        if user_id in openapi_user_data:
-            user_data = openapi_user_data[user_id]
-            app_type_str = get_app_type_name(user_data.get('appType'))
-            
-            return jsonify({
-                'success': True,
-                'logged_in': True,
-                'data': {
-                    'uin': user_data.get('uin'),
-                    'appId': user_data.get('appId'),
-                    'developerId': user_data.get('developerId'),
-                    'appType': app_type_str
-                }
-            })
-        else:
-            return jsonify({
-                'success': True,
-                'logged_in': False
-            })
-            
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'获取登录状态失败: {str(e)}'
-        })
+    """获取登录状态"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_success_response(logged_in=False)
+    
+    return openapi_success_response(
+        logged_in=True,
+        uin=user_data.get('uin'),
+        appid=user_data.get('appId')
+    )
 
 # 定期清理过期的登录任务
 def cleanup_openapi_tasks():
@@ -2759,192 +2574,106 @@ start_openapi_cleanup_thread()
 
 @web_panel.route('/openapi/get_templates', methods=['POST'])
 @require_auth
+@catch_error
 def openapi_get_templates():
     """获取机器人模板列表"""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        target_appid = data.get('appid')
-        
-        if user_id not in openapi_user_data:
-            return jsonify({
-                'success': False,
-                'message': '未登录，请先登录开放平台'
-            })
-        
-        user_data = openapi_user_data[user_id]
-        session = create_openapi_session()
-        
-        # 如果指定了appid，则使用指定的appid，否则使用当前登录的appid
-        appid_to_use = target_appid if target_appid else user_data.get('appId')
-        
-        url = f"{OPENAPI_MSGTPL}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}&appid={appid_to_use}"
-        response = session.get(url, verify=False)
-        res = response.json()
-        
-        if res.get('retcode') != 0 and res.get('code') != 0:
-            return jsonify({
-                'success': False,
-                'message': '登录状态失效，请重新登录'
-            })
-        
-        templates = res.get('data', {}).get('list', [])
-        
-        # 处理模板数据
-        processed_templates = []
-        for template in templates:
-            processed_templates.append({
-                'id': template.get('模板id', ''),
-                'name': template.get('模板名称', '未命名'),
-                'type': template.get('模板类型', '未知类型'),
-                'status': template.get('模板状态', '未知状态'),
-                'content': template.get('模板内容', ''),
-                'create_time': template.get('创建时间', ''),
-                'update_time': template.get('更新时间', ''),
-                'raw_data': template  # 保留原始数据
-            })
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'uin': user_data.get('uin'),
-                'appid': appid_to_use,
-                'templates': processed_templates,
-                'total': len(processed_templates)
-            }
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    session = create_openapi_session()
+    
+    # 如果指定了appid，则使用指定的appid，否则使用当前登录的appid
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    url = f"{OPENAPI_MSGTPL}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}&appid={appid_to_use}"
+    response = session.get(url, verify=False)
+    res = response.json()
+    
+    if res.get('retcode') != 0 and res.get('code') != 0:
+        return openapi_error_response('登录状态失效，请重新登录')
+    
+    templates = res.get('data', {}).get('list', [])
+    
+    # 处理模板数据
+    processed_templates = []
+    for template in templates:
+        processed_templates.append({
+            'id': template.get('模板id', ''),
+            'name': template.get('模板名称', '未命名'),
+            'type': template.get('模板类型', '未知类型'),
+            'status': template.get('模板状态', '未知状态'),
+            'content': template.get('模板内容', ''),
+            'create_time': template.get('创建时间', ''),
+            'update_time': template.get('更新时间', ''),
+            'raw_data': template  # 保留原始数据
         })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'获取模板列表失败: {str(e)}'
-        })
+    
+    return jsonify({
+        'success': True,
+        'data': {
+            'uin': user_data.get('uin'),
+            'appid': appid_to_use,
+            'templates': processed_templates,
+            'total': len(processed_templates)
+        }
+    })
 
 @web_panel.route('/openapi/get_template_detail', methods=['POST'])
 @require_auth
+@catch_error
 def openapi_get_template_detail():
     """获取模板详情"""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        template_id = data.get('template_id')
-        target_appid = data.get('appid')
-        
-        if user_id not in openapi_user_data:
-            return jsonify({
-                'success': False,
-                'message': '未登录，请先登录开放平台'
-            })
-            
-        if not template_id:
-            return jsonify({
-                'success': False,
-                'message': '请提供模板ID'
-            })
-        
-        user_data = openapi_user_data[user_id]
-        session = create_openapi_session()
-        
-        # 如果指定了appid，则使用指定的appid，否则使用当前登录的appid
-        appid_to_use = target_appid if target_appid else user_data.get('appId')
-        
-        # 首先获取模板列表
-        url = f"{OPENAPI_MSGTPL}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}&appid={appid_to_use}"
-        response = session.get(url, verify=False)
-        res = response.json()
-        
-        if res.get('retcode') != 0 and res.get('code') != 0:
-            return jsonify({
-                'success': False,
-                'message': '登录状态失效，请重新登录'
-            })
-        
-        templates = res.get('data', {}).get('list', [])
-        if not templates:
-            return jsonify({
-                'success': False,
-                'message': '暂无消息模板'
-            })
-        
-        # 查找指定ID的模板
-        target_template = None
-        current_index = -1
-        
-        # 检查是否是简化指令（纯数字，表示索引）
-        if template_id.isdigit() and 1 <= int(template_id) <= len(templates):
-            # 简化指令模式，直接按索引获取模板
-            current_index = int(template_id) - 1  # 转为0-based索引
-            target_template = templates[current_index]
-        else:
-            # 传统模式，按模板ID查找
-            for i, template in enumerate(templates):
-                if template.get('模板id') == template_id:
-                    target_template = template
-                    current_index = i
-                    break
-        
-        if not target_template:
-            return jsonify({
-                'success': False,
-                'message': f'未找到ID为 {template_id} 的模板'
-            })
-        
-        # 处理模板内容，检查是否为按钮模板
-        template_content = target_template.get('模板内容', '')
-        is_button_template = target_template.get('模板类型') == '按钮模板'
-        button_data = None
-        parsed_content = None
-        
-        if is_button_template:
-            try:
-                # 尝试直接解析按钮模板的JSON数据
-                button_data = json.loads(template_content)
-                parsed_content = button_data
-            except Exception as e:
-                # 如果是从@开头的文本解析（兼容之前的方式）
-                if template_content.startswith('@'):
-                    try:
-                        json_text = template_content[1:].strip()
-                        button_data = json.loads(json_text)
-                        parsed_content = button_data
-                    except Exception as e2:
-                        print(f"按钮模板解析失败: {str(e2)}")
-                        is_button_template = False
-                else:
-                    print(f"按钮模板解析失败: {str(e)}")
-                    is_button_template = False
-        
-        # 准备返回数据
-        template_detail = {
-            'id': target_template.get('模板id', ''),
-            'name': target_template.get('模板名称', '未命名'),
-            'type': target_template.get('模板类型', '未知类型'),
-            'status': target_template.get('模板状态', '未知状态'),
-            'content': template_content,
-            'create_time': target_template.get('创建时间', ''),
-            'update_time': target_template.get('更新时间', ''),
-            'is_button_template': is_button_template,
-            'button_data': button_data,
-            'parsed_content': parsed_content,
-            'current_index': current_index + 1,  # 转为1-based索引
-            'total_templates': len(templates),
-            'raw_data': target_template
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    template_id = data.get('id')
+    target_appid = data.get('appid')
+    
+    if not template_id:
+        return openapi_error_response('缺少模板ID参数')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    session = create_openapi_session()
+    
+    # 如果指定了appid，则使用指定的appid，否则使用当前登录的appid
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    url = f"{OPENAPI_MSGTPL_DETAIL}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}&appid={appid_to_use}&id={template_id}"
+    response = session.get(url, verify=False)
+    res = response.json()
+    
+    if res.get('retcode') != 0 and res.get('code') != 0:
+        return openapi_error_response('登录状态失效，请重新登录')
+    
+    template_detail = res.get('data', {})
+    
+    # 处理模板详情数据
+    processed_detail = {
+        'id': template_detail.get('模板id', ''),
+        'name': template_detail.get('模板名称', '未命名'),
+        'type': template_detail.get('模板类型', '未知类型'),
+        'status': template_detail.get('模板状态', '未知状态'),
+        'content': template_detail.get('模板内容', ''),
+        'create_time': template_detail.get('创建时间', ''),
+        'update_time': template_detail.get('更新时间', ''),
+        'raw_data': template_detail  # 保留原始数据
+    }
+    
+    return jsonify({
+        'success': True,
+        'data': {
+            'uin': user_data.get('uin'),
+            'appid': appid_to_use,
+            'template': processed_detail
         }
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'uin': user_data.get('uin'),
-                'appid': appid_to_use,
-                'template': template_detail
-            }
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'获取模板详情失败: {str(e)}'
-        })
+    })
 
 @web_panel.route('/openapi/render_button_template', methods=['POST'])
 @require_auth

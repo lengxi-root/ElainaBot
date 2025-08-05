@@ -18,10 +18,10 @@ import os
 # ===== 3. 自定义模块导入 =====
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
-from config import USE_MARKDOWN, IMAGE_BED, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, HIDE_AVATAR_GLOBAL
+from config import USE_MARKDOWN, IMAGE_BED_CHANNEL_ID, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, HIDE_AVATAR_GLOBAL
 from function.log_db import add_log_to_db
 from core.plugin.message_templates import MessageTemplate, MSG_TYPE_WELCOME, MSG_TYPE_USER_WELCOME, MSG_TYPE_API_ERROR
-from function.httpx_pool import sync_post
+from function.httpx_pool import sync_post, get_binary_content
 
 # ===== 4. 可选模块导入（带异常处理）=====
 try:
@@ -299,6 +299,189 @@ class MessageEvent:
         
         return None
 
+    def reply_image(self, image_data, content='', auto_delete_time=None):
+        """发送图片消息"""
+        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
+            return None
+            
+        # 处理图片数据
+        if isinstance(image_data, str):
+            try:
+                image_data = get_binary_content(image_data)
+            except Exception:
+                import requests
+                image_data = requests.get(image_data).content
+        
+        # 上传图片并发送
+        file_info = self.upload_media(image_data, file_type=1)
+        if not file_info:
+            return None
+            
+        payload = self._build_media_message_payload(content, file_info)
+        endpoint = self._get_endpoint()
+        
+        if self.message_type == self.GROUP_ADD_ROBOT:
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        
+        response = BOTAPI(endpoint, "POST", Json(payload))
+        message_id = self._extract_message_id(response)
+        
+        if message_id and auto_delete_time:
+            import threading
+            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
+            
+        return message_id
+
+    def reply_voice(self, voice_data, content='', auto_delete_time=None):
+        """发送语音消息"""
+        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
+            return None
+            
+        # 处理语音数据
+        if isinstance(voice_data, str):
+            try:
+                voice_data = get_binary_content(voice_data)
+            except Exception:
+                import requests
+                voice_data = requests.get(voice_data).content
+        
+        # 转换为silk格式并发送
+        silk_data = self._convert_to_silk(voice_data)
+        if not silk_data:
+            return None
+        
+        file_info = self.upload_media(silk_data, file_type=3)
+        if not file_info:
+            return None
+            
+        payload = self._build_media_message_payload(content, file_info)
+        endpoint = self._get_endpoint()
+        
+        if self.message_type == self.GROUP_ADD_ROBOT:
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        
+        response = BOTAPI(endpoint, "POST", Json(payload))
+        message_id = self._extract_message_id(response)
+        
+        if message_id and auto_delete_time:
+            import threading
+            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
+            
+        return message_id
+
+    def reply_video(self, video_data, content='', auto_delete_time=None):
+        """发送视频消息"""
+        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
+            return None
+            
+        # 处理视频数据
+        if isinstance(video_data, str):
+            try:
+                video_data = get_binary_content(video_data)
+            except Exception:
+                import requests
+                video_data = requests.get(video_data).content
+        
+        # 上传视频并发送
+        file_info = self.upload_media(video_data, file_type=2)
+        if not file_info:
+            return None
+            
+        payload = self._build_media_message_payload(content, file_info)
+        endpoint = self._get_endpoint()
+        
+        if self.message_type == self.GROUP_ADD_ROBOT:
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        
+        response = BOTAPI(endpoint, "POST", Json(payload))
+        message_id = self._extract_message_id(response)
+        
+        if message_id and auto_delete_time:
+            import threading
+            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
+            
+        return message_id
+
+    def reply_ark(self, template_id, kv_data, content='', auto_delete_time=None):
+        """发送ark卡片消息"""
+        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
+            return None
+            
+        # 如果是简化格式（元组/列表），转换为标准格式
+        if isinstance(kv_data, (tuple, list)) and template_id in [23, 24, 37]:
+            kv_data = self._convert_simple_ark_data(template_id, kv_data)
+            
+        # 构建ark消息payload
+        payload = self._build_ark_message_payload(template_id, kv_data, content)
+        endpoint = self._get_endpoint()
+        
+        if self.message_type == self.GROUP_ADD_ROBOT:
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        
+        response = BOTAPI(endpoint, "POST", Json(payload))
+        message_id = self._extract_message_id(response)
+        
+        if message_id and auto_delete_time:
+            import threading
+            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
+            
+        return message_id
+
+    def _get_endpoint(self):
+        """获取API端点"""
+        endpoint_template = self._API_ENDPOINTS[self.message_type]['reply_private'] if (self.message_type == self.INTERACTION and self.is_private) else self._API_ENDPOINTS[self.message_type]['reply']
+        return self._fill_endpoint_template(endpoint_template)
+
+    def _convert_to_silk(self, audio_data):
+        """将音频数据转换为silk格式 - 使用ffmpeg+pilk"""
+        import tempfile
+        import os
+        import subprocess
+        
+        audio_path = None
+        pcm_path = None
+        silk_path = None
+        
+        try:
+            # 创建临时音频文件
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as f:
+                audio_path = f.name
+                f.write(audio_data)
+            
+            # 用ffmpeg转换为pcm（48k采样率，单声道）
+            pcm_path = audio_path + '.pcm'
+            ffmpeg_cmd = [
+                'ffmpeg', '-y', '-i', audio_path,
+                '-ar', '48000', '-ac', '1', '-f', 's16le', 
+                '-loglevel', 'error', 
+                '-hide_banner',  
+                pcm_path
+            ]
+            
+            subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # pcm转silk
+            import pilk
+            silk_path = audio_path + '.silk'
+            pilk.encode(pcm_path, silk_path, pcm_rate=48000, tencent=True)
+            
+            # 读取silk数据
+            with open(silk_path, 'rb') as f:
+                silk_data = f.read()
+                
+            return silk_data
+                
+        except Exception:
+            return None
+        finally:
+            # 清理临时文件
+            for path in [audio_path, pcm_path, silk_path]:
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+
     def _parse_response(self, response):
         """解析API响应"""
         if not response:
@@ -373,6 +556,90 @@ class MessageEvent:
                 
         return payload
 
+    def _build_media_message_payload(self, content, file_info):
+        payload = {
+            "msg_type": 7,
+            "msg_seq": random.randint(10000, 999999),
+            "content": content or '',
+            "media": {'file_info': file_info}
+        }
+        
+        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
+            payload["msg_id"] = self.message_id
+        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
+            payload["event_id"] = self.get('id') or self.get('d/id') or ""
+        elif self.message_type == self.CHANNEL_MESSAGE:
+            payload["msg_id"] = self.get('d/id')
+            
+        return payload
+
+    def _build_ark_message_payload(self, template_id, kv_data, content):
+        """构建ark消息payload"""
+        payload = {
+            "msg_type": 3,  # 3表示ark消息
+            "msg_seq": random.randint(10000, 999999),
+            "content": content or '',
+            "ark": {
+                "template_id": template_id,
+                "kv": kv_data
+            }
+        }
+        
+        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
+            payload["msg_id"] = self.message_id
+        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
+            payload["event_id"] = self.get('id') or self.get('d/id') or ""
+        elif self.message_type == self.CHANNEL_MESSAGE:  
+            payload["msg_id"] = self.get('d/id')
+            
+        return payload
+
+    def _convert_simple_ark_data(self, template_id, simple_data):
+        """将简化的ark参数转换为标准格式"""
+        if template_id == 24:
+            # ark24: 7个固定参数
+            keys = ["#DESC#", "#PROMPT#", "#TITLE#", "#METADESC#", "#IMG#", "#LINK#", "#SUBTITLE#"]
+            kv_data = []
+            for i, value in enumerate(simple_data):
+                if i < len(keys) and value is not None:
+                    kv_data.append({"key": keys[i], "value": str(value)})
+            return kv_data
+            
+        elif template_id == 37:
+            # ark37: 5个固定参数
+            keys = ["#PROMPT#", "#METATITLE#", "#METASUBTITLE#", "#METACOVER#", "#METAURL#"]
+            kv_data = []
+            for i, value in enumerate(simple_data):
+                if i < len(keys) and value is not None:
+                    kv_data.append({"key": keys[i], "value": str(value)})
+            return kv_data
+            
+        elif template_id == 23:
+            # ark23: 2个固定参数 + 1个动态列表
+            kv_data = []
+            if len(simple_data) >= 1 and simple_data[0] is not None:
+                kv_data.append({"key": "#DESC#", "value": str(simple_data[0])})
+            if len(simple_data) >= 2 and simple_data[1] is not None:
+                kv_data.append({"key": "#PROMPT#", "value": str(simple_data[1])})
+            if len(simple_data) >= 3 and simple_data[2] is not None:
+                # 转换简化的列表格式为标准格式
+                obj_list = []
+                for item in simple_data[2]:
+                    if item and len(item) >= 1:  # 确保有至少1个参数（desc）
+                        obj_kv = []
+                        # 第1个参数自动对应desc
+                        if item[0] and str(item[0]).strip():
+                            obj_kv.append({"key": "desc", "value": str(item[0])})
+                        # 第2个参数自动对应link（如果存在且不为空）
+                        if len(item) >= 2 and item[1] and str(item[1]).strip():
+                            obj_kv.append({"key": "link", "value": str(item[1])})
+                        if obj_kv:
+                            obj_list.append({"obj_kv": obj_kv})
+                kv_data.append({"key": "#LIST#", "obj": obj_list})
+            return kv_data
+            
+        return simple_data
+
     def _fill_endpoint_template(self, template):
         replacements = {
             '{group_id}': self.group_id,
@@ -419,29 +686,14 @@ class MessageEvent:
                 
         return resp.get('file_info')
 
-    def uploadToQQImageBed(self, image_data, type=None):
-        if type is None:
-            config = IMAGE_BED or {}
-            has_qqbot_config = bool(config.get('qq_bot', {}).get('channel_id'))
-            has_qqshare_config = bool(config.get('qq_share', {}).get('p_uin')) and bool(config.get('qq_share', {}).get('p_skey'))
-            
-            if has_qqbot_config:
-                type = 'qqbot'
-            elif has_qqshare_config:
-                type = 'qqshare'
-            else:
-                return ''
-                
-        return self.uploadToQQBotImageBed(image_data) if type == 'qqbot' else self.uploadToQQShareImageBed(image_data)
+    def uploadToQQImageBed(self, image_data):
+        return self.uploadToQQBotImageBed(image_data)
 
     def uploadToQQBotImageBed(self, image_data):
         global _image_upload_counter, _image_upload_msgid
         
         access_token = BOT凭证() or ''
-        channel = (IMAGE_BED or {}).get('qq_bot', {}).get('channel_id')
-        appid = (IMAGE_BED or {}).get('qq_bot', {}).get('appid', '')
-        
-        if not (access_token and channel):
+        if not (access_token and IMAGE_BED_CHANNEL_ID):
             return ''
             
         md5hash = hashlib.md5(image_data).hexdigest().upper()
@@ -465,12 +717,9 @@ class MessageEvent:
             files = {'file_image': (filename, open(temp_path, 'rb'), mime_type)}
             data = {'msg_id': str(_image_upload_msgid)}
             headers = {'Authorization': f'QQBot {access_token}'}
-            
-            if appid:
-                headers['X-Union-Appid'] = appid
                 
             sync_post(
-                f'https://api.sgroup.qq.com/channels/{channel}/messages',
+                f'https://api.sgroup.qq.com/channels/{IMAGE_BED_CHANNEL_ID}/messages',
                 files=files,
                 data=data,
                 headers=headers
@@ -486,54 +735,6 @@ class MessageEvent:
                     pass
                     
         return f'https://gchat.qpic.cn/qmeetpic/0/0-0-{md5hash}/0'
-
-    def uploadToQQShareImageBed(self, image_data):
-        config = (IMAGE_BED or {}).get('qq_share', {})
-        p_uin = config.get('p_uin', '')
-        p_skey = config.get('p_skey', '')
-        
-        if not (p_uin and p_skey):
-            return ''
-            
-        temp_path = None
-        
-        try:
-            with tempfile.NamedTemporaryFile(delete=False) as f:
-                f.write(image_data)
-                temp_path = f.name
-                
-            filename = f'upload_{int(random.random() * 10000)}.png'
-            files = {'share_image': (filename, open(temp_path, 'rb'), 'image/png')}
-            cookies = {'p_uin': p_uin, 'p_skey': p_skey}
-            headers = {
-                'User-Agent': 'android_34_OP5D06L1_14_9.1.5',
-                'Referer': 'http://www.qq.com',
-                'Host': 'cgi.connect.qq.com',
-                'Accept-Encoding': 'gzip'
-            }
-            
-            response = sync_post(
-                'https://cgi.connect.qq.com/qqconnectopen/upload_share_image',
-                files=files,
-                cookies=cookies,
-                headers=headers
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                if 'url' in result:
-                    return result['url']
-                    
-        except Exception:
-            pass
-        finally:
-            if temp_path:
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-                    
-        return ""
 
     # --- 数据库与日志 ---
     def _record_user_and_group(self):
@@ -631,4 +832,60 @@ class MessageEvent:
         return {'buttons': result}
 
     def button(self, rows=None):
-        return {'content': {'rows': rows or []}} 
+        return {'content': {'rows': rows or []}}
+
+    def get_image_size(self, image_input):
+        """获取图片尺寸信息
+        
+        Args:
+            image_input: 图片链接URL、本地文件路径或二进制数据
+            
+        Returns:
+            dict: {'width': int, 'height': int, 'px': '#WIDTHpx #HEIGHTpx'} 或 None
+        """
+        try:
+            from PIL import Image
+            import io
+            import os
+            
+            if isinstance(image_input, bytes):
+                # 处理二进制数据
+                with Image.open(io.BytesIO(image_input)) as img:
+                    width, height = img.size
+                    return {
+                        'width': width,
+                        'height': height, 
+                        'px': f'#{width}px #{height}px'
+                    }
+                    
+            elif isinstance(image_input, str):
+                if image_input.startswith(('http://', 'https://')):
+                    # 处理网络图片链接 - 只下载64KB数据
+                    import requests
+                    headers = {'Range': 'bytes=0-65535'}
+                    response = requests.get(image_input, headers=headers, stream=True, timeout=10)
+                    
+                    if response.status_code in [206, 200]:  # 206=Partial Content, 200=Full Content
+                        partial_data = response.content
+                        with Image.open(io.BytesIO(partial_data)) as img:
+                            width, height = img.size
+                            return {
+                                'width': width,
+                                'height': height,
+                                'px': f'#{width}px #{height}px'
+                            }
+                else:
+                    # 处理本地文件路径
+                    if os.path.exists(image_input):
+                        with Image.open(image_input) as img:
+                            width, height = img.size
+                            return {
+                                'width': width,
+                                'height': height,
+                                'px': f'#{width}px #{height}px'
+                            }
+            
+            return None
+            
+        except Exception:
+            return None 

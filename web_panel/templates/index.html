@@ -1284,16 +1284,15 @@
                                         APPID: <span id="robot-appid">{{ appid }}</span>
                                     </span>
                                     <span class="me-3 mb-1">
-                                        <i class="bi bi-tag"></i>
-                                        类型: <span id="robot-type">-</span>
-                                    </span>
-                                    <span class="me-3 mb-1">
                                         <i class="bi bi-person"></i>
                                         开发者: <span id="robot-developer">-</span>
                                     </span>
                                     <span class="mb-1">
                                         <i class="bi bi-box-arrow-up-right"></i>
                                         <a href="#" id="robot-link" target="_blank" style="color: rgba(255,255,255,0.9);">机器人链接</a>
+                                        <button class="btn btn-sm btn-outline-light ms-2" onclick="showRobotQRCode()" title="显示二维码">
+                                            <i class="bi bi-qr-code"></i>
+                                        </button>
                                     </span>
                                 </div>
                                             </div>
@@ -3331,14 +3330,14 @@
                     })
                     .then(data => {
                         if (data.success) {
-                            statisticsData = data.data;
+                            statisticsData = data;
                             // 只有在加载完整统计数据时才更新图表
-                            if (data.data.historical && data.data.today) {
+                            if (data.historical && data.today) {
                                 updateChart('total_messages');
-                                updateTables(data.data.today || {});
-                            } else if (data.data.selected_date_data) {
+                                updateTables(data.today || {});
+                            } else if (data.selected_date_data) {
                                 // 这是历史日期数据，只更新表格
-                                updateTables(data.data.selected_date_data);
+                                updateTables(data.selected_date_data);
                             }
                         } else {
                             console.error('加载统计数据失败:', data.error);
@@ -3432,8 +3431,8 @@
                     .then(data => {
                         if (data.success) {
                             // 更新表格数据（不更新图表）
-                            if (data.data.selected_date_data) {
-                                updateTables(data.data.selected_date_data);
+                            if (data.selected_date_data) {
+                                updateTables(data.selected_date_data);
                             } else {
                                 showStatisticsError('该日期没有可用数据');
                             }
@@ -4211,7 +4210,6 @@
                         document.getElementById('robot-desc').textContent = '无法连接到服务器获取机器人信息';
                         document.getElementById('robot-qq').textContent = '{{ ROBOT_QQ }}';
                         document.getElementById('robot-appid').textContent = '{{ appid }}';
-                        document.getElementById('robot-type').textContent = '未知';
                         document.getElementById('robot-developer').textContent = '未知';
                         
                         // 设置默认连接状态
@@ -4261,7 +4259,6 @@
                     document.getElementById('robot-desc').innerHTML = (data.description || '').replace(/\n/g, '<br>');
                     document.getElementById('robot-qq').textContent = data.qq;
                     document.getElementById('robot-appid').textContent = data.appid;
-                    document.getElementById('robot-type').textContent = data.type;
                     document.getElementById('robot-developer').textContent = data.developer;
                     
                     // 更新机器人头像
@@ -4288,6 +4285,10 @@
                         robotLinkEl.style.display = 'none';
                     }
                     
+                    // 保存二维码API信息到全局变量
+                    window.robotQRCodeAPI = data.qr_code_api;
+                    window.robotShareURL = data.link;
+                    
                     // 显示数据来源提示
                     if (data.warning) {
                         console.warn('数据警告:', data.warning);
@@ -4299,7 +4300,6 @@
                     document.getElementById('robot-desc').innerHTML = (data.description || '无法获取机器人信息').replace(/\n/g, '<br>');
                     document.getElementById('robot-qq').textContent = data.qq || '{{ ROBOT_QQ }}';
                     document.getElementById('robot-appid').textContent = data.appid || '{{ appid }}';
-                    document.getElementById('robot-type').textContent = data.type || '未知';
                     document.getElementById('robot-developer').textContent = data.developer || '未知';
                 }
             };
@@ -4323,37 +4323,10 @@
         window.refreshRobotInfo = function() {
             // 显示加载状态
             document.getElementById('robot-name').textContent = '刷新中...';
-            document.getElementById('robot-desc').innerHTML = '正在强制刷新机器人信息...';
+            document.getElementById('robot-desc').innerHTML = '正在刷新机器人信息...';
             
-            // 调用刷新API，强制更新缓存
-            const refreshUrl = `{{ prefix }}/api/robot_info/refresh`;
-            
-            fetch(refreshUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                // 刷新API直接返回新的机器人信息
-                if (window.updateRobotInfo) {
-                    window.updateRobotInfo(data);
-                } else {
-                    console.error('updateRobotInfo函数不可用，重新加载页面');
-                    location.reload();
-                }
-                
-                if (data.data_source === 'api') {
-                    console.log('机器人信息已强制刷新，获取最新数据');
-                } else {
-                    console.log('刷新完成，数据来源:', data.data_source);
-                }
-            })
-            .catch(error => {
-                console.error('强制刷新失败，重新加载页面:', error);
-                location.reload();
-            });
+            // 直接重新加载机器人信息（不再使用缓存）
+            loadRobotInfo();
         };
 
         // =====================
@@ -4417,7 +4390,7 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success && data.logged_in) {
-                    showLoggedInState(data.data);
+                    showLoggedInState(data);
                     loadBotList();
                 } else {
                     showNotLoggedInState();
@@ -4750,7 +4723,7 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    displayBotData(data.data);
+                    displayBotData(data);
                 } else {
                     alert('获取机器人数据失败: ' + data.message);
                     if (data.message.includes('登录状态失效')) {
@@ -4820,7 +4793,7 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    displayNotifications(data.data);
+                    displayNotifications(data);
                 } else {
                     alert('获取通知失败: ' + data.message);
                     if (data.message.includes('登录状态失效')) {
@@ -5096,6 +5069,66 @@
             if (currentTemplateIndex < currentTemplates.length - 1) {
                 viewTemplateDetail(currentTemplateIndex + 1);
             }
+        }
+        
+        // 显示机器人二维码
+        function showRobotQRCode() {
+            if (!window.robotQRCodeAPI || !window.robotShareURL) {
+                alert('二维码信息不可用，请先刷新机器人信息');
+                return;
+            }
+            
+            // 创建模态框
+            const modal = document.createElement('div');
+            modal.className = 'modal fade';
+            modal.innerHTML = `
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="bi bi-qr-code me-2"></i>机器人分享二维码
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body text-center">
+                            <img id="qr-image" style="max-width: 100%; height: auto;" />
+                            <div id="qr-error" style="display: none;" class="alert alert-danger">
+                                二维码生成失败，请稍后重试
+                            </div>
+                            <div class="mt-3">
+                                <small class="text-muted">扫描二维码添加机器人</small>
+                                <br>
+                                <small class="text-muted">链接: <a href="${window.robotShareURL}" target="_blank">${window.robotShareURL}</a></small>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // 显示模态框
+            const bsModal = new bootstrap.Modal(modal);
+            bsModal.show();
+            
+            // 加载二维码
+            const qrImage = modal.querySelector('#qr-image');
+            const qrError = modal.querySelector('#qr-error');
+            
+            qrImage.onerror = function() {
+                qrImage.style.display = 'none';
+                qrError.style.display = 'block';
+            };
+            
+            qrImage.src = window.robotQRCodeAPI;
+            
+            // 模态框关闭时清理DOM
+            modal.addEventListener('hidden.bs.modal', function() {
+                document.body.removeChild(modal);
+            });
         }
 
 

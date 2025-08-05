@@ -9,12 +9,13 @@ import re
 import io
 from PIL import Image, ImageDraw, ImageFont
 from core.plugin.PluginManager import Plugin
+import config
 
 # 禁用SSL警告
 import warnings
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
-BASE = 'https://i.elaina.vin/api/bot'
+BASE = 'https://api.elaina.vin/api/bot'
 LOGIN_URL = f"{BASE}/get_login.php"
 GET_LOGIN = f"{BASE}/robot.php"
 MESSAGE = f"{BASE}/message.php"
@@ -24,6 +25,10 @@ MSGTPL = f"{BASE}/md.php"
 # 修改数据存储目录到当前目录下的data/bot文件夹
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'bot')
 FILE = os.path.join(DATA_DIR, 'robot.json')
+# 添加openapi.json文件路径 - 修正为项目根目录下的data/openapi.json
+OPENAPI_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data', 'openapi.json')
+# 从config获取主人ID
+SPECIAL_USER_ID = config.OWNER_IDS[0] if config.OWNER_IDS else ""
 
 _user_data = {}
 _login_tasks = {}
@@ -33,9 +38,67 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 def load_user_data():
     global _user_data
+    # 重新初始化
+    _user_data = {}
+    
+    # 加载普通用户数据
     if os.path.exists(FILE):
-        with open(FILE, 'r', encoding='utf-8') as f:
-            _user_data = json.load(f)
+        try:
+            with open(FILE, 'r', encoding='utf-8') as f:
+                _user_data = json.load(f)
+        except Exception as e:
+            print(f"加载robot.json失败: {str(e)}")
+            _user_data = {}
+    
+    # 为特定用户加载openapi.json数据
+    print(f"检查openapi.json路径: {OPENAPI_FILE}")
+    if os.path.exists(OPENAPI_FILE):
+        try:
+            with open(OPENAPI_FILE, 'r', encoding='utf-8') as f:
+                openapi_data = json.load(f)
+                print(f"成功读取openapi.json: {openapi_data}")
+                web_user_data = openapi_data.get('web_user', {})
+                if web_user_data and web_user_data.get('type') == 'ok':
+                    _user_data[SPECIAL_USER_ID] = web_user_data
+                    print(f"成功加载特定用户数据: {SPECIAL_USER_ID}")
+                    print(f"加载的数据: {web_user_data}")
+                else:
+                    print(f"openapi.json中没有有效的web_user数据: {web_user_data}")
+        except Exception as e:
+            print(f"加载openapi.json失败: {str(e)}")
+    else:
+        print(f"openapi.json文件不存在: {OPENAPI_FILE}")
+    
+    print(f"最终_user_data: {list(_user_data.keys())}")
+
+def ensure_user_data_loaded():
+    """确保用户数据已加载，如果没有则加载"""
+    global _user_data
+    if not _user_data:  # 如果数据为空，则加载
+        load_user_data()
+
+def save_user_data(user_id, data):
+    """保存用户数据，特定用户保存到openapi.json"""
+    global _user_data
+    _user_data[user_id] = data
+    
+    if user_id == SPECIAL_USER_ID:
+        # 特定用户保存到openapi.json
+        try:
+            openapi_data = {}
+            if os.path.exists(OPENAPI_FILE):
+                with open(OPENAPI_FILE, 'r', encoding='utf-8') as f:
+                    openapi_data = json.load(f)
+            
+            openapi_data['web_user'] = data
+            with open(OPENAPI_FILE, 'w', encoding='utf-8') as f:
+                json.dump(openapi_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"保存到openapi.json失败: {str(e)}")
+    else:
+        # 普通用户保存到robot.json
+        with open(FILE, 'w', encoding='utf-8') as f:
+            json.dump(_user_data, f, indent=2)
 
 def create_ssl_session():
     return requests.Session()
@@ -520,7 +583,8 @@ def render_template_detail(data):
     
     return img_byte_arr
 
-load_user_data()
+# 延迟加载用户数据，避免启动时的循环导入问题
+# load_user_data() 将在首次使用时调用
 
 class robot_data_plugin(Plugin):
     priority = 5000
@@ -538,12 +602,65 @@ class robot_data_plugin(Plugin):
         }
 
     @staticmethod
+    def _verify_credentials(login_data):
+        """验证登录凭证是否仍然有效"""
+        try:
+            print(f"开始验证凭证: uin={login_data.get('uin')}, ticket={login_data.get('ticket')[:10]}...")
+            session = create_ssl_session()
+            # 使用获取机器人列表的API来验证凭证
+            url = f"{BOTLIST}?uin={login_data.get('uin')}&ticket={login_data.get('ticket')}&developerId={login_data.get('developerId')}"
+            response = session.get(url, verify=False, timeout=10)
+            res = response.json()
+            print(f"验证凭证API响应: {res}")
+            # 如果返回code为0，说明凭证有效
+            is_valid = res.get('code') == 0
+            print(f"凭证验证结果: {is_valid}")
+            return is_valid
+        except Exception as e:
+            print(f"验证凭证时出错: {str(e)}")
+            return False
+
+    @staticmethod
     def login(event):
         if event.event_type == "INTERACTION_CREATE" and not event.content.strip() == "管理登录":
             return
         global _login_tasks, _last_login_success
         user_id = event.user_id
         current_time = time.time()
+        
+        # 检查是否为特定用户
+        if user_id == SPECIAL_USER_ID:
+            # 特定用户先验证现有凭证是否有效
+            ensure_user_data_loaded()
+            if user_id in _user_data and _user_data[user_id].get('type') == 'ok':
+                login_data = _user_data[user_id]
+                
+                # 验证凭证是否有效
+                if robot_data_plugin._verify_credentials(login_data):
+                    # 凭证有效，直接显示登录成功
+                    app_type = login_data.get('appType')
+                    app_type_str = '小程序' if app_type == '0' else '机器人' if app_type == '2' else '未知'
+                    content = f"[{login_data.get('uin')}]\n管理员登录成功\n\n>登录类型：{app_type_str}\nAppId：{login_data.get('appId')}\n切换+appid可以切换机器人"
+                    buttons = event.button([
+                        event.rows([
+                            {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
+                            {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                            {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
+                            {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                        ])
+                    ])
+                    _last_login_success[user_id] = time.time()
+                    event.reply(content, buttons)
+                    return
+                else:
+                    # 凭证失效，显示提示并继续正常登录流程
+                    event.reply("管理员凭证已失效，正在重新获取登录二维码...")
+                    # 不return，继续执行下面的正常登录流程
+            else:
+                event.reply("管理员数据未找到，正在获取登录二维码...")
+                # 不return，继续执行下面的正常登录流程
+        
+        # 普通用户的登录逻辑
         if user_id in _last_login_success and current_time - _last_login_success[user_id] < 20:
             return
         if user_id in _login_tasks and time.time() - _login_tasks[user_id][0] < 15:
@@ -557,7 +674,7 @@ class robot_data_plugin(Plugin):
     @staticmethod
     def _sync_login(event, user_id):
         global _user_data, _last_login_success
-        load_user_data()
+        ensure_user_data_loaded()
         _user_data[user_id] = {'type': 'login'}
         session = create_ssl_session()
         response = session.get(LOGIN_URL, verify=False)
@@ -579,10 +696,9 @@ class robot_data_plugin(Plugin):
             res = response.json()
             if res.get('code') == 0:
                 login_data = res.get('data', {}).get('data', {})
-                load_user_data()
-                _user_data[user_id] = {'type': 'ok', **login_data}
-                with open(FILE, 'w', encoding='utf-8') as f:
-                    json.dump(_user_data, f, indent=2)
+                ensure_user_data_loaded()
+                login_data['type'] = 'ok'
+                save_user_data(user_id, login_data)
                 app_type = login_data.get('appType')
                 app_type_str = '小程序' if app_type == '0' else '机器人' if app_type == '2' else '未知'
                 content = f"[{login_data.get('uin')}]\n登录成功\n\n>登录类型：{app_type_str}\nAppId：{login_data.get('appId')}\n切换+appid可以切换机器人"
@@ -604,7 +720,7 @@ class robot_data_plugin(Plugin):
     @staticmethod
     def get_message(event):
         user = event.user_id
-        load_user_data()
+        ensure_user_data_loaded()
         if user not in _user_data:
             content = f'<@{user}> 未查询到你的登录信息'
             buttons = event.button([
@@ -654,7 +770,7 @@ class robot_data_plugin(Plugin):
     @staticmethod
     def get_botlist(event):
         user = event.user_id
-        load_user_data()
+        ensure_user_data_loaded()
         if user not in _user_data:
             content = f'<@{user}> 未查询到你的登录信息'
             buttons = event.button([
@@ -706,7 +822,7 @@ class robot_data_plugin(Plugin):
     @staticmethod
     def get_botdata(event):
         user = event.user_id
-        load_user_data()
+        ensure_user_data_loaded()
         if user not in _user_data:
             content = f'<@{user}> 未查询到你的登录信息'
             buttons = event.button([
@@ -801,7 +917,7 @@ class robot_data_plugin(Plugin):
     @staticmethod
     def get_msgtpl(event):
         user = event.user_id
-        load_user_data()
+        ensure_user_data_loaded()
         if user not in _user_data:
             content = f'<@{user}> 未查询到你的登录信息'
             buttons = event.button([
@@ -862,7 +978,7 @@ class robot_data_plugin(Plugin):
     @staticmethod
     def get_msgtpl_detail(event):
         user = event.user_id
-        load_user_data()
+        ensure_user_data_loaded()
         if user not in _user_data:
             content = f'<@{user}> 未查询到你的登录信息'
             buttons = event.button([
@@ -979,7 +1095,7 @@ class robot_data_plugin(Plugin):
     @staticmethod
     def switch_appid(event):
         user = event.user_id
-        load_user_data()
+        ensure_user_data_loaded()
         if user not in _user_data:
             content = f'<@{user}> 未查询到你的登录信息'
             buttons = event.button([
@@ -1050,11 +1166,8 @@ class robot_data_plugin(Plugin):
         old_appid = data.get('appId')
         data['appId'] = new_appid
         
-        # 保存到JSON文件
-        load_user_data()
-        _user_data[user] = data
-        with open(FILE, 'w', encoding='utf-8') as f:
-            json.dump(_user_data, f, indent=2)
+        # 保存到相应的JSON文件
+        save_user_data(user, data)
         
         # 返回切换成功的消息
         content = f"AppID已切换成功\n\n```python\n原AppID: {old_appid}\n新AppID: {new_appid}\n机器人: {app_name}\n```\n"

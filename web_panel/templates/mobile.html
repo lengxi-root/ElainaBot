@@ -2337,14 +2337,14 @@
                 })
                 .then(data => {
                     if (data.success) {
-                        mobileStatisticsData = data.data;
+                        mobileStatisticsData = data;
                         // 只有在加载完整统计数据时才更新表格和图表
-                        if (data.data.historical && data.data.today) {
-                            updateMobileTables(data.data.today || {});
+                        if (data.historical && data.today) {
+                            updateMobileTables(data.today || {});
                             updateMobileChart(mobileCurrentMetric); // 更新图表
-                        } else if (data.data.selected_date_data) {
+                        } else if (data.selected_date_data) {
                             // 这是历史日期数据，只更新表格
-                            updateMobileTables(data.data.selected_date_data);
+                            updateMobileTables(data.selected_date_data);
                         }
                     } else {
                         console.error('加载统计数据失败:', data.error);
@@ -2391,8 +2391,8 @@
                 .then(data => {
                     if (data.success) {
                         // 更新表格数据
-                        if (data.data.selected_date_data) {
-                            updateMobileTables(data.data.selected_date_data);
+                        if (data.selected_date_data) {
+                            updateMobileTables(data.selected_date_data);
                         } else {
                             showMobileStatisticsError('该日期没有可用数据');
                         }

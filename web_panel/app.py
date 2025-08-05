@@ -1105,12 +1105,6 @@ def get_system_info():
             'framework_memory_percent': float((rss / system_memory_total) * 100 if system_memory_total > 0 else 5.0),
             'framework_memory_total': float(rss),
             
-            # 内存分配详情
-            'plugins_memory': float(plugins_mb),
-            'framework_memory': float(framework_mb),
-            'webpanel_memory': float(web_panel_mb),
-            'other_memory': float(other_mb),
-            
             # 内存管理数据
             'gc_counts': list(gc.get_count()),
             'objects_count': len(gc.get_objects()),
@@ -1143,10 +1137,6 @@ def get_system_info():
             'system_memory_total_bytes': 8192.0 * 1024 * 1024,  # 字节
             'framework_memory_percent': 5.0,
             'framework_memory_total': 400.0,
-            'plugins_memory': 100.0,
-            'framework_memory': 150.0,
-            'webpanel_memory': 50.0,
-            'other_memory': 100.0,
             'gc_counts': [0, 0, 0],
             'objects_count': 1000,
             'disk_info': {
@@ -1421,10 +1411,6 @@ def register_socketio_handlers(sio):
                 'memory_total': 8192.0,
                 'framework_memory_percent': 5.0,
                 'framework_memory_total': 400.0,
-                'plugins_memory': 100.0,
-                'framework_memory': 150.0,
-                'webpanel_memory': 50.0,
-                'other_memory': 100.0,
                 'gc_counts': [0, 0, 0],
                 'objects_count': 1000,
                 'disk_info': {
@@ -2086,7 +2072,6 @@ def get_specific_date_data(date_str):
 # 开放平台相关的全局变量
 openapi_user_data = {}
 openapi_login_tasks = {}
-openapi_last_login_success = {}
 
 # 开放平台数据文件路径
 OPENAPI_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'openapi.json')
@@ -2175,20 +2160,6 @@ def openapi_start_login():
         
         current_time = time.time()
         
-        # 检查是否刚刚成功登录过
-        if user_id in openapi_last_login_success and current_time - openapi_last_login_success[user_id] < 20:
-            return jsonify({
-                'success': False,
-                'message': '最近刚刚登录成功，请稍后重试'
-            })
-        
-        # 检查是否已经在登录过程中
-        if user_id in openapi_login_tasks and current_time - openapi_login_tasks[user_id][0] < 15:
-            return jsonify({
-                'success': False,
-                'message': '15秒内已经申请一次登录，请稍后重试'
-            })
-        
         # 开始登录流程
         session = create_openapi_session()
         response = session.get(OPENAPI_LOGIN_URL, verify=False)
@@ -2250,8 +2221,6 @@ def openapi_check_login():
             # 清理登录任务
             if user_id in openapi_login_tasks:
                 del openapi_login_tasks[user_id]
-            
-            openapi_last_login_success[user_id] = time.time()
             
             app_type = login_data.get('appType')
             app_type_str = get_app_type_name(app_type)
@@ -2511,6 +2480,210 @@ def start_openapi_cleanup_thread():
 
 # 启动清理线程
 start_openapi_cleanup_thread()
+
+@web_panel.route('/openapi/import_templates', methods=['POST'])
+@require_auth
+@catch_error
+def openapi_import_templates():
+    """导入模板到markdown_templates.py文件"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    session = create_openapi_session()
+    
+    # 获取markdown模板和按钮模板
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    # 获取markdown模板
+    url = f"{OPENAPI_MSGTPL}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}&appid={appid_to_use}"
+    response = session.get(url, verify=False)
+    res = response.json()
+    
+    if res.get('retcode') != 0 and res.get('code') != 0:
+        return openapi_error_response('登录状态失效，请重新登录')
+    
+    raw_templates = res.get('data', {}).get('list', [])
+    
+    # 处理模板数据，统一字段格式
+    templates = []
+    for template in raw_templates:
+        processed_template = {
+            'id': template.get('模板id', ''),
+            'name': template.get('模板名称', '未命名'),
+            'type': template.get('模板类型', '未知类型'),
+            'status': template.get('模板状态', '未知状态'),
+            'content': template.get('模板内容', ''),
+            'create_time': template.get('创建时间', ''),
+            'update_time': template.get('更新时间', ''),
+            'raw_data': template
+        }
+        templates.append(processed_template)
+    
+    # 获取按钮模板 (从现有数据中筛选)
+    button_templates = [t for t in templates if t.get('type') == '按钮模板']
+    markdown_templates = [t for t in templates if t.get('type') == 'markdown模板']
+    
+    try:
+        # 写入模板到文件
+        import_result = _write_templates_to_file(markdown_templates, button_templates)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'imported_count': import_result['imported_count'],
+                'skipped_count': import_result['skipped_count'],
+                'button_count': import_result['button_count'],
+                'message': import_result['message']
+            }
+        })
+    except Exception as e:
+        return openapi_error_response(f'导入模板失败: {str(e)}')
+
+def _write_templates_to_file(templates, button_templates):
+    """将模板写入markdown_templates.py文件"""
+    import os
+    import re
+    from core.event.markdown_templates import MARKDOWN_TEMPLATES
+    
+    template_file_path = os.path.join(os.getcwd(), 'core', 'event', 'markdown_templates.py')
+    
+    # 读取现有文件内容
+    with open(template_file_path, 'r', encoding='utf-8') as f:
+        current_content = f.read()
+    
+    # 获取现有模板ID列表
+    existing_ids = set()
+    for template_config in MARKDOWN_TEMPLATES.values():
+        existing_ids.add(template_config['id'])
+    
+    # 处理新模板
+    new_templates = []
+    skipped_count = 0
+    
+    for template in templates:
+        template_id = template.get('id', '')
+        template_name = template.get('name', '未命名')
+        template_content = template.get('content', '')
+        
+        if template_id in existing_ids:
+            skipped_count += 1
+            continue
+            
+        # 解析模板参数
+        params = _extract_template_params(template_content)
+        
+        new_templates.append({
+            'id': template_id,
+            'name': template_name,
+            'content': template_content,
+            'params': params,
+            'raw_data': template
+        })
+    
+    # 从1开始重新命名所有模板
+    existing_template_names = set(MARKDOWN_TEMPLATES.keys())
+    template_counter = 1
+    
+    # 构建新的模板字典内容
+    new_template_entries = []
+    
+    for template in new_templates:
+        # 生成模板名称 - 从1开始
+        while str(template_counter) in existing_template_names:
+            template_counter += 1
+        
+        template_name = str(template_counter)
+        existing_template_names.add(template_name)
+        
+        # 构建简化的模板条目
+        # 转义模板内容中的换行符和特殊字符
+        escaped_content = template['content'].replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+        
+        template_entry = f'''    "{template_name}": {{
+        "id": "{template['id']}",
+        "params": {template['params']}
+    }},
+    # 原始模板内容: {escaped_content}
+'''
+        new_template_entries.append(template_entry)
+        template_counter += 1
+    
+    # 处理按钮模板
+    button_entries = []
+    for button in button_templates:
+        button_id = button.get('id', '')
+        button_name = button.get('name', '未命名按钮')
+        
+        button_entry = f'''    # 按钮ID: {button_id} - {button_name}
+'''
+        button_entries.append(button_entry)
+    
+    # 如果有新模板或按钮，更新文件
+    if new_template_entries or button_entries:
+        # 找到MARKDOWN_TEMPLATES字典的结束位置
+        pattern = r'(MARKDOWN_TEMPLATES\s*=\s*\{.*?)(\n\})'
+        match = re.search(pattern, current_content, re.DOTALL)
+        
+        if match:
+            # 在字典结束前插入新模板
+            before_end = match.group(1)
+            
+            # 构建新内容
+            new_content = before_end
+            
+            # 添加新模板
+            if new_template_entries:
+                new_content += '\n'
+                for entry in new_template_entries:
+                    new_content += entry
+                    
+            # 添加按钮注释
+            if button_entries:
+                new_content += '\n    # 按钮模板ID\n'
+                for entry in button_entries:
+                    new_content += entry
+                    
+            new_content += match.group(2)  # 添加结束的 }
+            
+            # 替换文件内容
+            updated_file_content = current_content.replace(match.group(0), new_content)
+            
+            # 写入文件
+            with open(template_file_path, 'w', encoding='utf-8') as f:
+                f.write(updated_file_content)
+        else:
+            # 如果没有找到字典结构，说明文件格式有问题
+            raise Exception("无法找到MARKDOWN_TEMPLATES字典结构")
+    
+    return {
+        'imported_count': len(new_templates),
+        'skipped_count': skipped_count,
+        'button_count': len(button_templates),
+        'message': f'成功导入{len(new_templates)}个模板，跳过{skipped_count}个已存在模板'
+    }
+
+def _extract_template_params(template_content):
+    """从模板内容中提取参数列表"""
+    import re
+    
+    # 匹配 {{.参数名}} 格式的参数
+    param_pattern = r'\{\{\.(\w+)\}\}'
+    matches = re.findall(param_pattern, template_content)
+    
+    # 去重并保持顺序
+    params = []
+    seen = set()
+    for param in matches:
+        if param not in seen:
+            params.append(param)
+            seen.add(param)
+    
+    return params
 
 @web_panel.route('/openapi/verify_saved_login', methods=['POST'])
 @require_auth

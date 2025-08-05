@@ -427,6 +427,45 @@ class MessageEvent:
             
         return message_id
 
+    def reply_markdown(self, template, params=None, keyboard_id=None, auto_delete_time=None):
+        """发送markdown模板消息
+        
+        Args:
+            template: 模板名称或模板ID
+            params: 参数列表/元组，按模板参数顺序传入
+            keyboard_id: 按钮模板ID（官方申请获得）
+            auto_delete_time: 自动撤回时间（秒）
+            
+        Returns:
+            消息ID或None
+        """
+        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
+            return None
+            
+        # 构建markdown模板payload
+        template_data = self._build_markdown_template_data(template, params)
+        if not template_data:
+            return None
+            
+        payload = self._build_markdown_message_payload(template_data, keyboard_id)
+        endpoint = self._get_endpoint()
+        
+        if self.message_type == self.GROUP_ADD_ROBOT:
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        
+        response = BOTAPI(endpoint, "POST", Json(payload))
+        message_id = self._extract_message_id(response)
+        
+        if message_id and auto_delete_time:
+            import threading
+            threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
+            
+        return message_id
+
+    def reply_md(self, template, params=None, keyboard_id=None, auto_delete_time=None):
+        """reply_markdown的简化别名"""
+        return self.reply_markdown(template, params, keyboard_id, auto_delete_time)
+
     def _get_endpoint(self):
         """获取API端点"""
         endpoint_template = self._API_ENDPOINTS[self.message_type]['reply_private'] if (self.message_type == self.INTERACTION and self.is_private) else self._API_ENDPOINTS[self.message_type]['reply']
@@ -640,6 +679,75 @@ class MessageEvent:
             
         return simple_data
 
+    def _build_markdown_template_data(self, template, params):
+        """构建markdown模板数据"""
+        try:
+            from core.event.markdown_templates import get_template, MARKDOWN_TEMPLATES
+            
+            template_config = None
+            
+            # 判断是模板名称还是模板ID
+            if template in MARKDOWN_TEMPLATES:
+                template_config = get_template(template)
+            else:
+                # 查找匹配的模板ID
+                for name, config in MARKDOWN_TEMPLATES.items():
+                    if config['id'] == template:
+                        template_config = config
+                        break
+            
+            if not template_config:
+                return None
+                
+            template_id = template_config['id']
+            template_params = template_config['params']
+            
+            # 构建参数列表
+            param_list = []
+            if params:
+                for i, param_name in enumerate(template_params):
+                    if i < len(params) and params[i] is not None:
+                        param_list.append({
+                            "key": param_name,
+                            "values": [str(params[i])]
+                        })
+            
+            return {
+                "custom_template_id": template_id,
+                "params": param_list
+            }
+            
+        except Exception:
+            return None
+
+    def _build_markdown_message_payload(self, template_data, keyboard_id=None):
+        """构建markdown消息payload"""
+        payload = {
+            "msg_type": 2,  # 2表示markdown消息
+            "msg_seq": random.randint(10000, 999999),
+            "markdown": {
+                "custom_template_id": template_data["custom_template_id"]
+            }
+        }
+        
+        if template_data.get("params"):
+            payload["markdown"]["params"] = template_data["params"]
+        
+        # 添加按钮模板ID
+        if keyboard_id:
+            payload["keyboard"] = {
+                "id": str(keyboard_id)
+            }
+        
+        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
+            payload["msg_id"] = self.message_id
+        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
+            payload["event_id"] = self.get('id') or self.get('d/id') or ""
+        elif self.message_type == self.CHANNEL_MESSAGE:
+            payload["msg_id"] = self.get('d/id')
+                
+        return payload
+
     def _fill_endpoint_template(self, template):
         replacements = {
             '{group_id}': self.group_id,
@@ -832,7 +940,7 @@ class MessageEvent:
         return {'buttons': result}
 
     def button(self, rows=None):
-        return {'content': {'rows': rows or []}}
+        return {'content': {'rows': rows or []}} 
 
     def get_image_size(self, image_input):
         """获取图片尺寸信息

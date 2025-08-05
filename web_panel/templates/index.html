@@ -1441,38 +1441,6 @@
                                         <div class="col">
                                             <div class="p-2 border rounded bg-light h-100">
                                                 <div class="d-flex flex-column align-items-center">
-                                                    <div><i class="bi bi-puzzle text-primary"></i> 插件</div>
-                                                    <div id="plugins-memory" class="badge bg-primary mt-1">0 MB</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="col">
-                                            <div class="p-2 border rounded bg-light h-100">
-                                                <div class="d-flex flex-column align-items-center">
-                                                    <div><i class="bi bi-bricks text-info"></i> 框架</div>
-                                                    <div id="framework-memory" class="badge bg-info mt-1">0 MB</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="col">
-                                            <div class="p-2 border rounded bg-light h-100">
-                                                <div class="d-flex flex-column align-items-center">
-                                                    <div><i class="bi bi-window text-success"></i> 面板</div>
-                                                    <div id="webpanel-memory" class="badge bg-success mt-1">0 MB</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="col">
-                                            <div class="p-2 border rounded bg-light h-100">
-                                                <div class="d-flex flex-column align-items-center">
-                                                    <div><i class="bi bi-box text-secondary"></i> 其他</div>
-                                                    <div id="other-memory" class="badge bg-secondary mt-1">0 MB</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="col">
-                                            <div class="p-2 border rounded bg-light h-100">
-                                                <div class="d-flex flex-column align-items-center">
                                                     <div><i class="bi bi-recycle text-warning"></i> GC计数</div>
                                                     <div id="gc-count" class="badge bg-warning mt-1">0/0/0</div>
                                                 </div>
@@ -1863,9 +1831,9 @@
                                              <table class="table table-hover">
                                                  <thead>
                                                      <tr>
-                                                         <th style="width: 40%;">机器人名称</th>
-                                                         <th style="width: 35%;">AppID</th>
-                                                         <th style="width: 25%;">操作</th>
+                                                                                                                 <th style="width: 35%;">机器人名称</th>
+                                                        <th style="width: 30%;">AppID</th>
+                                                        <th style="width: 35%;">操作</th>
                                                      </tr>
                                                  </thead>
                                                  <tbody id="openapi-botlist-table">
@@ -2414,10 +2382,7 @@
                     document.getElementById('framework-memory-total').textContent = frameworkMemTotal;
                     
                     // 内存分配
-                    document.getElementById('plugins-memory').textContent = formatMemory(data.plugins_memory || 0);
-                    document.getElementById('framework-memory').textContent = formatMemory(data.framework_memory || 0);
-                    document.getElementById('webpanel-memory').textContent = formatMemory(data.webpanel_memory || 0);
-                    document.getElementById('other-memory').textContent = formatMemory(data.other_memory || 0);
+                    
                     
                     // 内存管理
                     const gcCounts = data.gc_counts || [0, 0, 0];
@@ -2626,17 +2591,7 @@
                 if (info.memory_info.total_mb !== undefined) {
                     updateTextElement('total-memory', info.memory_info.total_mb, ' MB');
                 }
-                const memoryElements = {
-                    'plugins-memory': info.memory_info.plugins_mb,
-                    'framework-memory': info.memory_info.framework_mb,
-                    'webpanel-memory': info.memory_info.web_panel_mb,
-                    'other-memory': info.memory_info.other_mb
-                };
-                Object.entries(memoryElements).forEach(([id, value]) => {
-                    if (value !== undefined) {
-                        updateTextElement(id, value, ' MB');
-                    }
-                });
+
                 if (info.memory_collection) {
                     const gcCount = document.getElementById('gc-count');
                     if (gcCount && info.memory_collection.collected_count) {
@@ -4685,6 +4640,9 @@
                             <button class="btn btn-outline-success btn-sm" onclick="getBotTemplates('${app.app_id}', '${app.app_name}')">
                                 <i class="bi bi-layout-text-sidebar-reverse"></i> 模板
                             </button>
+                           <button class="btn btn-outline-warning btn-sm" onclick="importBotTemplates('${app.app_id}', '${app.app_name}')">
+                               <i class="bi bi-download"></i> 导入
+                           </button>
                         </div>
                     </td>
                  `;
@@ -4833,7 +4791,68 @@
             document.getElementById('openapi-notifications-container').style.display = 'block';
         }
         
-        
+        // 导入指定机器人的模板到文件
+        function importBotTemplates(appid, appName) {
+            if (!confirm(`确定要将机器人 "${appName}" 的模板导入到markdown_templates.py文件中吗？\n\nAppID: ${appid}\n\n注意：\n- 模板将从1开始命名\n- 按钮ID将以注释形式添加`)) {
+                return;
+            }
+            
+            // 通过事件找到对应的按钮
+            const button = event.target.closest('button');
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="bi bi-hourglass-split"></i> 导入中...';
+            button.disabled = true;
+            
+            fetch(`${URL_PREFIX}/openapi/import_templates`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    user_id: openapi_current_user_id,
+                    appid: appid
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const result = data.data;
+                    let message = `✅ 模板导入完成！\n\n`;
+                    message += `🤖 机器人: ${appName}\n`;
+                    message += `📱 AppID: ${appid}\n\n`;
+                    message += `📊 统计信息：\n`;
+                    message += `• 新导入模板：${result.imported_count} 个\n`;
+                    message += `• 跳过重复模板：${result.skipped_count} 个\n`;
+                    if (result.button_count > 0) {
+                        message += `• 按钮模板注释：${result.button_count} 个\n`;
+                    }
+                    message += `\n💡 ${result.message}`;
+                    message += `\n\n⚠️ 重要提示：你需要重启框架来重载模板文件！`;
+                    
+                    alert(message);
+                    
+                    // 显示成功状态
+                    button.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> 导入成功';
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                        button.disabled = false;
+                    }, 3000);
+                } else {
+                    alert('❌ 导入模板失败: ' + data.message);
+                    if (data.message.includes('登录状态失效')) {
+                        showNotLoggedInState();
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('导入模板失败:', error);
+                alert('❌ 导入模板失败，请重试\n\n错误信息: ' + error.message);
+            })
+            .finally(() => {
+                if (button.innerHTML.includes('导入中')) {
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                }
+            });
+        }
         
         // 关闭数据展示区域
         function closeDataSection() {

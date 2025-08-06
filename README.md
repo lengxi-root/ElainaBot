@@ -23,7 +23,7 @@ ElainaBot 是一个基于 Python 的 QQ 官方机器人框架，支持WH WS连�
 
 如果你在使用过程中遇到问题或有任何建议，欢迎加入我们的交流群：
 
-**ElainaBot框架交流群：[631348711](https://qun.qq.com/universal-share/share?ac=1&authKey=4uCPPGs1gPBcO5xPp9QJX%2F6Iiy%2B7tKKwigCwrhyqD9ht%2FrEN91u2ujaCY%2FLFdFts&busi_data=eyJncm91cENvZGUiOiI2MzEzNDg3MTEiLCJ0b2tlbiI6IkQ5NGNpdjdDa0JDVzVpYVZiRkp6eEtMdDh1YWJHeE5KT01HUjFXWXlTTGdQeXpjdExLM0pRK3I0TDRkU2lYQisiLCJ1aW4iOiIyMjE4ODcyMDE0In0%3D&data=7wfADui4BPtQy7dP6nXWYXubFHJ0FnYXaQoKwaJ7ufcZltMeJCcd-md36eWq6mEfmLTnc9X0UMpZclaBkeVo4A&svctype=4&tempid=h5_group_info)**
+**ElainaBot框架交流群：[631348711](https://qm.qq.com/q/qSErOcGf2o)**
 
 
 ## 安装教程

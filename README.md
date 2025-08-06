@@ -1,105 +1,112 @@
+<div align="center">
+
 # ElainaBot
 
-基于Python的QQ机器人框架，支持WS WH链接方式，支持插件系统、Web面板监控。
+ElainaBot 是一个基于 Python 的 QQ 官方机器人框架，支持WH WS连接，插件热更新、内存优化、Web面板监控等特性。
+支持便捷发送Markdown,ark,语音等方法，无需过多构建RAW，适配普通消息与Markdown快捷转换，便捷导入markdown模板。
 
-## 核心特性
+</div>
 
+## ElainaBot 特性
+
+- ✨ **插件化架构**：动态加载与卸载插件，支持热更新
+- 🚀 **高性能优化**：内置连接池和内存优化，提升运行效率  
+- 📊 **Web控制面板**：实时监控系统状态、内存使用和日志
+- 🔒 **多级权限系统**：主人命令、管理员权限细粒度控制
 - 🖼 **多图床支持**：集成QQ官方和QQShare两种图片上传方案
-- 💾 **数据持久化**：MySQL数据库支持，记录用户和群组信息
-- 🔌 **插件系统**：支持插件热加载，无需重启
-- 📊 **Web控制面板**：实时监控、日志查看、插件管理
-- ⚡ **高性能**：内置连接池和内存优化
-- 🔒 **权限控制**：主人命令、群组权限管理
-- 💾 **数据持久化**：MySQL数据库支持
+- 💾 **数据持久化**：MySQL数据库支持，完整的用户数据管理
+- 🔄 **内存管理**：自动垃圾回收机制，优化长期稳定性
 
-## 快速部署
+项目仅供学习交流使用，严禁用于任何商业用途和非法行为
 
-### 1. 环境准备
-- Python 3.8+
-- MySQL 5.7+（可选）
+## 安装教程
 
-### 2. 基础配置
-编辑 `config.py`：
-```python
+<details><summary>手动安装</summary>
 
-记得创建1-2个数据库
-用于数据库处理和日志处理，可用相同的
-记得将配置文件都补充完整
-# 机器人配置
-appid = "你的机器人APPID"
-secret = "你的机器人SECRET"
+> 环境准备：Windows/Linux/MacOS  
+> [Python 3.8+](https://python.org), [MySQL 5.7+](https://mysql.com), [Git](https://git-scm.com)
 
+1. Git Clone 项目
 
-# Web面板访问配置
-WEB_SECURITY = {
-    'access_token': '你的访问令牌',  # 用于URL验证
-    'admin_password': '你的管理密码'  # 用于登录验证
-}
-
+```bash
+git clone https://github.com/lengxi-root/ElainaBot.git
+cd ElainaBot
 ```
 
-### 3. 启动机器人
+2. 安装依赖包
+
+```bash
+pip install -r requirements.txt
+```
+
+3. 配置机器人
+
+编辑 `config.py` 文件，填写QQ机器人等配置信息：
+
+```python
+# 机器人配置
+appid = "机器人APPID"
+secret = "机器人SECRET" 
+
+
+
+# 数据库配置
+DB_CONFIG = {
+    'host': 'localhost',
+    'port': 3306,
+    'user': '用户名',
+    'password': '密码',
+    'database': '数据库名',
+    # ...其他配置
+}
+```
+
+4. 运行机器人
+
 ```bash
 python main.py
 ```
 
-### 4. 访问Web面板
-浏览器访问：`http://你的IP:5005/web/?token=你的访问令牌`
+</details>
 
-## 插件开发
+## 使用教程
 
-创建插件文件 `plugins/your_plugin/example.py`：
-```python
-class ExamplePlugin:
-    @staticmethod
-    def get_regex_handlers():
-        return {
-            r'^/hello': ExamplePlugin.hello
-        }
-    
-    @staticmethod
-    def hello(event):
-        return "Hello, World!"
+1. 启动机器人后，访问Web控制面板
+
+```
+http://localhost:端口/web/?token=自己设置的access_token
 ```
 
-## 配置说明
+2. 通过Web面板可以：
+   - 实时监控机器人状态
+   - 查看系统日志和错误信息
+   - 管理插件的加载与卸载
+   - 监控内存使用情况
 
-### WebSocket连接（可选）
-```python
-WEBSOCKET_CONFIG = {
-    'enabled': True,        # 启用WebSocket
-    'auto_connect': True,   # 自动连接
-}
+## 框架结构
+
+```
+ElainaBot/
+├── config.py             # 全局配置文件
+├── core/                 # 核心功能模块
+│   ├── event/            # 事件处理系统
+│   └── plugin/           # 插件管理系统
+├── function/             # 工具函数库
+│   ├── database.py       # 数据库操作
+│   ├── httpx_pool.py     # HTTP连接池
+│   └── ...              # 其他工具函数
+├── plugins/              # 插件目录
+│   ├── example/          # 示例插件
+│   ├── system/           # 系统插件
+│   └── alone/            # 独立插件
+├── web/                  # Web控制面板
+│   ├── app.py           # Web应用主文件
+│   └── templates/       # 页面模板
+└── main.py               # 主程序入口
 ```
 
-### 数据库配置（可选）
-```python
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': 3306,
-    'user': 'root',
-    'password': '密码',
-    'database': '数据库名'
-}
-```
 
-## 目录结构
-```
-MBot/
-├── config.py          # 配置文件
-├── main.py            # 启动文件
-├── plugins/           # 插件目录
-├── web_panel/         # Web面板
-└── function/          # 工具函数
-```
 
-## 注意事项
 
-1. 首次运行会自动创建必要的数据表
-2. 插件放入 `plugins/` 对应目录即可自动加载
-3. Web面板提供实时日志查看和系统监控
-4. 支持HTTP和WebSocket两种接收消息方式
 
----
 
-更多详细配置请查看 `config.py` 文件注释。

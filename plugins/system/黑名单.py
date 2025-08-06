@@ -3,8 +3,6 @@
 
 import json
 import os
-import re
-import time
 from core.plugin.PluginManager import Plugin
 from config import OWNER_IDS
 
@@ -12,10 +10,21 @@ from config import OWNER_IDS
 BLACKLIST_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "blacklist.json")
 
 class BlacklistManager(Plugin):
-    """
-    黑名单管理插件，允许主人添加和删除黑名单用户
-    """
-    priority = 1  # 高优先级，确保黑名单管理命令能优先被处理
+    priority = 1
+    
+    @staticmethod
+    def _load_blacklist():
+        """加载黑名单数据"""
+        if not os.path.exists(BLACKLIST_FILE):
+            return {}
+        with open(BLACKLIST_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    @staticmethod
+    def _save_blacklist(blacklist):
+        """保存黑名单数据"""
+        with open(BLACKLIST_FILE, 'w', encoding='utf-8') as f:
+            json.dump(blacklist, f, ensure_ascii=False, indent=2)
     
     @staticmethod
     def get_regex_handlers():
@@ -28,102 +37,47 @@ class BlacklistManager(Plugin):
     
     @staticmethod
     def add_blacklist(event):
-        """添加用户到黑名单"""
         user_id = event.matches[0]
         reason = event.matches[1] if len(event.matches) > 1 and event.matches[1] else "未指明原因"
         
-        # 不允许将主人添加到黑名单
         if user_id in OWNER_IDS:
-            return event.reply(f"无法将主人添加到黑名单！")
+            return event.reply("无法将主人添加到黑名单")
         
-        # 加载黑名单数据
-        blacklist = {}
-        if os.path.exists(BLACKLIST_FILE):
-            try:
-                with open(BLACKLIST_FILE, 'r', encoding='utf-8') as f:
-                    blacklist = json.load(f)
-            except Exception as e:
-                return event.reply(f"读取黑名单文件失败: {str(e)}")
-        
-        # 添加用户到黑名单
+        blacklist = BlacklistManager._load_blacklist()
         blacklist[user_id] = reason
-        
-        # 保存黑名单数据
-        try:
-            with open(BLACKLIST_FILE, 'w', encoding='utf-8') as f:
-                json.dump(blacklist, f, ensure_ascii=False, indent=2)
-            return event.reply(f"已将用户 {user_id} 添加到黑名单\n原因: {reason}")
-        except Exception as e:
-            return event.reply(f"保存黑名单数据失败: {str(e)}")
+        BlacklistManager._save_blacklist(blacklist)
+        event.reply(f"已添加用户 {user_id} 到黑名单\n原因: {reason}")
     
     @staticmethod
     def remove_blacklist(event):
-        """从黑名单中移除用户"""
         user_id = event.matches[0]
+        blacklist = BlacklistManager._load_blacklist()
         
-        # 加载黑名单数据
-        if not os.path.exists(BLACKLIST_FILE):
-            return event.reply("黑名单文件不存在")
-        
-        try:
-            with open(BLACKLIST_FILE, 'r', encoding='utf-8') as f:
-                blacklist = json.load(f)
-        except Exception as e:
-            return event.reply(f"读取黑名单文件失败: {str(e)}")
-        
-        # 检查用户是否在黑名单中
         if user_id not in blacklist:
             return event.reply(f"用户 {user_id} 不在黑名单中")
         
-        # 移除用户
         reason = blacklist.pop(user_id, "未知")
-        
-        # 保存黑名单数据
-        try:
-            with open(BLACKLIST_FILE, 'w', encoding='utf-8') as f:
-                json.dump(blacklist, f, ensure_ascii=False, indent=2)
-            return event.reply(f"已将用户 {user_id} 从黑名单中移除\n原先原因: {reason}")
-        except Exception as e:
-            return event.reply(f"保存黑名单数据失败: {str(e)}")
+        BlacklistManager._save_blacklist(blacklist)
+        event.reply(f"已移除用户 {user_id}\n原因: {reason}")
     
     @staticmethod
     def view_blacklist(event):
-        """查看黑名单"""
-        # 加载黑名单数据
-        if not os.path.exists(BLACKLIST_FILE):
-            return event.reply("黑名单文件不存在")
+        blacklist = BlacklistManager._load_blacklist()
         
-        try:
-            with open(BLACKLIST_FILE, 'r', encoding='utf-8') as f:
-                blacklist = json.load(f)
-        except Exception as e:
-            return event.reply(f"读取黑名单文件失败: {str(e)}")
-        
-        # 格式化输出
         if not blacklist:
             return event.reply("黑名单为空")
         
-        reply = "当前黑名单列表：\n\n"
+        reply = "黑名单列表：\n"
         for user_id, reason in blacklist.items():
-            reply += f"- 用户: {user_id}\n  原因: {reason}\n\n"
+            reply += f"{user_id}: {reason}\n"
         
-        return event.reply(reply.strip())
+        event.reply(reply.strip())
     
     @staticmethod
     def show_help(event):
-        """显示黑名单管理帮助"""
-        help_text = """黑名单管理指令：
-
-- 黑名单添加 [用户ID] [原因]
-  将用户添加到黑名单
-
-- 黑名单删除 [用户ID]
-  从黑名单中删除用户
-
-- 黑名单查看
-  查看当前所有黑名单用户
-
-- 黑名单帮助
-  显示本帮助信息
-"""
-        return event.reply(help_text) 
+        help_text = """黑名单指令：
+黑名单添加 [用户ID] [原因] - 添加用户
+黑名单删除 [用户ID] - 删除用户  
+黑名单查看 - 查看列表
+黑名单帮助 - 显示帮助"""
+        event.reply(help_text) 

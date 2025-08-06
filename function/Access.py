@@ -8,8 +8,6 @@ import sys
 import datetime
 import time
 import threading
-import logging
-from logging.handlers import TimedRotatingFileHandler
 
 # 从配置中导入应用凭证
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,30 +22,6 @@ _token_info = {
 
 # 使用 Session 复用连接
 _session = requests.Session()
-
-# 配置日志
-def _setup_logger():
-    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'tokenlog')
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-        
-    logger = logging.getLogger('access_token')
-    logger.setLevel(logging.INFO)
-    
-    # 每天轮换日志，保留7天
-    handler = TimedRotatingFileHandler(
-        os.path.join(log_dir, 'access_token.log'),
-        when='midnight',
-        backupCount=7
-    )
-    formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    
-    return logger
-
-# 初始化日志记录器
-logger = _setup_logger()
 
 def curl(url, method, headers, params):
     """模拟cURL请求"""
@@ -74,10 +48,6 @@ def curl(url, method, headers, params):
     except Exception as e:
         return {'Error': f'请求错误: {str(e)}'}
 
-def 记录日志(内容):
-    """记录日志到文件"""
-    logger.info(内容)
-
 def 获取新Token():
     """获取新的AccessToken"""
     global _token_info
@@ -93,31 +63,23 @@ def 获取新Token():
             headers = {'Content-Type': 'application/json'}
             response = curl(url, "POST", headers, json_data)
             
-            # 记录完整响应内容
-            记录日志(f"获取AccessToken响应: {response}")
-            
             # 解析响应
             response_data = json.loads(response)
             if 'access_token' in response_data and 'expires_in' in response_data:
                 _token_info['access_token'] = response_data['access_token']
                 _token_info['expires_in'] = int(response_data['expires_in'])
                 _token_info['last_update'] = time.time()
-                记录日志(f"Token更新成功，过期时间: {_token_info['expires_in']}秒")
                 return True
-            else:
-                记录日志(f"Token响应格式错误: {response}")
                 
         except Exception as e:
-            记录日志(f"获取Token失败 (尝试 {retry_count+1}/{max_retries+1}): {str(e)}")
+            pass
         
         # 如果到达这里，说明获取失败，需要重试
         retry_count += 1
         if retry_count <= max_retries:
-            记录日志(f"3秒后重试获取Token (尝试 {retry_count+1}/{max_retries+1})")
             time.sleep(3)  # 等待3秒后重试
     
     # 如果所有重试都失败
-    记录日志(f"获取Token失败: 已重试{max_retries}次，放弃重试")
     return False
 
 def 定时更新Token():
@@ -130,18 +92,15 @@ def 定时更新Token():
             
             # 没有token或已过期，立即更新
             if not _token_info['access_token'] or time_since_last_update >= _token_info['expires_in']:
-                记录日志("Token不存在或已过期，立即更新")
                 获取新Token()
             # 接近过期（60秒内），更新
             elif _token_info['expires_in'] - time_since_last_update <= 60:
-                记录日志("Token接近过期(60秒内)，进行更新")
                 获取新Token()
             
             # 固定45秒检查一次
             time.sleep(45)
                 
         except Exception as e:
-            记录日志(f"定时更新Token出错: {str(e)}")
             time.sleep(5)  # 出错后等待5秒再试
 
 def BOT凭证():
@@ -159,7 +118,6 @@ def 启动Token更新():
     """启动Token更新线程"""
     update_thread = threading.Thread(target=定时更新Token, daemon=True)
     update_thread.start()
-    记录日志("Token更新线程已启动")
 
 # 在模块加载时启动更新线程
 启动Token更新()

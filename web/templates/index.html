@@ -1283,10 +1283,7 @@
                                         <i class="bi bi-key"></i>
                                         APPID: <span id="robot-appid">{{ appid }}</span>
                                     </span>
-                                    <span class="me-3 mb-1">
-                                        <i class="bi bi-person"></i>
-                                        开发者: <span id="robot-developer">-</span>
-                                    </span>
+
                                     <span class="mb-1">
                                         <i class="bi bi-box-arrow-up-right"></i>
                                         <a href="#" id="robot-link" target="_blank" style="color: rgba(255,255,255,0.9);">机器人链接</a>
@@ -4165,7 +4162,6 @@
                         document.getElementById('robot-desc').textContent = '无法连接到服务器获取机器人信息';
                         document.getElementById('robot-qq').textContent = '{{ ROBOT_QQ }}';
                         document.getElementById('robot-appid').textContent = '{{ appid }}';
-                        document.getElementById('robot-developer').textContent = '未知';
                         
                         // 设置默认连接状态
                         const connectionTypeEl = document.getElementById('connection-type');
@@ -4214,7 +4210,6 @@
                     document.getElementById('robot-desc').innerHTML = (data.description || '').replace(/\n/g, '<br>');
                     document.getElementById('robot-qq').textContent = data.qq;
                     document.getElementById('robot-appid').textContent = data.appid;
-                    document.getElementById('robot-developer').textContent = data.developer;
                     
                     // 更新机器人头像
                     const avatarEl = document.getElementById('robot-avatar');
@@ -4255,7 +4250,6 @@
                     document.getElementById('robot-desc').innerHTML = (data.description || '无法获取机器人信息').replace(/\n/g, '<br>');
                     document.getElementById('robot-qq').textContent = data.qq || '{{ ROBOT_QQ }}';
                     document.getElementById('robot-appid').textContent = data.appid || '{{ appid }}';
-                    document.getElementById('robot-developer').textContent = data.developer || '未知';
                 }
             };
             

@@ -1080,10 +1080,7 @@
                         <i class="bi bi-tag"></i>
                         类型: <span id="mobile-robot-type">-</span>
                     </div>
-                    <div class="mobile-robot-info-item">
-                        <i class="bi bi-person"></i>
-                        开发者: <span id="mobile-robot-developer">-</span>
-                    </div>
+
                 </div>
                 <div class="text-center mt-3">
                     <a id="mobile-robot-link" href="#" target="_blank" class="btn btn-outline-light btn-sm me-2">
@@ -3181,7 +3178,6 @@
                         document.getElementById('mobile-robot-qq').textContent = '{{ ROBOT_QQ }}';
                         document.getElementById('mobile-robot-appid').textContent = '{{ appid }}';
                         document.getElementById('mobile-robot-type').textContent = '未知';
-                        document.getElementById('mobile-robot-developer').textContent = '未知';
                         
                         // 设置默认连接状态
                         const connectionTypeEl = document.getElementById('mobile-connection-type');
@@ -3234,7 +3230,6 @@
                     document.getElementById('mobile-robot-qq').textContent = data.qq;
                     document.getElementById('mobile-robot-appid').textContent = data.appid;
                     document.getElementById('mobile-robot-type').textContent = data.type;
-                    document.getElementById('mobile-robot-developer').textContent = data.developer;
                     
                     // 更新机器人头像
                     const avatarEl = document.getElementById('mobile-robot-avatar');
@@ -3272,7 +3267,6 @@
                     document.getElementById('mobile-robot-qq').textContent = data.qq || '{{ ROBOT_QQ }}';
                     document.getElementById('mobile-robot-appid').textContent = data.appid || '{{ appid }}';
                     document.getElementById('mobile-robot-type').textContent = data.type || '未知';
-                    document.getElementById('mobile-robot-developer').textContent = data.developer || '未知';
                 }
             };
             

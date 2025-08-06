@@ -664,6 +664,7 @@ class MessageEvent:
                         break
             
             if not template_config:
+                self._log_error(f"未找到模板ID: {template}")
                 return None
                 
             template_id = template_config['id']

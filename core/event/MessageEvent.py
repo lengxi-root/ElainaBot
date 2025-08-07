@@ -343,23 +343,28 @@ class MessageEvent:
             auto_delete_time
         )
 
-    def reply_markdown(self, template, params=None, keyboard_id=None, auto_delete_time=None):
+    def reply_markdown(self, template, params=None, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
         """发送markdown模板消息
         
         Args:
             template: 模板名称或模板ID
             params: 参数列表/元组，按模板参数顺序传入
             keyboard_id: 按钮模板ID（官方申请获得）
+            hide_avatar_and_center: 是否隐藏头像并居中，None时使用全局配置
             auto_delete_time: 自动撤回时间（秒）
             
         Returns:
             消息ID或None
         """
+        # 如果没有明确指定hide_avatar_and_center，则使用全局配置
+        if hide_avatar_and_center is None:
+            hide_avatar_and_center = HIDE_AVATAR_GLOBAL
+            
         def build_payload():
             template_data = self._build_markdown_template_data(template, params)
             if not template_data:
                 return None
-            return self._build_markdown_message_payload(template_data, keyboard_id)
+            return self._build_markdown_message_payload(template_data, keyboard_id, hide_avatar_and_center)
         
         if not self._check_send_conditions():
             return None
@@ -379,9 +384,9 @@ class MessageEvent:
         
         return message_id
 
-    def reply_md(self, template, params=None, keyboard_id=None, auto_delete_time=None):
+    def reply_md(self, template, params=None, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
         """reply_markdown的简化别名"""
-        return self.reply_markdown(template, params, keyboard_id, auto_delete_time)
+        return self.reply_markdown(template, params, keyboard_id, hide_avatar_and_center, auto_delete_time)
 
     def _get_endpoint(self):
         """获取API端点"""
@@ -688,7 +693,7 @@ class MessageEvent:
         except Exception:
             return None
 
-    def _build_markdown_message_payload(self, template_data, keyboard_id=None):
+    def _build_markdown_message_payload(self, template_data, keyboard_id=None, hide_avatar_and_center=False):
         """构建markdown消息payload"""
         payload = {
             "msg_type": 2,  # 2表示markdown消息
@@ -700,6 +705,12 @@ class MessageEvent:
         
         if template_data.get("params"):
             payload["markdown"]["params"] = template_data["params"]
+        
+        # 添加隐藏头像和居中布局样式
+        if hide_avatar_and_center:
+            if 'style' not in payload['markdown']:
+                payload['markdown']['style'] = {}
+            payload['markdown']['style']['layout'] = 'hide_avatar_and_center'
         
         # 添加按钮模板ID
         if keyboard_id:

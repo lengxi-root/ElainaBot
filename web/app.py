@@ -548,9 +548,6 @@ error_handler = LogHandler('error')
 # ===== 日志与消息相关API =====
 @catch_error
 def add_received_message(message):
-    if _is_group_add_robot_event(message):
-        return None
-    
     user_id, group_id, pure_content, formatted_message = _parse_message_info(message)
     
     display_entry = received_handler.add(formatted_message, skip_db=True)
@@ -568,17 +565,7 @@ def add_received_message(message):
         
     return display_entry
 
-def _is_group_add_robot_event(message):
-    """检查是否为被拉进群事件"""
-    if isinstance(message, dict):
-        return message.get('t') == 'GROUP_ADD_ROBOT'
-    elif isinstance(message, str) and message.startswith('{'):
-        try:
-            msg_dict = json.loads(message)
-            return msg_dict.get('t') == 'GROUP_ADD_ROBOT'
-        except:
-            return False
-    return False
+
 
 def _parse_message_info(message):
     """解析消息信息，提取用户ID、群组ID和内容"""
@@ -590,6 +577,14 @@ def _parse_message_info(message):
         user_id = event.user_id or "未知用户"
         group_id = event.group_id or "c2c"
         pure_content = event.content or ""
+        
+        # 特殊处理邀请进群事件
+        if getattr(event, 'event_type', None) == 'GROUP_ADD_ROBOT':
+            inviter_id = user_id  # 邀请者ID
+            group_id = event.group_id or "未知群组"
+            pure_content = f"机器人被邀请进群"
+            formatted_message = f"📥 {inviter_id} 邀请机器人进入群组 {group_id}"
+            return inviter_id, group_id, pure_content, formatted_message
         
         if getattr(event, 'event_type', None) == 'INTERACTION_CREATE':
             chat_type = event.get('d/chat_type')

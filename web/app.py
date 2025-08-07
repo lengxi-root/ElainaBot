@@ -41,8 +41,6 @@ def get_websocket_status():
 
 PREFIX = '/web'
 web = Blueprint('web', __name__, 
-                     static_url_path=f'{PREFIX}/static',
-                     static_folder='static',  
                      template_folder='templates')
 socketio = None
 MAX_LOGS = 1000
@@ -1263,20 +1261,7 @@ def register_socketio_handlers(sio):
         
         sio.emit('system_info', system_info, room=request.sid, namespace=PREFIX)
 
-    @sio.on('refresh_plugins', namespace=PREFIX)
-    @require_socketio_token
-    def handle_refresh_plugins():
-        def async_scan_plugins():
-            try:
-                plugins = scan_plugins()
-                try:
-                    sio.emit('plugins_update', plugins, room=request.sid, namespace=PREFIX)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-                
-        threading.Thread(target=async_scan_plugins, daemon=True).start()
+
 
     @sio.on('request_logs', namespace=PREFIX)
     @require_socketio_token  

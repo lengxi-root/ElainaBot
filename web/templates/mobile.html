@@ -1192,9 +1192,7 @@
             <div class="dashboard-card">
                 <h6 style="margin-bottom: 15px; color: #333;">
                     <i class="bi bi-grid"></i> 插件列表
-                    <button class="btn btn-sm btn-outline-primary float-end" id="mobile-refresh-plugins">
-                        <i class="bi bi-arrow-clockwise"></i> 刷新
-                    </button>
+
                 </h6>
                 <div id="mobile-plugins-container">
                     <div class="loading"></div>
@@ -2906,14 +2904,7 @@
                 });
             });
 
-            // 插件刷新按钮
-            document.getElementById('mobile-refresh-plugins').addEventListener('click', () => {
-                if (socket && socket.connected) {
-                    const container = document.getElementById('mobile-plugins-container');
-                    container.innerHTML = '<div class="loading"></div>';
-                    socket.emit('refresh_plugins');
-                }
-            });
+
 
             // ===== 统计功能事件监听器 =====
             

@@ -116,6 +116,47 @@
             margin-right: 5px;
         }
         
+        .official-group {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            font-size: 13px;
+            color: #666;
+            text-align: center;
+            border: 1px solid #e9ecef;
+        }
+        
+        .official-group i {
+            color: #4361ee;
+            margin-right: 6px;
+        }
+        
+        .group-link {
+            color: #4361ee;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 6px;
+            margin-top: 8px;
+        }
+        
+        .group-link:hover {
+            color: #3f37c9;
+            background: rgba(67, 97, 238, 0.1);
+            text-decoration: none;
+            transform: translateY(-1px);
+        }
+        
+        .group-number {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: #333;
+        }
+        
         @media (max-width: 480px) {
             .login-container {
                 margin: 10px;
@@ -130,6 +171,21 @@
             
             .login-title {
                 font-size: 20px;
+            }
+            
+            .official-group {
+                font-size: 12px;
+                padding: 12px;
+            }
+            
+            .group-link {
+                font-size: 12px;
+                padding: 5px 10px;
+            }
+            
+            .group-number {
+                display: block;
+                margin-top: 2px;
             }
         }
     </style>
@@ -172,6 +228,17 @@
             <i class="bi bi-info-circle"></i>
             此页面受到双重安全验证保护<br>
             会话将在7天后自动过期
+        </div>
+        
+        <div class="official-group">
+            <div>
+                <i class="bi bi-people"></i>
+                需要帮助或有疑问？加入我们的官方交流群
+            </div>
+            <a href="https://qm.qq.com/q/H3yycM4Pq8" target="_blank" rel="noopener noreferrer" class="group-link">
+                <i class="bi bi-chat-dots"></i>
+                ElainaBot框架 <span class="group-number">631348711</span>
+            </a>
         </div>
     </div>
     

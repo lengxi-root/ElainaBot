@@ -1496,9 +1496,7 @@
                     <!-- 插件列表 -->
                     <div class="d-flex justify-content-between align-items-center mb-4">
                         <h5 class="mb-0">插件列表</h5>
-                        <button class="btn-control" id="refresh-plugins">
-                            <i class="bi bi-arrow-clockwise"></i> 刷新插件
-                        </button>
+
                     </div>
                     
                     <div class="plugins-container-wrapper">
@@ -2156,30 +2154,8 @@
                     goToPage(type, 1);
                 });
             });
-            // 刷新插件按钮
-            document.getElementById('refresh-plugins').addEventListener('click', function() {
-                if (socket && socket.connected) {
-                    pluginsLoading.style.display = 'block';
-                    pluginsContainer.innerHTML = '';
-                    socket.emit('refresh_plugins');
-                    
-                    // 添加超时处理，确保即使服务器没有响应也能恢复界面
-                    const refreshTimeout = setTimeout(() => {
-                        if (pluginsLoading.style.display === 'block') {
-                            pluginsLoading.style.display = 'none';
-                            pluginsContainer.innerHTML = '<div class="alert alert-warning">刷新超时，请重试或刷新页面</div>';
-                        }
-                    }, 10000); // 10秒超时
-                    
-                    // 添加一次性监听器，收到插件更新后清除超时
-                    const onPluginsUpdate = (data) => {
-                        clearTimeout(refreshTimeout);
-                        socket.off('plugins_update', onPluginsUpdate);
-                    };
-                    socket.on('plugins_update', onPluginsUpdate);
-                }
-            });
-        }
+
+            }
 
         // =====================
         // 4. SocketIO连接与状态指示

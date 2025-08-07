@@ -155,12 +155,12 @@ class WebSocketClient:
             "创建SSL上下文失败"
         )
 
-    def _call_handlers(self, event_type: str, data: Any):
+    async def _call_handlers(self, event_type: str, data: Any):
         """调用事件处理器"""
         try:
             for handler in self.handlers.get(event_type, []):
                 if asyncio.iscoroutinefunction(handler):
-                    asyncio.create_task(handler(data))
+                    await handler(data)
                 else:
                     handler(data)
         except Exception as e:
@@ -186,11 +186,11 @@ class WebSocketClient:
             logger.error("WebSocket URL未配置")
             return False
         
-        try:
-            return await self._connect_internal(ws_url)
-        except Exception as e:
-            logger.error(f"WebSocket连接失败: {e}")
-            return False
+        return await self._safe_execute(
+            lambda: self._connect_internal(ws_url),
+            "WebSocket连接失败",
+            False
+        )
 
     async def _connect_internal(self, ws_url):
         """内部连接实现"""
@@ -209,22 +209,22 @@ class WebSocketClient:
         self.connected = True
         self._update_stats(start_time=time.time())
         
-        self._call_handlers('connect', {'timestamp': time.time()})
+        await self._call_handlers('connect', {'timestamp': time.time()})
         return True
     
     async def disconnect(self):
         """断开连接"""
         if self._check_connection():
-            try:
-                asyncio.create_task(self.websocket.close())
-            except Exception as e:
-                logger.error(f"关闭WebSocket连接失败: {e}")
+            self._safe_execute(
+                lambda: asyncio.create_task(self.websocket.close()),
+                "关闭WebSocket连接失败"
+            )
         
         self.connected = False
         self.websocket = None
         
         self._cancel_heartbeat_task()
-        self._call_handlers('disconnect', {'timestamp': time.time()})
+        await self._call_handlers('disconnect', {'timestamp': time.time()})
 
     def _cancel_heartbeat_task(self):
         """取消心跳任务"""
@@ -316,7 +316,7 @@ class WebSocketClient:
             if op_code == WSOpCode.HELLO:
                 await self._handle_hello(event_data)
             elif op_code == WSOpCode.HEARTBEAT_ACK:
-                pass
+                pass  # 心跳ACK不需要处理
             elif op_code == WSOpCode.RECONNECT:
                 self._handle_reconnect()
             elif op_code == WSOpCode.INVALID_SESSION:
@@ -365,17 +365,18 @@ class WebSocketClient:
         }
         
         if event_type in supported_types:
-            message_data = {
-                't': event_type,
-                'd': event_data,
-                'id': event_data.get('id'),
-                's': self.last_seq
-            }
-            
             try:
+                message_data = {
+                    't': event_type,
+                    'd': event_data,
+                    'id': event_data.get('id'),
+                    's': self.last_seq
+                }
+                
                 message_event = MessageEvent(message_data)
                 if not message_event.ignore:
-                    self._call_handlers('message', message_event)
+                    await self._call_handlers('message', message_event)
+                    
             except Exception as e:
                 logger.error(f"处理MessageEvent失败: {e}")
     
@@ -384,7 +385,7 @@ class WebSocketClient:
         self.session_id = data.get('session_id')
         bot_info = data.get('user', {})
         
-        self._call_handlers('ready', {
+        await self._call_handlers('ready', {
             'session_id': self.session_id,
             'bot_info': bot_info,
             'data': data
@@ -546,25 +547,40 @@ class QQBotWSManager:
         
         return await self._fetch_gateway_url(access_token)
 
-    async def _fetch_gateway_url(self, access_token):
-        """获取网关URL"""
+    async def _fetch_gateway_url(self, access_token, max_retries=3):
+        """获取网关URL，带重试机制"""
         url = "https://api.sgroup.qq.com/gateway/bot"
         headers = {
             "Authorization": f"QQBot {access_token}",
             "Content-Type": "application/json"
         }
         
-        connector = aiohttp.TCPConnector(ssl=self._ssl_context)
+        for attempt in range(max_retries):
+            try:
+                # 每次重试都创建新的连接器和会话
+                timeout = aiohttp.ClientTimeout(total=45, connect=15)
+                connector = aiohttp.TCPConnector(
+                    ssl=self._ssl_context, 
+                    ttl_dns_cache=300,
+                    force_close=True,  # 强制关闭连接
+                    enable_cleanup_closed=True
+                )
+                
+                async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                    async with session.get(url, headers=headers) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            return data.get('url')
+                        else:
+                            error_text = await response.text()
+                            logger.error(f"获取网关失败: {response.status}, {error_text}")
+                            
+            except Exception as e:
+                logger.error(f"获取网关URL失败 (第 {attempt + 1} 次): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(3 + attempt)  # 增加等待时间
         
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('url')
-                else:
-                    error_text = await response.text()
-                    logger.error(f"获取网关失败: {response.status}, {error_text}")
-                    return None
+        return None
     
     async def create_client(self, name: str = "qq_bot") -> Optional[WebSocketClient]:
         """创建客户端"""

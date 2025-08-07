@@ -583,7 +583,7 @@ def _parse_message_info(message):
             inviter_id = user_id  # 邀请者ID
             group_id = event.group_id or "未知群组"
             pure_content = f"机器人被邀请进群"
-            formatted_message = f"📥 {inviter_id} 邀请机器人进入群组 {group_id}"
+            formatted_message = f"{inviter_id} 邀请机器人进入群组 {group_id}"
             return inviter_id, group_id, pure_content, formatted_message
         
         if getattr(event, 'event_type', None) == 'INTERACTION_CREATE':

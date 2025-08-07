@@ -247,36 +247,61 @@ async def create_websocket_client():
     """创建WebSocket客户端"""
     from function.ws_client import create_qq_bot_client
     
-    client = await create_qq_bot_client(WEBSOCKET_CONFIG)
-    if not client:
-        raise Exception("创建WebSocket客户端失败")
-    
-    client.add_handler('message', handle_ws_message)
-    client.add_handler('connect', lambda data: log_to_console("WebSocket连接已建立"))
-    client.add_handler('disconnect', lambda data: log_to_console("WebSocket连接已断开"))
-    client.add_handler('error', lambda data: log_error(f"WebSocket错误: {data.get('error', '')}"))
-    client.add_handler('ready', lambda data: log_to_console(
-        f"WebSocket已就绪 - Bot: {data.get('bot_info', {}).get('username', 'Unknown')}"
-    ))
-    
-    return client
+    try:
+        log_to_console("正在获取网关地址...")
+        client = await create_qq_bot_client(WEBSOCKET_CONFIG)
+        if not client:
+            raise Exception("无法获取网关地址或创建客户端")
+        
+        log_to_console("正在配置事件处理器...")
+        client.add_handler('message', handle_ws_message)
+        client.add_handler('connect', lambda data: log_to_console("WebSocket连接已建立"))
+        client.add_handler('disconnect', lambda data: log_to_console("WebSocket连接已断开"))
+        client.add_handler('error', lambda data: log_error(f"WebSocket错误: {data.get('error', '')}"))
+        client.add_handler('ready', lambda data: log_to_console(
+            f"WebSocket已就绪 - Bot: {data.get('bot_info', {}).get('username', 'Unknown')}"
+        ))
+        
+        return client
+        
+    except Exception as e:
+        log_error(f"创建WebSocket客户端时发生错误: {str(e)}")
+        raise
 
 def run_websocket_client():
     """运行WebSocket客户端"""
-    try:
-        import asyncio
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        async def websocket_main():
-            client = await create_websocket_client()
-            await client.start()
-        
-        loop.run_until_complete(websocket_main())
-        
-    except Exception as e:
-        log_error(f"WebSocket客户端运行失败: {str(e)}")
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            import asyncio
+            
+            # 确保清理之前的事件循环
+            try:
+                current_loop = asyncio.get_event_loop()
+                if current_loop.is_running():
+                    current_loop.close()
+            except:
+                pass
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async def websocket_main():
+                log_to_console(f"正在创建WebSocket客户端...")
+                client = await create_websocket_client()
+                log_to_console("WebSocket客户端已创建，开始连接...")
+                await client.start()
+            
+            loop.run_until_complete(websocket_main())
+            log_to_console("WebSocket客户端连接成功")
+            break  # 成功后跳出重试循环
+            
+        except Exception as e:
+            log_error(f"WebSocket客户端运行失败 (第 {attempt + 1}/{max_retries} 次): {str(e)}")
+            if attempt < max_retries - 1:
+                log_to_console(f"等待 10 秒后重试...")
+                time.sleep(10)  # 增加等待时间
 
 def setup_websocket():
     """设置WebSocket连接"""

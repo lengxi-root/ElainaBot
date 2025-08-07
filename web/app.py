@@ -60,6 +60,15 @@ IP_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 ip_access_data = {}
 _last_ip_cleanup = 0
 
+# 性能优化缓存配置
+historical_data_cache = None  # 历史数据永久缓存（框架重启时清空）
+historical_cache_loaded = False  # 标记历史数据是否已加载
+
+today_data_cache = None
+today_cache_time = 0
+TODAY_CACHE_DURATION = 600  # 今日数据10分钟缓存
+
+# 向后兼容的统一缓存（已废弃，保留以防出错）
 statistics_cache = None
 statistics_cache_time = 0
 STATISTICS_CACHE_DURATION = 300
@@ -762,7 +771,8 @@ def status():
 @require_auth
 @catch_error
 def get_statistics():
-    """获取统计数据API"""
+    """获取统计数据API（已优化性能）"""
+    start_time = time.time()
     force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
     
     selected_date = request.args.get('date')
@@ -777,6 +787,20 @@ def get_statistics():
         })
     else:
         data = get_statistics_data(force_refresh=force_refresh)
+        
+        # 性能监控
+        end_time = time.time()
+        response_time = round((end_time - start_time) * 1000, 2)  # 毫秒
+        data['performance'] = {
+            'response_time_ms': response_time,
+            'timestamp': datetime.now().isoformat(),
+            'optimized': True
+        }
+        
+        # 记录性能日志
+        if response_time > 1000:  # 大于1秒记录警告
+            add_framework_log(f"统计数据查询耗时: {response_time}ms, force_refresh: {force_refresh}")
+        
         return api_success_response(data)
 
 @web.route('/api/complete_dau', methods=['POST'])
@@ -1293,44 +1317,47 @@ def register_socketio_handlers(sio):
         }, room=request.sid, namespace=PREFIX)
 
 def get_statistics_data(force_refresh=False):
-    global statistics_cache, statistics_cache_time
+    global historical_data_cache, historical_cache_loaded, today_data_cache, today_cache_time
     
     current_time = time.time()
     current_date = datetime.now().date()
     
-    cache_valid = (not force_refresh and 
-                  statistics_cache is not None and 
-                  current_time - statistics_cache_time < STATISTICS_CACHE_DURATION)
-    
-    if cache_valid and statistics_cache:
-        cache_date_str = statistics_cache.get('cache_date')
-        if cache_date_str:
-            try:
-                cache_date = datetime.strptime(cache_date_str, '%Y-%m-%d').date()
-                if cache_date != current_date:
-                    cache_valid = False
-            except Exception as e:
-                cache_valid = False
-        else:
-            cache_valid = False
-    
-    if cache_valid:
-        return statistics_cache
+    # 检查今日数据缓存（面板刷新只刷新今日数据）
+    today_cache_valid = (
+        not force_refresh and 
+        today_data_cache is not None and 
+        current_time - today_cache_time < TODAY_CACHE_DURATION
+    )
     
     try:
-        historical_data = load_historical_dau_data()
+        # 获取历史数据（永久缓存，只在框架重启时清空）
+        if not historical_cache_loaded or historical_data_cache is None:
+            historical_data = load_historical_dau_data_optimized()
+            historical_data_cache = historical_data
+            historical_cache_loaded = True
+        else:
+            historical_data = historical_data_cache
         
-        today_data = get_today_dau_data(force_refresh)
+        # 获取今日数据（10分钟缓存，可被force_refresh刷新）
+        if today_cache_valid:
+            today_data = today_data_cache
+        else:
+            today_data = get_today_dau_data(force_refresh)
+            today_data_cache = today_data
+            today_cache_time = current_time
         
         result = {
             'historical': historical_data,
             'today': today_data,
             'cache_time': current_time,
-            'cache_date': current_date.strftime('%Y-%m-%d')
+            'cache_date': current_date.strftime('%Y-%m-%d'),
+            'cache_info': {
+                'historical_permanently_cached': historical_cache_loaded,
+                'today_cached': today_cache_valid,
+                'today_cache_age': current_time - today_cache_time if today_data_cache else 0,
+                'historical_count': len(historical_data) if historical_data else 0
+            }
         }
-        
-        statistics_cache = result
-        statistics_cache_time = current_time
         
         return result
         
@@ -1344,6 +1371,66 @@ def get_statistics_data(force_refresh=False):
         }
 
 def load_historical_dau_data():
+    """原始的历史数据加载函数（保持向后兼容）"""
+    return load_historical_dau_data_optimized()
+
+def load_historical_dau_data_optimized():
+    """优化版的历史数据加载函数，使用并行处理"""
+    try:
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
+        
+        import concurrent.futures
+        
+        dau_analytics = get_dau_analytics()
+        today = datetime.now()
+        
+        def load_single_day_data(days_ago):
+            """加载单日数据的函数"""
+            try:
+                target_date = today - timedelta(days=days_ago)
+                dau_data = dau_analytics.load_dau_data(target_date)
+                
+                if dau_data:
+                    display_date = target_date.strftime('%m-%d')
+                    dau_data['display_date'] = display_date
+                    return dau_data
+                return None
+            except Exception:
+                return None
+        
+        # 使用线程池并行加载数据
+        historical_data = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            # 提交所有任务
+            future_to_day = {executor.submit(load_single_day_data, i): i for i in range(1, 31)}
+            
+            # 收集结果
+            for future in concurrent.futures.as_completed(future_to_day):
+                try:
+                    result = future.result(timeout=5)  # 5秒超时
+                    if result:
+                        historical_data.append(result)
+                except Exception:
+                    continue
+        
+        # 按日期排序
+        historical_data.sort(key=lambda x: x.get('date', ''))
+        
+        return historical_data
+        
+    except Exception as e:
+        add_error_log(f"加载优化历史DAU数据失败: {str(e)}")
+        # 如果并行加载失败，回退到传统方法
+        return load_historical_dau_data_fallback()
+
+def load_historical_dau_data_fallback():
+    """回退的传统数据加载方法"""
     try:
         try:
             from function.dau_analytics import get_dau_analytics

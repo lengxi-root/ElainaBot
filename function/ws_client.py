@@ -10,17 +10,52 @@ import ssl
 import certifi
 import websockets
 import requests
-from urllib3 import disable_warnings
-from urllib3.exceptions import InsecureRequestWarning
-
-# 禁用SSL警告（Windows兼容性）
-disable_warnings(InsecureRequestWarning)
+import platform
+import threading
 from typing import Dict, Any, Optional, List, Callable
 from contextlib import asynccontextmanager
 from core.event.MessageEvent import MessageEvent
 from function.Access import BOT凭证
 
 logger = logging.getLogger(__name__)
+
+# 统一的事件循环管理
+_is_windows = platform.system() == 'Windows'
+
+def setup_event_loop():
+    """设置并获取适合当前平台的事件循环"""
+    if _is_windows:
+        # Windows上设置专用的事件循环策略
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        except AttributeError:
+            pass
+    
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("Event loop is closed")
+        
+        # Windows上确保使用ProactorEventLoop
+        if _is_windows and not isinstance(loop, asyncio.ProactorEventLoop):
+            loop.close()
+            loop = asyncio.ProactorEventLoop()
+            asyncio.set_event_loop(loop)
+            
+        return loop
+        
+    except RuntimeError:
+        # 创建新的事件循环
+        if _is_windows:
+            try:
+                loop = asyncio.ProactorEventLoop()
+            except Exception:
+                loop = asyncio.new_event_loop()
+        else:
+            loop = asyncio.new_event_loop()
+        
+        asyncio.set_event_loop(loop)
+        return loop
 
 class WSOpCode:
     DISPATCH = 0
@@ -101,14 +136,6 @@ class WebSocketClient:
         if self.config.get('log_level'):
             logger.setLevel(getattr(logging, self.config['log_level'].upper()))
 
-    def _safe_execute(self, operation, error_msg="操作失败", return_default=None):
-        """安全执行操作"""
-        try:
-            return operation()
-        except Exception as e:
-            logger.error(f"{error_msg}: {e}")
-            return return_default
-
     def _check_connection(self):
         """检查连接状态"""
         return self.connected and self.websocket
@@ -136,13 +163,11 @@ class WebSocketClient:
     async def _send_ws_message(self, payload, message_type="消息"):
         """统一的WebSocket消息发送"""
         if not self._check_connection():
-            logger.error(f"无法发送{message_type}: WebSocket未连接")
             return False
 
         try:
             return await self._send_ws_message_internal(payload, message_type)
-        except Exception as e:
-            logger.error(f"发送{message_type}失败: {e}")
+        except Exception:
             return False
 
     async def _send_ws_message_internal(self, payload, message_type):
@@ -155,21 +180,21 @@ class WebSocketClient:
 
     def _create_ssl_context(self):
         """创建SSL上下文"""
-        return self._safe_execute(
-            lambda: ssl.create_default_context(cafile=certifi.where()),
-            "创建SSL上下文失败"
-        )
+        try:
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            return None
 
     async def _call_handlers(self, event_type: str, data: Any):
         """调用事件处理器"""
-        try:
-            for handler in self.handlers.get(event_type, []):
+        for handler in self.handlers.get(event_type, []):
+            try:
                 if asyncio.iscoroutinefunction(handler):
                     await handler(data)
                 else:
                     handler(data)
-        except Exception as e:
-            logger.error(f"处理{event_type}事件失败: {e}")
+            except Exception:
+                pass
 
     def add_handler(self, event_type: str, handler: Callable):
         """添加事件处理器"""
@@ -191,11 +216,10 @@ class WebSocketClient:
             logger.error("WebSocket URL未配置")
             return False
         
-        return await self._safe_execute(
-            lambda: self._connect_internal(ws_url),
-            "WebSocket连接失败",
-            False
-        )
+        try:
+            return await self._connect_internal(ws_url)
+        except Exception:
+            return False
 
     async def _connect_internal(self, ws_url):
         """内部连接实现"""
@@ -220,10 +244,10 @@ class WebSocketClient:
     async def disconnect(self):
         """断开连接"""
         if self._check_connection():
-            self._safe_execute(
-                lambda: asyncio.create_task(self.websocket.close()),
-                "关闭WebSocket连接失败"
-            )
+            try:
+                await self.websocket.close()
+            except Exception:
+                pass
         
         self.connected = False
         self.websocket = None
@@ -310,10 +334,8 @@ class WebSocketClient:
             
             await self._handle_op_code(op_code, event_type, event_data)
             
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {e}")
-        except Exception as e:
-            logger.error(f"处理消息失败: {e}")
+        except Exception:
+            pass
 
     async def _handle_op_code(self, op_code, event_type, event_data):
         """处理操作码"""
@@ -328,8 +350,8 @@ class WebSocketClient:
                 self._handle_invalid_session()
             elif op_code == WSOpCode.DISPATCH:
                 await self._handle_dispatch(event_type, event_data)
-        except Exception as e:
-            logger.error(f"处理操作码{op_code}失败: {e}")
+        except Exception:
+            pass
 
     def _handle_reconnect(self):
         """处理重连请求"""
@@ -475,14 +497,6 @@ class WebSocketManager:
     def __init__(self):
         self.clients: Dict[str, WebSocketClient] = {}
         self.running = False
-
-    def _safe_execute(self, operation, error_msg="操作失败"):
-        """安全执行操作"""
-        try:
-            return operation()
-        except Exception as e:
-            logger.error(f"{error_msg}: {e}")
-            return None
     
     def add_client(self, name: str, client: WebSocketClient):
         """添加客户端"""
@@ -526,33 +540,26 @@ class QQBotWSManager:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+        self._ssl_context = self._create_ssl_context()
 
-    def _safe_execute(self, operation, error_msg="操作失败", return_default=None):
-        """安全执行操作"""
-        try:
-            return operation()
-        except Exception as e:
-            logger.error(f"{error_msg}: {e}")
-            return return_default
-    
     def _create_ssl_context(self):
         """创建SSL上下文"""
-        return self._safe_execute(
-            lambda: ssl.create_default_context(cafile=certifi.where()),
-            "创建SSL上下文失败"
-        )
+        try:
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            return None
     
-    async def get_gateway_url(self) -> Optional[str]:
+    def get_gateway_url(self) -> Optional[str]:
         """获取网关地址"""
         access_token = BOT凭证()
         if not access_token:
             logger.error("无法获取访问令牌")
             return None
         
-        return await self._fetch_gateway_url(access_token)
+        return self._fetch_gateway_url(access_token)
 
-    async def _fetch_gateway_url(self, access_token, max_retries=3):
-        """获取网关URL，使用requests（Windows兼容性最好）"""
+    def _fetch_gateway_url(self, access_token, max_retries=3):
+        """获取网关URL"""
         url = "https://api.sgroup.qq.com/gateway/bot"
         headers = {
             "Authorization": f"QQBot {access_token}",
@@ -561,34 +568,25 @@ class QQBotWSManager:
         
         for attempt in range(max_retries):
             try:
-                # 使用requests同步请求，Windows兼容性最好，禁用SSL验证
-                response = requests.get(
-                    url, 
-                    headers=headers, 
-                    timeout=30.0,
-                    verify=False  # 禁用SSL验证，解决Windows证书问题
-                )
+                response = requests.get(url, headers=headers, timeout=30)
                 
                 if response.status_code == 200:
-                    response_data = response.json()
-                    if isinstance(response_data, dict) and 'url' in response_data:
-                        logger.info(f"成功获取网关URL: {response_data.get('url')}")
-                        return response_data.get('url')
-                    else:
-                        logger.error(f"获取网关失败: 响应格式异常 {response_data}")
-                else:
-                    logger.error(f"获取网关失败: HTTP {response.status_code} - {response.text}")
-                            
+                    data = response.json()
+                    gateway_url = data.get('url')
+                    if gateway_url:
+                        return gateway_url
+                        
             except Exception as e:
                 logger.error(f"获取网关URL失败 (第 {attempt + 1} 次): {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(3 + attempt)  # 增加等待时间
+                
+            if attempt < max_retries - 1:
+                time.sleep(3 + attempt)
         
         return None
     
     async def create_client(self, name: str = "qq_bot") -> Optional[WebSocketClient]:
         """创建客户端"""
-        gateway_url = await self.get_gateway_url()
+        gateway_url = self.get_gateway_url()  # 移除await，因为现在是同步方法
         if not gateway_url:
             return None
         
@@ -607,6 +605,8 @@ _manager = WebSocketManager()
 
 def create_client(name: str, url: str, config: Dict[str, Any] = None) -> WebSocketClient:
     """创建WebSocket客户端"""
+    setup_event_loop()  # 确保事件循环正确设置
+    
     client_config = config or {}
     client_config['url'] = url
     
@@ -617,6 +617,8 @@ def create_client(name: str, url: str, config: Dict[str, Any] = None) -> WebSock
 
 async def create_qq_bot_client(config: Dict[str, Any], name: str = "qq_bot") -> Optional[WebSocketClient]:
     """创建QQ Bot客户端"""
+    setup_event_loop()  # 确保事件循环正确设置
+    
     manager = QQBotWSManager(config)
     client = await manager.create_client(name)
     
@@ -643,4 +645,37 @@ async def stop_all_clients():
 
 def get_all_stats() -> Dict[str, Dict[str, Any]]:
     """获取所有统计信息"""
-    return _manager.get_all_stats() 
+    return _manager.get_all_stats()
+
+# 初始化时设置事件循环
+if _is_windows:
+    try:
+        setup_event_loop()
+        logger.info("Windows异步IO兼容性已启用")
+    except Exception as e:
+        logger.warning(f"Windows异步IO设置失败: {e}")
+
+# 工具函数
+def run_in_thread_safe_loop(coro):
+    """在线程安全的事件循环中运行协程"""
+    def run_coro():
+        loop = setup_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        except Exception as e:
+            logger.error(f"协程执行失败: {e}")
+            raise
+    
+    if threading.current_thread() is threading.main_thread():
+        return asyncio.run(coro)
+    else:
+        return run_coro()
+
+def safe_create_task(coro):
+    """安全创建任务"""
+    try:
+        loop = asyncio.get_running_loop()
+        return loop.create_task(coro)
+    except RuntimeError:
+        loop = setup_event_loop()
+        return loop.create_task(coro) 

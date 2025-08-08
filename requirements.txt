@@ -10,7 +10,6 @@ blueprint==3.4.2
 flask-cors==5.0.1
 httpx==0.28.1
 pillow==11.2.1
-aiohttp==3.12.13
 psutil==5.9.5
 urllib3==2.0.3
 python-dateutil==2.8.2

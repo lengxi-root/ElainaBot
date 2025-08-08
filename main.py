@@ -275,6 +275,11 @@ def run_websocket_client():
     for attempt in range(max_retries):
         try:
             import asyncio
+            import sys
+            
+            # Windows系统下设置正确的事件循环策略
+            if sys.platform == 'win32':
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
             
             # 确保清理之前的事件循环
             try:
@@ -297,6 +302,9 @@ def run_websocket_client():
             log_to_console("WebSocket客户端连接成功")
             break  # 成功后跳出重试循环
             
+        except KeyboardInterrupt:
+            log_to_console("WebSocket客户端被用户中断")
+            break
         except Exception as e:
             log_error(f"WebSocket客户端运行失败 (第 {attempt + 1}/{max_retries} 次): {str(e)}")
             if attempt < max_retries - 1:

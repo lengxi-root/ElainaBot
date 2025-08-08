@@ -10,52 +10,23 @@ import ssl
 import certifi
 import websockets
 import requests
-import platform
-import threading
+import sys
+import concurrent.futures
 from typing import Dict, Any, Optional, List, Callable
 from contextlib import asynccontextmanager
 from core.event.MessageEvent import MessageEvent
 from function.Access import BOT凭证
 
+def setup_asyncio_policy():
+    """设置asyncio策略以兼容Windows和Linux"""
+    if sys.platform == 'win32':
+        # Windows上强制使用SelectorEventLoop避免线程问题
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# 初始化时设置策略
+setup_asyncio_policy()
+
 logger = logging.getLogger(__name__)
-
-# 统一的事件循环管理
-_is_windows = platform.system() == 'Windows'
-
-def setup_event_loop():
-    """设置并获取适合当前平台的事件循环"""
-    if _is_windows:
-        # Windows上设置专用的事件循环策略
-        try:
-            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-        except AttributeError:
-            pass
-    
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError("Event loop is closed")
-        
-        # Windows上确保使用ProactorEventLoop
-        if _is_windows and not isinstance(loop, asyncio.ProactorEventLoop):
-            loop.close()
-            loop = asyncio.ProactorEventLoop()
-            asyncio.set_event_loop(loop)
-            
-        return loop
-        
-    except RuntimeError:
-        # 创建新的事件循环
-        if _is_windows:
-            try:
-                loop = asyncio.ProactorEventLoop()
-            except Exception:
-                loop = asyncio.new_event_loop()
-        else:
-            loop = asyncio.new_event_loop()
-        
-        asyncio.set_event_loop(loop)
-        return loop
 
 class WSOpCode:
     DISPATCH = 0
@@ -605,8 +576,6 @@ _manager = WebSocketManager()
 
 def create_client(name: str, url: str, config: Dict[str, Any] = None) -> WebSocketClient:
     """创建WebSocket客户端"""
-    setup_event_loop()  # 确保事件循环正确设置
-    
     client_config = config or {}
     client_config['url'] = url
     
@@ -617,8 +586,6 @@ def create_client(name: str, url: str, config: Dict[str, Any] = None) -> WebSock
 
 async def create_qq_bot_client(config: Dict[str, Any], name: str = "qq_bot") -> Optional[WebSocketClient]:
     """创建QQ Bot客户端"""
-    setup_event_loop()  # 确保事件循环正确设置
-    
     manager = QQBotWSManager(config)
     client = await manager.create_client(name)
     
@@ -647,35 +614,23 @@ def get_all_stats() -> Dict[str, Dict[str, Any]]:
     """获取所有统计信息"""
     return _manager.get_all_stats()
 
-# 初始化时设置事件循环
-if _is_windows:
-    try:
-        setup_event_loop()
-        logger.info("Windows异步IO兼容性已启用")
-    except Exception as e:
-        logger.warning(f"Windows异步IO设置失败: {e}")
-
-# 工具函数
 def run_in_thread_safe_loop(coro):
-    """在线程安全的事件循环中运行协程"""
-    def run_coro():
-        loop = setup_event_loop()
+    """在线程安全的事件循环中运行异步代码"""
+    import threading
+    import concurrent.futures
+    
+    def run_with_loop():
+        """In the new thread, create and run event loop"""
+        # 在新线程中设置正确的事件循环策略
+        setup_asyncio_policy()
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(coro)
-        except Exception as e:
-            logger.error(f"协程执行失败: {e}")
-            raise
+        finally:
+            loop.close()
     
-    if threading.current_thread() is threading.main_thread():
-        return asyncio.run(coro)
-    else:
-        return run_coro()
-
-def safe_create_task(coro):
-    """安全创建任务"""
-    try:
-        loop = asyncio.get_running_loop()
-        return loop.create_task(coro)
-    except RuntimeError:
-        loop = setup_event_loop()
-        return loop.create_task(coro) 
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(run_with_loop)
+        return future.result() 

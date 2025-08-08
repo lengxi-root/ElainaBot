@@ -207,7 +207,9 @@ def _process_json_kwargs(kwargs):
         kwargs['content'] = json.dumps(json_data).encode('utf-8')
         if 'headers' not in kwargs:
             kwargs['headers'] = {}
-        kwargs['headers']['Content-Type'] = 'application/json'
+        # 只有当headers中没有Content-Type时才设置，避免覆盖用户自定义的Content-Type
+        if 'Content-Type' not in kwargs['headers'] and 'content-type' not in kwargs['headers']:
+            kwargs['headers']['Content-Type'] = 'application/json'
     return kwargs
 
 def _make_sync_request(method: str, url: str, max_retries: int = 3, retry_delay: float = 1.0, **kwargs) -> httpx.Response:

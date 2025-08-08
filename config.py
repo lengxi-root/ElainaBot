@@ -1,12 +1,28 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
+import os
+from dotenv import load_dotenv
 """QQ机器人配置文件"""
+# 加载 .env 文件
+load_dotenv()
 
+# 读取配置
+SERVER_HOST = os.getenv("SERVER_HOST")
+SERVER_PORT = int(os.getenv("SERVER_PORT"))
+MYSQL_HOST = os.getenv("MYSQL_HOST")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT"))
+MYSQL_USER = os.getenv("MYSQL_USER")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE")
+WEB_ACCESS_TOKEN = os.getenv("WEB_ACCESS_TOKEN")
+WEB_ACCESS_PWD = os.getenv("WEB_ACCESS_PWD")
+AppId = os.getenv("APPID")
+SecretId = os.getenv("SECRET")
+Robot_QQ = os.getenv("ROBOT_QQ")
 # 基础配置 - QQ开发者平台相关
-appid = ""                              # 机器人APPID，在QQ开发者平台获取
-secret = ""      # 机器人密钥
-ROBOT_QQ = ""                          # 机器人QQ号
+appid = AppId                              # 机器人APPID，在QQ开发者平台获取
+secret = SecretId      # 机器人密钥
+ROBOT_QQ = Robot_QQ                          # 机器人QQ号
 IMAGE_BED_CHANNEL_ID = ''                 # 图床频道子频道ID，用于图床上传
 OWNER_IDS = ["8C7A05AC58E3BCAAA3E83B22486FAF8F"] # 主人QQ号列表，可使用仅主人插件
 
@@ -21,8 +37,8 @@ ENABLE_NEW_USER_WELCOME = False                   # 是否启用新用户首次�
 
 # 服务器配置 - HTTP服务相关设置
 SERVER_CONFIG = {
-    'host': '0.0.0.0',                          # HTTP服务监听地址，0.0.0.0表示监听所有接口
-    'port': 5001,                               # HTTP服务监听端口号
+    'host': SERVER_HOST,                          # HTTP服务监听地址，0.0.0.0表示监听所有接口
+    'port': SERVER_PORT,                               # HTTP服务监听端口号
     'socket_timeout': 30,                       # Socket连接超时时间(秒)
     'keepalive': True,                          # 是否启用HTTP Keep-Alive连接复用
 }
@@ -46,8 +62,8 @@ WEBSOCKET_CONFIG = {
 
 # Web面板安全配置 - 管理界面访问控制
 WEB_SECURITY = {
-    'access_token': 'admin123',              # Web面板访问令牌，URL参数验证
-    'admin_password': 'admin1234',           # 管理员登录密码
+    'access_token': WEB_ACCESS_TOKEN,              # Web面板访问令牌，URL参数验证
+    'admin_password': WEB_ACCESS_PWD,           # 管理员登录密码
     'cookie_secret': 'elaina_cookie_secret_key_2024_v1',  # Cookie加密签名密钥
     'cookie_name': 'elaina_admin_session',      # 管理员会话Cookie名称
     'cookie_expires_days': 7,                   # Cookie有效期天数
@@ -58,11 +74,11 @@ WEB_SECURITY = {
 # 主数据库配置 - 业务数据存储设置
 DB_CONFIG = {
     # 连接基础配置
-    'host': '127.0.0.1',                       # 数据库服务器地址
-    'port': 3306,                              # 数据库服务器端口
-    'user': '',                             # 数据库用户名
-    'password': '',                # 数据库密码
-    'database': '',                         # 数据库名称
+    'host': MYSQL_HOST,                       # 数据库服务器地址
+    'port': MYSQL_PORT,                              # 数据库服务器端口
+    'user': MYSQL_USER,                             # 数据库用户名
+    'password': MYSQL_PASSWORD,                # 数据库密码
+    'database': MYSQL_DATABASE,                         # 数据库名称
     'charset': 'utf8mb4',                      # 字符集，支持完整Unicode
     
     # 连接池基础设置
@@ -98,11 +114,11 @@ DB_CONFIG = {
 # 日志数据库配置 - 系统日志存储设置
 LOG_DB_CONFIG = {
     # 连接基础配置
-    'host': '127.0.0.1',                       # 日志数据库服务器地址
-    'port': 3306,                              # 日志数据库服务器端口
-    'user': '',                             # 日志数据库用户名
-    'password': '',                # 日志数据库密码
-    'database': '',                         # 日志数据库名称
+    'host': MYSQL_HOST,                       # 日志数据库服务器地址
+    'port': MYSQL_PORT,                              # 日志数据库服务器端口
+    'user': MYSQL_USER,                             # 日志数据库用户名
+    'password': MYSQL_PASSWORD,                # 日志数据库密码
+    'database': MYSQL_DATABASE,                         # 日志数据库名称
     'charset': 'utf8mb4',                      # 字符集配置
 
     # 功能开关配置

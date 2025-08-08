@@ -17,3 +17,4 @@ python-dateutil==2.8.2
 Flask-SocketIO==5.3.6
 websockets==13.1
 pilk==0.2.4
+schedule==1.2.2

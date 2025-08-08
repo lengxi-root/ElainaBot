@@ -9,7 +9,12 @@ import logging
 import ssl
 import certifi
 import websockets
-import aiohttp
+import requests
+from urllib3 import disable_warnings
+from urllib3.exceptions import InsecureRequestWarning
+
+# 禁用SSL警告（Windows兼容性）
+disable_warnings(InsecureRequestWarning)
 from typing import Dict, Any, Optional, List, Callable
 from contextlib import asynccontextmanager
 from core.event.MessageEvent import MessageEvent
@@ -521,7 +526,6 @@ class QQBotWSManager:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self._ssl_context = self._create_ssl_context()
 
     def _safe_execute(self, operation, error_msg="操作失败", return_default=None):
         """安全执行操作"""
@@ -548,7 +552,7 @@ class QQBotWSManager:
         return await self._fetch_gateway_url(access_token)
 
     async def _fetch_gateway_url(self, access_token, max_retries=3):
-        """获取网关URL，带重试机制"""
+        """获取网关URL，使用requests（Windows兼容性最好）"""
         url = "https://api.sgroup.qq.com/gateway/bot"
         headers = {
             "Authorization": f"QQBot {access_token}",
@@ -557,23 +561,23 @@ class QQBotWSManager:
         
         for attempt in range(max_retries):
             try:
-                # 每次重试都创建新的连接器和会话
-                timeout = aiohttp.ClientTimeout(total=45, connect=15)
-                connector = aiohttp.TCPConnector(
-                    ssl=self._ssl_context, 
-                    ttl_dns_cache=300,
-                    force_close=True,  # 强制关闭连接
-                    enable_cleanup_closed=True
+                # 使用requests同步请求，Windows兼容性最好，禁用SSL验证
+                response = requests.get(
+                    url, 
+                    headers=headers, 
+                    timeout=30.0,
+                    verify=False  # 禁用SSL验证，解决Windows证书问题
                 )
                 
-                async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                    async with session.get(url, headers=headers) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            return data.get('url')
-                        else:
-                            error_text = await response.text()
-                            logger.error(f"获取网关失败: {response.status}, {error_text}")
+                if response.status_code == 200:
+                    response_data = response.json()
+                    if isinstance(response_data, dict) and 'url' in response_data:
+                        logger.info(f"成功获取网关URL: {response_data.get('url')}")
+                        return response_data.get('url')
+                    else:
+                        logger.error(f"获取网关失败: 响应格式异常 {response_data}")
+                else:
+                    logger.error(f"获取网关失败: HTTP {response.status_code} - {response.text}")
                             
             except Exception as e:
                 logger.error(f"获取网关URL失败 (第 {attempt + 1} 次): {e}")

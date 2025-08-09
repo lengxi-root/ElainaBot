@@ -616,8 +616,6 @@ def get_all_stats() -> Dict[str, Dict[str, Any]]:
 
 def run_in_thread_safe_loop(coro):
     """在线程安全的事件循环中运行异步代码"""
-    import threading
-    import concurrent.futures
     
     def run_with_loop():
         """In the new thread, create and run event loop"""

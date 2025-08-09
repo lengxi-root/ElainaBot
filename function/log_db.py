@@ -564,19 +564,19 @@ class LogDatabaseManager:
                         if 'send_payload' in log and log['send_payload']:
                             f.write(f"发送载荷:\n{log['send_payload']}\n")
                         if 'raw_message' in log and log['raw_message']:
-                            f.write(f"原始消息:\n{log['raw_message'][:1000]}...\n")
+                            f.write(f"原始消息:\n{log['raw_message']}\n")
                     elif log_type == 'received':
                         user_id = log.get('user_id', '未知用户')
                         group_id = log.get('group_id', 'c2c')
                         f.write(f"用户ID: {user_id}, 群聊ID: {group_id}\n")
                         if 'raw_message' in log and log['raw_message']:
-                            f.write(f"原始消息: {log['raw_message'][:500]}...\n")
+                            f.write(f"原始消息: {log['raw_message']}\n")
                     elif log_type == 'unmatched':
                         user_id = log.get('user_id', '未知用户')
                         group_id = log.get('group_id', 'c2c')
                         f.write(f"用户ID: {user_id}, 群聊ID: {group_id}\n")
                         if 'raw_message' in log and log['raw_message']:
-                            f.write(f"原始消息: {log['raw_message'][:500]}...\n")
+                            f.write(f"原始消息: {log['raw_message']}\n")
             
         except Exception as e:
             logger.error(f"回退到文件保存失败: {str(e)}")

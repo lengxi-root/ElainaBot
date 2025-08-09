@@ -507,14 +507,18 @@ class MessageEvent:
                     else:
                         self._log_error(
                             f"发送{content_type}Token过期重试2次后仍然失败",
-                            f"{extra_info}\npayload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
+                            tb=f"{extra_info}",
+                            send_payload=payload,
+                            raw_message=self.raw_data
                         )
                         return None
                 
                 # 其他错误码处理
                 self._log_error(
                     f"发送{content_type}失败：{resp_obj.get('message')} code：{error_code} trace_id：{resp_obj.get('trace_id')}", 
-                    f"resp_obj: {str(resp_obj)}\nsend_payload: {json.dumps(payload, ensure_ascii=False)}\nraw_message: {json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)}"
+                    resp_obj=resp_obj,
+                    send_payload=payload,
+                    raw_message=self.raw_data
                 )
                 return MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, 
                                            trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
@@ -840,12 +844,24 @@ class MessageEvent:
             except Exception as e:
                 self._log_error(f'新用户欢迎消息发送失败: {str(e)}')
 
-    def _log_error(self, msg, tb=None):
+    def _log_error(self, msg, tb=None, resp_obj=None, send_payload=None, raw_message=None):
         log_data = {
             'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'content': msg,
             'traceback': tb or traceback.format_exc()
         }
+        
+        # 仅限错误类型添加分开的字段
+        if resp_obj is not None:
+            log_data['resp_obj'] = str(resp_obj)
+        if send_payload is not None:
+            log_data['send_payload'] = json.dumps(send_payload, ensure_ascii=False, indent=2)
+        if raw_message is not None:
+            if isinstance(raw_message, dict):
+                log_data['raw_message'] = json.dumps(raw_message, ensure_ascii=False, indent=2)
+            else:
+                log_data['raw_message'] = str(raw_message)
+        
         add_log_to_db('error', log_data)
         add_error_log(msg, tb or traceback.format_exc())
 

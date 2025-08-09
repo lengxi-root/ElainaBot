@@ -3401,7 +3401,7 @@
                     connectionTypeEl.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
                     // 显示实际的WebSocket连接状态
                     connectionStatusEl.textContent = data.connection_status || '检测中...';
-                    if (data.connection_status === '连接中') {
+                    if (data.connection_status === '连接成功') {
                         connectionStatusEl.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
                     } else if (data.connection_status === '连接失败') {
                         connectionStatusEl.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';

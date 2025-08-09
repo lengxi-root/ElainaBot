@@ -4166,7 +4166,7 @@
                     connectionTypeEl.className = 'badge bg-success ms-2';
                     // 显示实际的WebSocket连接状态
                     connectionStatusEl.textContent = data.connection_status || '检测中...';
-                    if (data.connection_status === '连接中') {
+                    if (data.connection_status === '连接成功') {
                         connectionStatusEl.className = 'badge bg-success';
                     } else if (data.connection_status === '连接失败') {
                         connectionStatusEl.className = 'badge bg-danger';

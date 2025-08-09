@@ -81,7 +81,7 @@ class MessageEvent:
     # 特定错误码列表，被移出群聊或被禁言
     _IGNORE_ERROR_CODES = [11293, 40054002, 40054003]
 
-    def __init__(self, data):
+    def __init__(self, data, skip_recording=False):
         self.is_private = False
         self.is_group = False
         self.raw_data = data
@@ -95,8 +95,9 @@ class MessageEvent:
         self.matches = None
         self.db = Database()
         self.ignore = False
+        self.skip_recording = skip_recording  # 是否跳过数据库记录（用于测试等场景）
         self._parse_message()
-        if not self.ignore:
+        if not self.ignore and not self.skip_recording:
             self._record_user_and_group()
 
     # --- 消息解析相关 ---
@@ -821,6 +822,40 @@ class MessageEvent:
         return f'https://gchat.qpic.cn/qmeetpic/0/0-0-{md5hash}/0'
 
     # --- 数据库与日志 ---
+    def _record_message_to_db(self):
+        """将消息记录到数据库中并推送web面板"""
+        self._record_message_to_db_only()
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self._notify_web_display(timestamp)
+    
+    def _record_message_to_db_only(self):
+        """仅将消息记录到数据库中（不推送web面板）"""
+        from function.log_db import add_log_to_db
+        
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 构建数据库条目
+        db_entry = {
+            'timestamp': timestamp,
+            'content': self.content or "",
+            'user_id': self.user_id or "未知用户",
+            'group_id': self.group_id or "c2c"
+        }
+        
+        # 保存原始消息（如果配置启用）
+        from config import SAVE_RAW_MESSAGE_TO_DB
+        if SAVE_RAW_MESSAGE_TO_DB:
+            db_entry['raw_message'] = json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)
+        
+        # 保存到数据库
+        add_log_to_db('received', db_entry)
+
+    def _notify_web_display(self, timestamp):
+        """通知web面板显示消息"""
+        from web.app import add_display_message
+        formatted_message = f"{self.user_id}（{self.group_id}）：{self.content}" if self.group_id and self.group_id != "c2c" else f"{self.user_id}：{self.content}"
+        add_display_message(formatted_message, timestamp)
+
     def _record_user_and_group(self):
         user_is_new = False
         

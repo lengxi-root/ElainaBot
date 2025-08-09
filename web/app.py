@@ -554,69 +554,38 @@ error_handler = LogHandler('error')
 
 # ===== 日志与消息相关API =====
 @catch_error
-def add_received_message(message):
-    user_id, group_id, pure_content, formatted_message = _parse_message_info(message)
+def add_display_message(formatted_message, timestamp=None):
+    """添加消息到web面板显示（仅用于显示，不存储到数据库）
     
-    display_entry = received_handler.add(formatted_message, skip_db=True)
-    
-    db_entry = {
-        'timestamp': display_entry['timestamp'],
-        'content': pure_content,
-        'user_id': user_id,
-        'group_id': group_id
-    }
-    try:
-        add_log_to_db('received', db_entry)
-    except Exception:
-        pass
+    Args:
+        formatted_message: 格式化后的显示消息
+        timestamp: 时间戳，如果为None则使用当前时间
+    """
+    if timestamp:
+        # 使用传入的时间戳创建显示条目
+        entry = {
+            'timestamp': timestamp,
+            'content': formatted_message
+        }
+        received_handler.logs.append(entry)
+        received_handler.global_logs.append(entry)
         
-    return display_entry
+        # 发送到Socket.IO
+        if socketio is not None:
+            try:
+                socketio.emit('new_message', {
+                    'type': 'received',
+                    'data': entry
+                }, namespace=PREFIX)
+            except Exception:
+                pass
+        return entry
+    else:
+        # 使用LogHandler的正常流程（会生成新的时间戳）
+        return received_handler.add(formatted_message, skip_db=True)
 
 
 
-def _parse_message_info(message):
-    """解析消息信息，提取用户ID、群组ID和内容"""
-    try:
-        if isinstance(message, str) and not message.startswith('{'):
-            return "未知用户", "c2c", message, message
-        
-        event = MessageEvent(message)
-        user_id = event.user_id or "未知用户"
-        group_id = event.group_id or "c2c"
-        pure_content = event.content or ""
-        
-        # 特殊处理邀请进群事件
-        if getattr(event, 'event_type', None) == 'GROUP_ADD_ROBOT':
-            inviter_id = user_id  # 邀请者ID
-            group_id = event.group_id or "未知群组"
-            pure_content = f"机器人被邀请进群"
-            formatted_message = f"{inviter_id} 邀请机器人进入群组 {group_id}"
-            return inviter_id, group_id, pure_content, formatted_message
-        
-        if getattr(event, 'event_type', None) == 'INTERACTION_CREATE':
-            chat_type = event.get('d/chat_type')
-            scene = event.get('d/scene')
-            if chat_type == 2 or scene == 'c2c':
-                group_id = "c2c"
-                user_id = event.get('d/user_openid') or user_id
-            button_data = event.get('d/data/resolved/button_data')
-            if button_data and not pure_content:
-                pure_content = button_data
-        
-        if group_id != "c2c":
-            formatted_message = f"{user_id}（{group_id}）：{pure_content}"
-        else:
-            formatted_message = f"{user_id}：{pure_content}"
-            
-        return user_id, group_id, pure_content, formatted_message
-        
-    except Exception as e:
-        try:
-            pure_content = json.dumps(message, ensure_ascii=False)
-        except:
-            pure_content = str(message)
-        add_error_log(f"消息解析失败: {str(e)}")
-        return "未知用户", "c2c", pure_content, pure_content
 
 @catch_error
 def add_plugin_log(log):
@@ -1743,7 +1712,7 @@ def sandbox_test():
         }
     
     try:
-        event = MessageEvent(mock_data)
+        event = MessageEvent(mock_data, skip_recording=True)  # 沙盒测试不记录到数据库
         
         replies = []
         original_reply = event.reply

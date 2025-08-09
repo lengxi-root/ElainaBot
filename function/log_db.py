@@ -342,6 +342,7 @@ class LogDatabaseManager:
                 `user_id` varchar(255) NOT NULL COMMENT '用户ID',
                 `group_id` varchar(255) DEFAULT 'c2c' COMMENT '群聊ID',
                 `content` text NOT NULL COMMENT '消息内容',
+                `raw_message` text COMMENT '原始消息数据',
             """
         elif log_type == 'unmatched':
             specific_fields = """
@@ -446,14 +447,15 @@ class LogDatabaseManager:
         if log_type == 'received':
             sql = f"""
                 INSERT INTO `{table_name}` 
-                (timestamp, user_id, group_id, content) 
-                VALUES (%s, %s, %s, %s)
+                (timestamp, user_id, group_id, content, raw_message) 
+                VALUES (%s, %s, %s, %s, %s)
             """
             values = [(
                 log.get('timestamp'),
                 log.get('user_id', '未知用户'),
                 log.get('group_id', 'c2c'),
-                log.get('content')
+                log.get('content'),
+                log.get('raw_message', '')
             ) for log in logs]
             
         elif log_type == 'unmatched':
@@ -563,6 +565,12 @@ class LogDatabaseManager:
                             f.write(f"发送载荷:\n{log['send_payload']}\n")
                         if 'raw_message' in log and log['raw_message']:
                             f.write(f"原始消息:\n{log['raw_message'][:1000]}...\n")
+                    elif log_type == 'received':
+                        user_id = log.get('user_id', '未知用户')
+                        group_id = log.get('group_id', 'c2c')
+                        f.write(f"用户ID: {user_id}, 群聊ID: {group_id}\n")
+                        if 'raw_message' in log and log['raw_message']:
+                            f.write(f"原始消息: {log['raw_message'][:500]}...\n")
                     elif log_type == 'unmatched':
                         user_id = log.get('user_id', '未知用户')
                         group_id = log.get('group_id', 'c2c')

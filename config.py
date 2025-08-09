@@ -18,6 +18,7 @@ DEFAULT_RESPONSE_EXCLUDED_REGEX = []             # 排除默认回复的消息�
 MAINTENANCE_MODE = False                         # 维护模式开关，开启后机器人暂停服务
 ENABLE_WELCOME_MESSAGE = False                    # 是否启用入群欢迎消息功能
 ENABLE_NEW_USER_WELCOME = False                   # 是否启用新用户首次交互欢迎
+SAVE_RAW_MESSAGE_TO_DB = False                   # 是否将消息的原始内容存储到数据库中
 
 # 服务器配置 - HTTP服务相关设置
 SERVER_CONFIG = {

@@ -35,7 +35,7 @@ def get_websocket_status():
     try:
         from function.ws_client import get_client
         client = get_client("qq_bot")
-        return "连接中" if (client and hasattr(client, 'connected') and client.connected) else "连接失败"
+        return "连接成功" if (client and hasattr(client, 'connected') and client.connected) else "连接失败"
     except Exception:
         return "连接失败"
 

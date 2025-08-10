@@ -18,9 +18,9 @@ import os
 # ===== 3. 自定义模块导入 =====
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
-from config import USE_MARKDOWN, IMAGE_BED_CHANNEL_ID, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, HIDE_AVATAR_GLOBAL
+from config import USE_MARKDOWN, IMAGE_BED_CHANNEL_ID, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, ENABLE_FRIEND_ADD_MESSAGE, HIDE_AVATAR_GLOBAL
 from function.log_db import add_log_to_db
-from core.plugin.message_templates import MessageTemplate, MSG_TYPE_WELCOME, MSG_TYPE_USER_WELCOME, MSG_TYPE_API_ERROR
+from core.plugin.message_templates import MessageTemplate, MSG_TYPE_WELCOME, MSG_TYPE_USER_WELCOME, MSG_TYPE_FRIEND_ADD, MSG_TYPE_API_ERROR
 from function.httpx_pool import sync_post, get_binary_content
 
 # ===== 4. 可选模块导入（带异常处理）=====
@@ -42,6 +42,9 @@ class MessageEvent:
     INTERACTION = 'INTERACTION_CREATE'            # 交互事件 - 用户点击按钮、选择菜单等交互操作
     CHANNEL_MESSAGE = 'AT_MESSAGE_CREATE'         # 频道@消息事件 - 用户在频道中@机器人发送的消息
     GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'           # 群添加机器人事件 - 机器人被邀请加入群聊时触发
+    GROUP_DEL_ROBOT = 'GROUP_DEL_ROBOT'           # 群删除机器人事件 - 机器人被踢出群聊时触发
+    FRIEND_ADD = 'FRIEND_ADD'                     # 好友添加事件 - 用户添加机器人为好友时触发
+    FRIEND_DEL = 'FRIEND_DEL'                     # 好友删除事件 - 用户删除机器人好友时触发
     UNKNOWN_MESSAGE = 'UNKNOWN'                   # 未知消息类型 - 无法识别或不支持的消息事件
 
     # 消息类型与解析方法的映射表 - 根据事件类型调用对应的解析方法
@@ -51,31 +54,37 @@ class MessageEvent:
         INTERACTION: '_parse_interaction',            # 解析交互事件
         CHANNEL_MESSAGE: '_parse_channel_message',    # 解析频道@消息
         GROUP_ADD_ROBOT: '_parse_group_add_robot',    # 解析群添加机器人事件
+        GROUP_DEL_ROBOT: '_parse_group_del_robot',    # 解析群删除机器人事件
+        FRIEND_ADD: '_parse_friend_add',              # 解析好友添加事件
+        FRIEND_DEL: '_parse_friend_del',              # 解析好友删除事件
     }
 
-    # API接口路径模板 - 不同消息类型对应的QQ Bot API端点
-    _API_ENDPOINTS = {
-        GROUP_MESSAGE: {                                      # 群聊消息API
-            'reply': '/v2/groups/{group_id}/messages',        # 群聊回复接口
-            'recall': '/v2/groups/{group_id}/messages/{message_id}'  # 群聊撤回接口
+    # 基础API端点模板 - 简化配置
+    _BASE_ENDPOINTS = {
+        'group': {
+            'reply': '/v2/groups/{group_id}/messages',
+            'recall': '/v2/groups/{group_id}/messages/{message_id}'
         },
-        DIRECT_MESSAGE: {                                     # 私聊消息API
-            'reply': '/v2/users/{user_id}/messages',          # 私聊回复接口
-            'recall': '/v2/users/{user_id}/messages/{message_id}'    # 私聊撤回接口
+        'user': {
+            'reply': '/v2/users/{user_id}/messages',
+            'recall': '/v2/users/{user_id}/messages/{message_id}'
         },
-        INTERACTION: {                                        # 交互事件API（支持群聊和私聊）
-            'reply': '/v2/groups/{group_id}/messages',        # 群聊交互回复
-            'reply_private': '/v2/users/{user_id}/messages',  # 私聊交互回复
-            'recall': '/v2/groups/{group_id}/messages/{message_id}',     # 群聊交互撤回
-            'recall_private': '/v2/users/{user_id}/messages/{message_id}' # 私聊交互撤回
-        },
-        CHANNEL_MESSAGE: {                                    # 频道消息API
-            'reply': '/channels/{channel_id}/messages',       # 频道回复接口
-            'recall': '/channels/{channel_id}/messages/{message_id}'     # 频道撤回接口
-        },
-        GROUP_ADD_ROBOT: {                                    # 群添加机器人API
-            'reply': '/v2/groups/{group_id}/messages'         # 群欢迎消息接口
+        'channel': {
+            'reply': '/channels/{channel_id}/messages',
+            'recall': '/channels/{channel_id}/messages/{message_id}'
         }
+    }
+    
+    # 消息类型与端点类型的映射
+    _MESSAGE_TYPE_TO_ENDPOINT = {
+        GROUP_MESSAGE: 'group',
+        DIRECT_MESSAGE: 'user', 
+        INTERACTION: 'group',  # 默认群聊，私聊时动态切换为user
+        CHANNEL_MESSAGE: 'channel',
+        GROUP_ADD_ROBOT: 'group',
+        GROUP_DEL_ROBOT: 'group',
+        FRIEND_ADD: 'user',
+        FRIEND_DEL: 'user'
     }
 
     # 特定错误码列表，被移出群聊或被禁言
@@ -211,10 +220,86 @@ class MessageEvent:
         self.handled = True
         self.welcome_allowed = True
         
+        # 记录进群事件到DAU数据库
+        from function.log_db import add_dau_event_to_db
+        add_dau_event_to_db('group_join')
+        
+        # 设置消息内容用于日志记录
+        self.content = f"机器人被邀请加入群聊 {self.group_id}"
+        
         if ENABLE_WELCOME_MESSAGE:
             MessageTemplate.send(self, MSG_TYPE_WELCOME)
             
         self.welcome_allowed = False
+
+    def _parse_group_del_robot(self):
+        """解析群删除机器人事件"""
+        self.message_type = self.GROUP_DEL_ROBOT
+        self.user_id = self.get('d/op_member_openid')
+        self.group_id = self.get('d/group_openid')
+        self.channel_id = self.guild_id = None
+        self.is_group = True
+        self.is_private = False
+        self.timestamp = self.get('d/timestamp')
+        self.id = self.get('id')
+        
+        # 设置消息内容用于日志记录
+        self.content = f"机器人被移出群聊 {self.group_id}"
+        
+        # 标记为已处理，避免进入插件处理流程，仅记录DAU数据
+        self.handled = True
+        
+        # 记录退群事件到DAU数据库
+        from function.log_db import add_dau_event_to_db
+        add_dau_event_to_db('group_leave')
+
+    def _parse_friend_add(self):
+        """解析好友添加事件"""
+        self.message_type = self.FRIEND_ADD
+        self.user_id = self.get('d/openid')
+        self.group_id = None
+        self.channel_id = self.guild_id = None
+        self.is_group = False
+        self.is_private = True
+        self.timestamp = self.get('d/timestamp')
+        self.id = self.get('id')
+        
+        # 设置消息内容用于日志记录
+        self.content = f"用户 {self.user_id} 添加机器人为好友"
+        
+        self.handled = True
+        self.welcome_allowed = True
+        
+        # 记录加好友事件到DAU数据库
+        from function.log_db import add_dau_event_to_db
+        add_dau_event_to_db('friend_add')
+        
+        # 如果启用了添加好友自动发送消息功能，则发送欢迎消息
+        if ENABLE_FRIEND_ADD_MESSAGE:
+            MessageTemplate.send(self, MSG_TYPE_FRIEND_ADD)
+            
+        self.welcome_allowed = False
+
+    def _parse_friend_del(self):
+        """解析好友删除事件"""
+        self.message_type = self.FRIEND_DEL
+        self.user_id = self.get('d/openid')
+        self.group_id = None
+        self.channel_id = self.guild_id = None
+        self.is_group = False
+        self.is_private = True
+        self.timestamp = self.get('d/timestamp')
+        self.id = self.get('id')
+        
+        # 设置消息内容用于日志记录
+        self.content = f"用户 {self.user_id} 删除机器人好友"
+        
+        # 标记为已处理，避免进入插件处理流程，仅记录DAU数据
+        self.handled = True
+        
+        # 记录删好友事件到DAU数据库
+        from function.log_db import add_dau_event_to_db
+        add_dau_event_to_db('friend_remove')
 
     # --- API交互相关 ---
     def _check_send_conditions(self):
@@ -271,8 +356,9 @@ class MessageEvent:
         payload = self._build_media_message_payload(content, file_info)
         endpoint = self._get_endpoint()
         
-        if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
+            event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
+            payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
         
         # 发送消息
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}")
@@ -286,7 +372,7 @@ class MessageEvent:
         if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
             return None
             
-        if self.message_type not in self._API_ENDPOINTS:
+        if self.message_type not in self._MESSAGE_TYPE_TO_ENDPOINT:
             raw_data_str = json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)
             self._log_error(
                 f"不支持的消息类型: {self.message_type}，无法自动回复。",
@@ -311,16 +397,13 @@ class MessageEvent:
             
         payload = self._build_message_payload(content, buttons, media_payload, hide_avatar_and_center)
         
-        if self.message_type == self.INTERACTION and self.is_private:
-            endpoint_template = self._API_ENDPOINTS[self.message_type]['reply_private']
-        else:
-            endpoint_template = self._API_ENDPOINTS[self.message_type]['reply']
-            
-        endpoint = self._fill_endpoint_template(endpoint_template)
+        # 使用简化的端点获取方法
+        endpoint = self._get_endpoint('reply')
         
-        if self.message_type == self.GROUP_ADD_ROBOT:
+        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
             if 'event_id' not in payload or not payload['event_id']:
-                payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+                event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
+                payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, "消息", f"content: {content}")
         
@@ -385,8 +468,9 @@ class MessageEvent:
             
         endpoint = self._get_endpoint()
         
-        if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
+            event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
+            payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, "markdown模板消息", f"template: {template}, params: {params}")
         
@@ -398,9 +482,23 @@ class MessageEvent:
         """reply_markdown的简化别名"""
         return self.reply_markdown(template, params, keyboard_id, hide_avatar_and_center, auto_delete_time)
 
-    def _get_endpoint(self):
-        """获取API端点"""
-        endpoint_template = self._API_ENDPOINTS[self.message_type]['reply_private'] if (self.message_type == self.INTERACTION and self.is_private) else self._API_ENDPOINTS[self.message_type]['reply']
+    def _get_endpoint(self, action='reply'):
+        """获取API端点
+        
+        Args:
+            action: 操作类型，'reply' 或 'recall'
+        """
+        # 获取端点类型
+        endpoint_type = self._MESSAGE_TYPE_TO_ENDPOINT.get(self.message_type)
+        if not endpoint_type:
+            raise ValueError(f"不支持的消息类型: {self.message_type}")
+        
+        # 特殊处理：交互事件的私聊情况
+        if self.message_type == self.INTERACTION and self.is_private:
+            endpoint_type = 'user'
+        
+        # 获取端点模板
+        endpoint_template = self._BASE_ENDPOINTS[endpoint_type][action]
         return self._fill_endpoint_template(endpoint_template)
 
     def _cleanup_temp_files(self, *file_paths):
@@ -471,18 +569,13 @@ class MessageEvent:
         return None
 
     def recall_message(self, message_id):
-        if message_id is None or self.message_type not in self._API_ENDPOINTS:
+        """撤回消息"""
+        if message_id is None:
             return None
             
         try:
-            if self.message_type == self.INTERACTION and self.is_private:
-                endpoint_template = self._API_ENDPOINTS[self.message_type]['recall_private']
-            elif 'recall' in self._API_ENDPOINTS[self.message_type]:
-                endpoint_template = self._API_ENDPOINTS[self.message_type]['recall']
-            else:
-                return None
-                
-            endpoint = self._fill_endpoint_template(endpoint_template)
+            # 使用新的端点获取方法
+            endpoint = self._get_endpoint('recall')
             endpoint = endpoint.replace('{message_id}', str(message_id))
             return BOTAPI(endpoint, "DELETE", None)
             
@@ -546,8 +639,9 @@ class MessageEvent:
         payload = payload_builder(**kwargs)
         endpoint = self._get_endpoint()
         
-        if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
+            event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
+            payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"payload: {json.dumps(payload, ensure_ascii=False)}")
         
@@ -565,7 +659,7 @@ class MessageEvent:
         # 设置msg_id或event_id
         if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
             payload["msg_id"] = self.message_id
-        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
+        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
             # 事件通知类型直接使用顶层id
             payload["event_id"] = self.get('id') or ""
         elif self.message_type == self.CHANNEL_MESSAGE:
@@ -882,7 +976,9 @@ class MessageEvent:
         if self.is_private and self.user_id:
             self.db.add_member(self.user_id)
             
-        if user_is_new and self.is_group and ENABLE_NEW_USER_WELCOME and self.message_type != self.GROUP_ADD_ROBOT:
+        # 排除DAU事件类型，避免在这些事件中触发新用户欢迎
+        dau_event_types = {self.GROUP_ADD_ROBOT, self.GROUP_DEL_ROBOT, self.FRIEND_ADD, self.FRIEND_DEL}
+        if user_is_new and self.is_group and ENABLE_NEW_USER_WELCOME and self.message_type not in dau_event_types:
             try:
                 user_count = self.db.get_user_count()
                 MessageTemplate.send(self, MSG_TYPE_USER_WELCOME, user_count=user_count)

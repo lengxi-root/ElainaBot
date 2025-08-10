@@ -131,14 +131,17 @@ class DAUAnalytics:
         """每日DAU统计任务"""
         try:
             yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
-            dau_file = os.path.join(self.data_dir, f"{self._format_date(yesterday)}.json")
             
-            if os.path.exists(dau_file):
+            # 检查数据库中是否已有昨天的DAU数据
+            existing_data = self.load_dau_data(yesterday)
+            if existing_data:
+                logger.info(f"DAU数据已存在: {self._format_date(yesterday)}")
                 return
             
             dau_data = self.collect_dau_data(yesterday)
             if dau_data:
                 self.save_dau_data(dau_data, yesterday)
+                logger.info(f"DAU数据已生成: {self._format_date(yesterday)}")
                 
         except Exception as e:
             logger.error(f"每日DAU统计任务失败: {e}")
@@ -300,19 +303,184 @@ class DAUAnalytics:
         return self._with_log_db_cursor(get_stats) or []
 
     def save_dau_data(self, dau_data: Dict[str, Any], target_date: datetime.datetime):
-        """保存DAU数据到JSON文件"""
-        filename = f"{self._format_date(target_date)}.json"
-        filepath = os.path.join(self.data_dir, filename)
-        self._file_operation(filepath, 'write', None, dau_data)
+        """保存DAU数据到数据库"""
+        from function.log_db import save_complete_dau_data
+        
+        date_str = self._format_date(target_date)
+        
+        # 使用新的完整数据保存函数
+        success = save_complete_dau_data(dau_data)
+        
+        if success:
+            logger.info(f"DAU数据已保存到数据库: {date_str}")
+            logger.info(f"  活跃用户: {dau_data.get('message_stats', {}).get('active_users', 0)}")
+            logger.info(f"  活跃群聊: {dau_data.get('message_stats', {}).get('active_groups', 0)}")
+            logger.info(f"  总消息数: {dau_data.get('message_stats', {}).get('total_messages', 0)}")
+            logger.info(f"  命令统计: {len(dau_data.get('command_stats', []))}条")
+        else:
+            logger.error(f"DAU数据保存失败: {date_str}")
+            # 失败时回退到JSON文件存储
+            filename = f"{date_str}.json"
+            filepath = os.path.join(self.data_dir, filename)
+            self._file_operation(filepath, 'write', None, dau_data)
 
     def load_dau_data(self, target_date: datetime.datetime) -> Optional[Dict[str, Any]]:
-        """加载指定日期的DAU数据"""
-        filename = f"{self._format_date(target_date)}.json"
+        """从数据库加载指定日期的DAU数据"""
+        date_str = self._format_date(target_date)
+        
+        def get_dau_data(cursor):
+            table_name = "Mlog_dau"
+            
+            if not self._table_exists(cursor, table_name):
+                return None
+            
+            cursor.execute(f"""
+                SELECT * FROM {table_name} 
+                WHERE date = %s
+            """, (date_str,))
+            
+            result = cursor.fetchone()
+            if not result:
+                return None
+            
+            # 解析JSON字段
+            message_stats_detail = result.get('message_stats_detail')
+            user_stats_detail = result.get('user_stats_detail')
+            command_stats_detail = result.get('command_stats_detail')
+            
+            # 如果有详细数据，则解析JSON
+            if message_stats_detail and isinstance(message_stats_detail, str):
+                try:
+                    message_stats_detail = json.loads(message_stats_detail)
+                except:
+                    message_stats_detail = {}
+            elif not message_stats_detail:
+                message_stats_detail = {}
+                
+            if user_stats_detail and isinstance(user_stats_detail, str):
+                try:
+                    user_stats_detail = json.loads(user_stats_detail)
+                except:
+                    user_stats_detail = {}
+            elif not user_stats_detail:
+                user_stats_detail = {}
+                
+            if command_stats_detail and isinstance(command_stats_detail, str):
+                try:
+                    command_stats_detail = json.loads(command_stats_detail)
+                except:
+                    command_stats_detail = []
+            elif not command_stats_detail:
+                command_stats_detail = []
+            
+            # 转换数据库记录为完整的JSON格式
+            data = {
+                'date': date_str,
+                'generated_at': result.get('updated_at', '').isoformat() if result.get('updated_at') else '',
+                'message_stats': message_stats_detail if message_stats_detail else {
+                    'active_users': result.get('active_users', 0),
+                    'active_groups': result.get('active_groups', 0),
+                    'total_messages': result.get('total_messages', 0),
+                    'private_messages': result.get('private_messages', 0)
+                },
+                'user_stats': user_stats_detail,
+                'command_stats': command_stats_detail,
+                'event_stats': {
+                    'group_join_count': result.get('group_join_count', 0),
+                    'group_leave_count': result.get('group_leave_count', 0),
+                    'group_count_change': result.get('group_count_change', 0),
+                    'friend_add_count': result.get('friend_add_count', 0),
+                    'friend_remove_count': result.get('friend_remove_count', 0),
+                    'friend_count_change': result.get('friend_count_change', 0)
+                },
+                'version': '2.0'
+            }
+            
+            return data
+        
+        dau_data = self._with_log_db_cursor(get_dau_data)
+        if dau_data:
+            return dau_data
+        
+        # 如果数据库中没有数据，尝试从JSON文件读取（向后兼容）
+        filename = f"{date_str}.json"
         filepath = os.path.join(self.data_dir, filename)
         return self._file_operation(filepath, 'read', None)
 
     def get_recent_dau_data(self, days: int = 7) -> List[Dict[str, Any]]:
-        """获取最近几天的DAU数据"""
+        """从数据库获取最近几天的DAU数据"""
+        def get_recent_data(cursor):
+            table_name = "Mlog_dau"
+            
+            if not self._table_exists(cursor, table_name):
+                return []
+            
+            cursor.execute(f"""
+                SELECT * FROM {table_name} 
+                ORDER BY date DESC 
+                LIMIT %s
+            """, (days,))
+            
+            results = []
+            for row in cursor.fetchall():
+                # 解析JSON字段
+                message_stats_detail = row.get('message_stats_detail')
+                user_stats_detail = row.get('user_stats_detail')
+                command_stats_detail = row.get('command_stats_detail')
+                
+                # 安全解析JSON
+                if message_stats_detail and isinstance(message_stats_detail, str):
+                    try:
+                        message_stats_detail = json.loads(message_stats_detail)
+                    except:
+                        message_stats_detail = {}
+                elif not message_stats_detail:
+                    message_stats_detail = {}
+                    
+                if user_stats_detail and isinstance(user_stats_detail, str):
+                    try:
+                        user_stats_detail = json.loads(user_stats_detail)
+                    except:
+                        user_stats_detail = {}
+                elif not user_stats_detail:
+                    user_stats_detail = {}
+                    
+                if command_stats_detail and isinstance(command_stats_detail, str):
+                    try:
+                        command_stats_detail = json.loads(command_stats_detail)
+                    except:
+                        command_stats_detail = []
+                elif not command_stats_detail:
+                    command_stats_detail = []
+                
+                results.append({
+                    'date': row['date'].strftime('%Y-%m-%d'),
+                    'generated_at': row.get('updated_at', '').isoformat() if row.get('updated_at') else '',
+                    'message_stats': message_stats_detail if message_stats_detail else {
+                        'active_users': row.get('active_users', 0),
+                        'active_groups': row.get('active_groups', 0),
+                        'total_messages': row.get('total_messages', 0),
+                        'private_messages': row.get('private_messages', 0)
+                    },
+                    'user_stats': user_stats_detail,
+                    'command_stats': command_stats_detail,
+                    'event_stats': {
+                        'group_join_count': row.get('group_join_count', 0),
+                        'group_leave_count': row.get('group_leave_count', 0),
+                        'group_count_change': row.get('group_count_change', 0),
+                        'friend_add_count': row.get('friend_add_count', 0),
+                        'friend_remove_count': row.get('friend_remove_count', 0),
+                        'friend_count_change': row.get('friend_count_change', 0)
+                    },
+                    'version': '2.0'
+                })
+            return results
+        
+        db_results = self._with_log_db_cursor(get_recent_data)
+        if db_results:
+            return db_results
+        
+        # 如果数据库中没有数据，回退到文件系统查询（向后兼容）
         results = []
         today = datetime.datetime.now()
         
@@ -356,8 +524,9 @@ class DAUAnalytics:
             date_str = self._format_date(current_date)
             
             try:
-                dau_file = os.path.join(self.data_dir, f"{date_str}.json")
-                if os.path.exists(dau_file):
+                # 检查数据库中是否已有数据
+                existing_data = self.load_dau_data(current_date)
+                if existing_data:
                     skipped_days += 1
                     skipped_dates.append(date_str)
                 else:

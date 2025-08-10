@@ -679,7 +679,7 @@ def index():
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
         response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
         response.headers['Strict-Transport-Security'] = 'max-age=0'
@@ -1342,8 +1342,60 @@ def get_statistics_data(force_refresh=False):
         }
 
 def load_historical_dau_data():
-    """原始的历史数据加载函数（保持向后兼容）"""
-    return load_historical_dau_data_optimized()
+    """原始的历史数据加载函数（从数据库加载）"""
+    return load_historical_dau_data_from_database()
+
+def load_historical_dau_data_from_database():
+    """从数据库加载历史DAU数据"""
+    try:
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
+        
+        dau_analytics = get_dau_analytics()
+        historical_data = []
+        
+        today = datetime.now()
+        
+        # 从数据库加载历史数据
+        for i in range(1, 31):
+            target_date = today - timedelta(days=i)
+            
+            try:
+                # 从数据库读取DAU数据
+                dau_data = dau_analytics.load_dau_data(target_date)
+                
+                if dau_data:
+                    display_date = target_date.strftime('%m-%d')
+                    dau_data['display_date'] = display_date
+                    
+                    # 确保事件统计数据存在
+                    if 'event_stats' not in dau_data:
+                        dau_data['event_stats'] = {
+                            'group_join_count': 0,
+                            'group_leave_count': 0,
+                            'friend_add_count': 0,
+                            'friend_remove_count': 0
+                        }
+                    
+                    historical_data.append(dau_data)
+            except Exception as e:
+                add_error_log(f"加载历史DAU数据失败 {target_date.strftime('%Y-%m-%d')}: {str(e)}")
+                continue
+        
+        # 按日期排序
+        historical_data.sort(key=lambda x: x.get('date', ''))
+        
+        return historical_data
+        
+    except Exception as e:
+        add_error_log(f"从数据库加载历史DAU数据失败: {str(e)}")
+        # 如果数据库加载失败，回退到文件加载
+        return load_historical_dau_data_fallback()
 
 def load_historical_dau_data_optimized():
     """优化版的历史数据加载函数，使用并行处理"""
@@ -1450,37 +1502,84 @@ def get_today_dau_data(force_refresh=False):
         dau_analytics = get_dau_analytics()
         today = datetime.now()
         
+        # 今日数据混合模式：基础统计实时计算，事件统计从DAU表读取
         today_data = None
-        if not force_refresh:
-            today_data = dau_analytics.load_dau_data(today)
         
-        if not today_data:
+        if not force_refresh:
+            # 先尝试实时收集今日基础数据
             try:
                 today_data = dau_analytics.collect_dau_data(today)
-                
                 if today_data:
                     today_data['is_realtime'] = True
                     today_data['cache_time'] = time.time()
+                    
+                    # 从DAU表读取事件统计数据并合并
+                    try:
+                        dau_data = dau_analytics.load_dau_data(today)
+                        if dau_data and 'event_stats' in dau_data:
+                            today_data['event_stats'] = dau_data['event_stats']
+                        elif 'event_stats' not in today_data:
+                            today_data['event_stats'] = {
+                                'group_join_count': 0,
+                                'group_leave_count': 0,
+                                'friend_add_count': 0,
+                                'friend_remove_count': 0
+                            }
+                    except Exception as e:
+                        # 如果DAU表读取失败，使用默认事件统计
+                        if 'event_stats' not in today_data:
+                            today_data['event_stats'] = {
+                                'group_join_count': 0,
+                                'group_leave_count': 0,
+                                'friend_add_count': 0,
+                                'friend_remove_count': 0
+                            }
+                        
             except Exception as e:
-                today_data = {
-                    'message_stats': {
-                        'total_messages': 0,
-                        'active_users': 0,
-                        'active_groups': 0,
-                        'private_messages': 0,
-                        'peak_hour': 0,
-                        'peak_hour_count': 0,
-                        'top_groups': [],
-                        'top_users': []
-                    },
-                    'user_stats': {
-                        'total_users': 0,
-                        'total_groups': 0,
-                        'total_friends': 0
-                    },
-                    'command_stats': [],
-                    'error': str(e)
-                }
+                # 如果实时收集失败，尝试完全从数据库读取
+                try:
+                    today_data = dau_analytics.load_dau_data(today)
+                    if today_data:
+                        today_data['from_database'] = True
+                except Exception:
+                    pass
+        
+        if not today_data:
+            # 最终回退到空数据结构
+            today_data = {
+                'message_stats': {
+                    'total_messages': 0,
+                    'active_users': 0,
+                    'active_groups': 0,
+                    'private_messages': 0,
+                    'peak_hour': 0,
+                    'peak_hour_count': 0,
+                    'top_groups': [],
+                    'top_users': []
+                },
+                'user_stats': {
+                    'total_users': 0,
+                    'total_groups': 0,
+                    'total_friends': 0
+                },
+                'command_stats': [],
+                'event_stats': {
+                    'group_join_count': 0,
+                    'group_leave_count': 0,
+                    'friend_add_count': 0,
+                    'friend_remove_count': 0
+                },
+                'error': 'No data available'
+            }
+        
+        # 确保事件统计数据存在
+        if today_data and 'event_stats' not in today_data:
+            today_data['event_stats'] = {
+                'group_join_count': 0,
+                'group_leave_count': 0,
+                'friend_add_count': 0,
+                'friend_remove_count': 0
+            }
         
         return today_data or {}
         
@@ -1490,6 +1589,12 @@ def get_today_dau_data(force_refresh=False):
             'message_stats': {},
             'user_stats': {},
             'command_stats': [],
+            'event_stats': {
+                'group_join_count': 0,
+                'group_leave_count': 0,
+                'friend_add_count': 0,
+                'friend_remove_count': 0
+            },
             'error': str(e)
         }
 
@@ -1760,33 +1865,32 @@ def sandbox_test():
         return api_error_response(f'MessageEvent创建错误: {str(event_error)}')
 
 def get_available_dau_dates():
-    import os
-    import glob
-    from datetime import datetime, timedelta
-    
+    """从数据库获取可用的DAU日期列表"""
     try:
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        dau_folder = os.path.join(project_root, 'data', 'dau')
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
         
-        if not os.path.exists(dau_folder):
-            return []
-        
-        json_files = glob.glob(os.path.join(dau_folder, '*.json'))
-        
+        dau_analytics = get_dau_analytics()
         available_dates = []
         today = datetime.now().date()
         thirty_days_ago = today - timedelta(days=30)
         
-        for file_path in json_files:
-            filename = os.path.basename(file_path)
-            if filename.endswith('.json'):
-                date_str = filename[:-5]
+        # 检查近30天的数据库DAU数据
+        for i in range(31):  # 包括今天，共31天
+            check_date = today - timedelta(days=i)
+            if check_date >= thirty_days_ago:
                 try:
-                    file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    dau_data = dau_analytics.load_dau_data(datetime.combine(check_date, datetime.min.time()))
                     
-                    if file_date >= thirty_days_ago and file_date <= today:
-                        is_today = file_date == today
-                        display_name = "今日数据" if is_today else f"{file_date.strftime('%m-%d')} ({file_date.strftime('%Y-%m-%d')})"
+                    if dau_data:
+                        is_today = check_date == today
+                        date_str = check_date.strftime('%Y-%m-%d')
+                        display_name = "今日数据" if is_today else f"{check_date.strftime('%m-%d')} ({date_str})"
                         
                         available_dates.append({
                             'value': 'today' if is_today else date_str,
@@ -1794,34 +1898,35 @@ def get_available_dau_dates():
                             'display': display_name,
                             'is_today': is_today
                         })
-                except ValueError:
+                except Exception:
                     continue
         
+        # 确保今日数据始终存在
         today_exists = any(item['is_today'] for item in available_dates)
         if not today_exists:
             available_dates.append({
                 'value': 'today',
                 'date': today.strftime('%Y-%m-%d'),
-                'display': '今日数据 (实时)',
+                'display': '今日数据',
                 'is_today': True
             })
         
+        # 按日期排序，今日数据在前
         available_dates.sort(key=lambda x: (not x['is_today'], -int(x['date'].replace('-', ''))))
         
         return available_dates
         
     except Exception as e:
+        add_error_log(f"获取可用DAU日期失败: {str(e)}")
         return [{
             'value': 'today',
             'date': datetime.now().strftime('%Y-%m-%d'),
             'display': '今日数据',
-                         'is_today': True
-         }]
+            'is_today': True
+        }]
 
 def get_specific_date_data(date_str):
-    import os
-    from datetime import datetime
-    
+    """从数据库获取特定日期的DAU数据"""
     try:
         try:
             from function.dau_analytics import get_dau_analytics
@@ -1842,17 +1947,20 @@ def get_specific_date_data(date_str):
         message_stats = dau_data.get('message_stats', {})
         user_stats = dau_data.get('user_stats', {})
         command_stats = dau_data.get('command_stats', [])
+        event_stats = dau_data.get('event_stats', {})
         
         return {
             'message_stats': message_stats,
             'user_stats': user_stats,
             'command_stats': command_stats,
+            'event_stats': event_stats,
             'date': date_str,
             'generated_at': dau_data.get('generated_at', ''),
             'is_historical': True
         }
         
     except Exception as e:
+        add_error_log(f"获取特定日期DAU数据失败 {date_str}: {str(e)}")
         return None
 
 # 在文件末尾添加开放平台相关的代码

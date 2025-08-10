@@ -28,6 +28,8 @@
                     <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="total_users">总用户数</button>
                     <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="total_groups">总群组数</button>
                     <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="total_friends">总好友数</button>
+                    <button class="btn btn-sm btn-outline-success chart-toggle" data-metric="group_events">群组变化</button>
+                    <button class="btn btn-sm btn-outline-info chart-toggle" data-metric="friend_events">好友变化</button>
                 </div>
                 <div class="chart-container position-relative">
                     <div id="chart-average-display" class="chart-average-display"></div>
@@ -564,35 +566,56 @@ function showStatisticsError(message) {
     }
 }
 
-// 更新图表（完全照抄老版本实现）
+// 更新图表（支持多条折线）
 function updateChart(metric) {
     if (!statisticsChart || !statisticsData) return;
     
     const labels = [];
+    
+    // 构建标签
+    if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
+        statisticsData.historical.forEach(item => {
+            const displayLabel = item.display_date || item.date || '未知';
+            labels.push(displayLabel);
+        });
+    }
+    if (statisticsData.today) {
+        labels.push('今日');
+    }
+    
+    // 判断是否为多线图表
+    const isMultiLine = metric === 'group_events' || metric === 'friend_events';
+    
+    if (isMultiLine) {
+        // 多线图表处理
+        updateMultiLineChart(metric, labels);
+    } else {
+        // 单线图表处理
+        updateSingleLineChart(metric, labels);
+    }
+}
+
+// 更新单线图表
+function updateSingleLineChart(metric, labels) {
     const data = [];
     
     // 处理历史数据
     if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
         statisticsData.historical.forEach(item => {
-            // 使用display_date（MM-DD格式）如果存在，否则使用date
-            const displayLabel = item.display_date || item.date || '未知';
-            labels.push(displayLabel);
-            
             let value = 0;
             
-            // 根据具体指标确定从哪个统计对象中获取数据
             switch(metric) {
                 case 'total_messages':
                 case 'active_users':
                 case 'active_groups':
                 case 'private_messages':
                     value = item.message_stats ? item.message_stats[metric] || 0 : 0;
-            break;
+                break;
                 case 'total_users':
                 case 'total_groups':
                 case 'total_friends':
                     value = item.user_stats ? item.user_stats[metric] || 0 : 0;
-            break;
+                break;
                 default:
                     value = 0;
             }
@@ -603,10 +626,8 @@ function updateChart(metric) {
     
     // 添加今日数据
     if (statisticsData.today) {
-        labels.push('今日');
         let todayValue = 0;
         
-        // 根据具体指标确定从哪个统计对象中获取今日数据
         switch(metric) {
             case 'total_messages':
             case 'active_users':
@@ -619,7 +640,7 @@ function updateChart(metric) {
             case 'total_friends':
                 todayValue = statisticsData.today.user_stats ? statisticsData.today.user_stats[metric] || 0 : 0;
             break;
-        default:
+            default:
                 todayValue = 0;
         }
         
@@ -657,11 +678,16 @@ function updateChart(metric) {
     
     const colors = colorSchemes[metric] || colorSchemes['total_messages'];
     
+    // 确保只有一个数据集用于单线图表
     statisticsChart.data.labels = labels;
-    statisticsChart.data.datasets[0].label = metricNames[metric] || metric;
-    statisticsChart.data.datasets[0].data = data;
-    statisticsChart.data.datasets[0].borderColor = colors.border;
-    statisticsChart.data.datasets[0].backgroundColor = colors.bg;
+    statisticsChart.data.datasets = [{
+        label: metricNames[metric] || metric,
+        data: data,
+        borderColor: colors.border,
+        backgroundColor: colors.bg,
+        tension: 0.4,
+        fill: false
+    }];
     
     // 更新图表外部的平均值显示
     const averageDisplayElement = document.getElementById('chart-average-display');
@@ -681,6 +707,113 @@ function updateChart(metric) {
     statisticsChart.update();
     
     // 更新按钮状态  
+    updateButtonState(metric);
+}
+
+// 更新多线图表
+function updateMultiLineChart(metric, labels) {
+    const datasets = [];
+    
+    if (metric === 'group_events') {
+        // 群组变化：进群和退群两条线
+        const joinData = [];
+        const leaveData = [];
+        
+        // 处理历史数据
+        if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
+            statisticsData.historical.forEach(item => {
+                const joinCount = item.event_stats ? item.event_stats.group_join_count || 0 : 0;
+                const leaveCount = item.event_stats ? item.event_stats.group_leave_count || 0 : 0;
+                joinData.push(joinCount);
+                leaveData.push(leaveCount);
+            });
+        }
+        
+        // 添加今日数据
+        if (statisticsData.today) {
+            const todayJoin = statisticsData.today.event_stats ? statisticsData.today.event_stats.group_join_count || 0 : 0;
+            const todayLeave = statisticsData.today.event_stats ? statisticsData.today.event_stats.group_leave_count || 0 : 0;
+            joinData.push(todayJoin);
+            leaveData.push(todayLeave);
+        }
+        
+        datasets.push({
+            label: '进群数',
+            data: joinData,
+            borderColor: '#28a745',
+            backgroundColor: 'rgba(40, 167, 69, 0.15)',
+            tension: 0.4,
+            fill: false
+        });
+        
+        datasets.push({
+            label: '退群数',
+            data: leaveData,
+            borderColor: '#dc3545',
+            backgroundColor: 'rgba(220, 53, 69, 0.15)',
+            tension: 0.4,
+            fill: false
+        });
+        
+    } else if (metric === 'friend_events') {
+        // 好友变化：加友和删友两条线
+        const addData = [];
+        const removeData = [];
+        
+        // 处理历史数据
+        if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
+            statisticsData.historical.forEach(item => {
+                const addCount = item.event_stats ? item.event_stats.friend_add_count || 0 : 0;
+                const removeCount = item.event_stats ? item.event_stats.friend_remove_count || 0 : 0;
+                addData.push(addCount);
+                removeData.push(removeCount);
+            });
+        }
+        
+        // 添加今日数据
+        if (statisticsData.today) {
+            const todayAdd = statisticsData.today.event_stats ? statisticsData.today.event_stats.friend_add_count || 0 : 0;
+            const todayRemove = statisticsData.today.event_stats ? statisticsData.today.event_stats.friend_remove_count || 0 : 0;
+            addData.push(todayAdd);
+            removeData.push(todayRemove);
+        }
+        
+        datasets.push({
+            label: '加好友数',
+            data: addData,
+            borderColor: '#17a2b8',
+            backgroundColor: 'rgba(23, 162, 184, 0.15)',
+            tension: 0.4,
+            fill: false
+        });
+        
+        datasets.push({
+            label: '删好友数',
+            data: removeData,
+            borderColor: '#ffc107',
+            backgroundColor: 'rgba(255, 193, 7, 0.15)',
+            tension: 0.4,
+            fill: false
+        });
+    }
+    
+    statisticsChart.data.labels = labels;
+    statisticsChart.data.datasets = datasets;
+    
+    // 隐藏平均值显示
+    const averageDisplayElement = document.getElementById('chart-average-display');
+    if (averageDisplayElement) {
+        averageDisplayElement.style.display = 'none';
+    }
+    
+    statisticsChart.update();
+    
+    // 更新按钮状态
+    updateButtonState(metric);
+}
+
+// 更新按钮状态
+function updateButtonState(metric) {
     document.querySelectorAll('.chart-toggle').forEach(btn => {
         btn.classList.remove('active');
         if (btn.dataset.metric === metric) {
@@ -733,6 +866,7 @@ function updateTables(todayData) {
     }
 
     if (todayStatsTable) {
+        const eventStats = todayData.event_stats || {};
         todayStatsTable.innerHTML = `
             <tr><td>总消息量</td><td>${messageStats.total_messages || 0}</td></tr>
             <tr><td>活跃用户数</td><td>${messageStats.active_users || 0}</td></tr>
@@ -742,6 +876,13 @@ function updateTables(todayData) {
             <tr><td>总用户数</td><td>${userStats.total_users || 0}</td></tr>
             <tr><td>总群组数</td><td>${userStats.total_groups || 0}</td></tr>
             <tr><td>总好友数</td><td>${userStats.total_friends || 0}</td></tr>
+            <tr><td colspan="2" style="font-weight: bold; background-color: #f8f9fa;">事件统计</td></tr>
+            <tr><td>进群数</td><td>${eventStats.group_join_count || 0}</td></tr>
+            <tr><td>退群数</td><td>${eventStats.group_leave_count || 0}</td></tr>
+            <tr><td>群组净增量</td><td>${(eventStats.group_join_count || 0) - (eventStats.group_leave_count || 0)}</td></tr>
+            <tr><td>加好友数</td><td>${eventStats.friend_add_count || 0}</td></tr>
+            <tr><td>删好友数</td><td>${eventStats.friend_remove_count || 0}</td></tr>
+            <tr><td>好友净增量</td><td>${(eventStats.friend_add_count || 0) - (eventStats.friend_remove_count || 0)}</td></tr>
         `;
     }
     

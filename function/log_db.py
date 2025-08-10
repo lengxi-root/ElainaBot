@@ -28,13 +28,14 @@ logger = logging.getLogger('log_db')
 
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_INSERT_INTERVAL = 10
-LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'unmatched']
+LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'unmatched', 'dau']
 TABLE_SUFFIX = {
     'received': 'message',
     'plugin': 'plugin',
     'framework': 'framework',
     'error': 'error',
-    'unmatched': 'unmatched'
+    'unmatched': 'unmatched',
+    'dau': 'dau'
 }
 
 class LogDatabasePool:
@@ -312,6 +313,10 @@ class LogDatabaseManager:
         prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
         suffix = TABLE_SUFFIX.get(log_type, log_type)
         
+        # DAU表不按日期分表，使用统一表名
+        if log_type == 'dau':
+            return f"{prefix}{suffix}"
+        
         if LOG_DB_CONFIG.get('table_per_day', True):
             today = datetime.datetime.now().strftime('%Y%m%d')
             return f"{prefix}{today}_{suffix}"
@@ -331,11 +336,17 @@ class LogDatabaseManager:
 
     def _get_create_table_sql(self, table_name, log_type):
         """获取创建表SQL"""
-        base_sql = f"""
-            CREATE TABLE IF NOT EXISTS `{table_name}` (
-                `id` bigint(20) NOT NULL AUTO_INCREMENT,
-                `timestamp` datetime NOT NULL,
-        """
+        if log_type == 'dau':
+            # DAU表特殊处理，不需要id和timestamp字段
+            base_sql = f"""
+                CREATE TABLE IF NOT EXISTS `{table_name}` (
+            """
+        else:
+            base_sql = f"""
+                CREATE TABLE IF NOT EXISTS `{table_name}` (
+                    `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                    `timestamp` datetime NOT NULL,
+            """
         
         if log_type == 'received':
             specific_fields = """
@@ -359,16 +370,39 @@ class LogDatabaseManager:
                 `send_payload` text COMMENT '发送载荷',
                 `raw_message` text COMMENT '原始消息',
             """
+        elif log_type == 'dau':
+            specific_fields = """
+                `date` date NOT NULL COMMENT '日期' PRIMARY KEY,
+                `active_users` int(11) DEFAULT 0 COMMENT '活跃用户数',
+                `active_groups` int(11) DEFAULT 0 COMMENT '活跃群聊数',
+                `total_messages` int(11) DEFAULT 0 COMMENT '消息总数',
+                `private_messages` int(11) DEFAULT 0 COMMENT '私聊消息总数',
+                `group_join_count` int(11) DEFAULT 0 COMMENT '今日进群数',
+                `group_leave_count` int(11) DEFAULT 0 COMMENT '今日退群数',
+                `group_count_change` int(11) DEFAULT 0 COMMENT '群数量增减',
+                `friend_add_count` int(11) DEFAULT 0 COMMENT '今日加好友数',
+                `friend_remove_count` int(11) DEFAULT 0 COMMENT '今日删好友数',
+                `friend_count_change` int(11) DEFAULT 0 COMMENT '好友数增减',
+                `message_stats_detail` json COMMENT '详细消息统计数据(JSON)',
+                `user_stats_detail` json COMMENT '详细用户统计数据(JSON)',
+                `command_stats_detail` json COMMENT '详细命令统计数据(JSON)',
+            """
         else:
             specific_fields = """
                 `content` text NOT NULL,
             """
         
-        end_sql = """
-                `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (`id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        """
+        if log_type == 'dau':
+            end_sql = """
+                    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """
+        else:
+            end_sql = """
+                    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """
         
         return base_sql + specific_fields + end_sql
 
@@ -387,7 +421,10 @@ class LogDatabaseManager:
                 
                 create_table_sql = self._get_create_table_sql(table_name, log_type)
                 cursor.execute(create_table_sql)
-                cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
+                
+                # DAU表不创建时间索引，因为没有timestamp字段
+                if log_type != 'dau':
+                    cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
                 
                 if log_type == 'unmatched':
                     cursor.execute(f"CREATE INDEX idx_{table_name}_user ON {table_name} (user_id)")
@@ -485,6 +522,45 @@ class LogDatabaseManager:
                 log.get('resp_obj', ''),
                 log.get('send_payload', ''),
                 log.get('raw_message', '')
+            ) for log in logs]
+        elif log_type == 'dau':
+            sql = f"""
+                INSERT INTO `{table_name}` 
+                (`date`, `active_users`, `active_groups`, `total_messages`, `private_messages`, 
+                 `group_join_count`, `group_leave_count`, `group_count_change`, 
+                 `friend_add_count`, `friend_remove_count`, `friend_count_change`,
+                 `message_stats_detail`, `user_stats_detail`, `command_stats_detail`) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                `active_users` = VALUES(`active_users`),
+                `active_groups` = VALUES(`active_groups`),
+                `total_messages` = VALUES(`total_messages`),
+                `private_messages` = VALUES(`private_messages`),
+                `group_join_count` = `group_join_count` + VALUES(`group_join_count`),
+                `group_leave_count` = `group_leave_count` + VALUES(`group_leave_count`),
+                `group_count_change` = `group_count_change` + VALUES(`group_count_change`),
+                `friend_add_count` = `friend_add_count` + VALUES(`friend_add_count`),
+                `friend_remove_count` = `friend_remove_count` + VALUES(`friend_remove_count`),
+                `friend_count_change` = `friend_count_change` + VALUES(`friend_count_change`),
+                `message_stats_detail` = VALUES(`message_stats_detail`),
+                `user_stats_detail` = VALUES(`user_stats_detail`),
+                `command_stats_detail` = VALUES(`command_stats_detail`)
+            """
+            values = [(
+                log.get('date'),
+                log.get('active_users', 0),
+                log.get('active_groups', 0),
+                log.get('total_messages', 0),
+                log.get('private_messages', 0),
+                log.get('group_join_count', 0),
+                log.get('group_leave_count', 0),
+                log.get('group_count_change', 0),
+                log.get('friend_add_count', 0),
+                log.get('friend_remove_count', 0),
+                log.get('friend_count_change', 0),
+                json.dumps(log.get('message_stats_detail', {}), ensure_ascii=False) if log.get('message_stats_detail') else None,
+                json.dumps(log.get('user_stats_detail', {}), ensure_ascii=False) if log.get('user_stats_detail') else None,
+                json.dumps(log.get('command_stats_detail', []), ensure_ascii=False) if log.get('command_stats_detail') else None
             ) for log in logs]
         else:
             sql = f"""
@@ -642,11 +718,125 @@ def add_log_to_db(log_type, log_data):
             logger.error("日志数据必须是字典类型")
             return False
         
-        if 'timestamp' not in log_data:
-            log_data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        if 'content' not in log_data:
-            logger.error("日志数据必须包含'content'字段")
-            return False
+        if log_type == 'dau':
+            # DAU类型只需要date字段
+            if 'date' not in log_data:
+                log_data['date'] = datetime.datetime.now().strftime('%Y-%m-%d')
+        else:
+            if 'timestamp' not in log_data:
+                log_data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            if 'content' not in log_data:
+                logger.error("日志数据必须包含'content'字段")
+                return False
             
         return log_db_manager.add_log(log_type, log_data)
-    return False 
+    return False
+
+
+def add_dau_event_to_db(event_type, count=1, date=None):
+    """添加DAU事件到数据库
+    
+    Args:
+        event_type: 事件类型 'group_join', 'group_leave', 'friend_add', 'friend_remove'
+        count: 增量计数，默认为1
+        date: 日期，默认为今天
+    """
+    if not log_db_manager:
+        return False
+        
+    if date is None:
+        date = datetime.datetime.now().strftime('%Y-%m-%d')
+    
+    dau_data = {
+        'date': date,
+        'active_users': 0,
+        'active_groups': 0,
+        'total_messages': 0,
+        'private_messages': 0,
+        'group_join_count': count if event_type == 'group_join' else 0,
+        'group_leave_count': count if event_type == 'group_leave' else 0,
+        'group_count_change': count if event_type == 'group_join' else (-count if event_type == 'group_leave' else 0),
+        'friend_add_count': count if event_type == 'friend_add' else 0,
+        'friend_remove_count': count if event_type == 'friend_remove' else 0,
+        'friend_count_change': count if event_type == 'friend_add' else (-count if event_type == 'friend_remove' else 0)
+    }
+    
+    return add_log_to_db('dau', dau_data)
+
+
+def save_daily_dau_data(date, active_users, active_groups, total_messages, private_messages, 
+                       message_stats_detail=None, user_stats_detail=None, command_stats_detail=None):
+    """保存每日DAU统计数据
+    
+    Args:
+        date: 日期
+        active_users: 活跃用户数
+        active_groups: 活跃群聊数
+        total_messages: 消息总数
+        private_messages: 私聊消息总数
+        message_stats_detail: 详细消息统计数据(dict)
+        user_stats_detail: 详细用户统计数据(dict)
+        command_stats_detail: 详细命令统计数据(list)
+    """
+    if not log_db_manager:
+        return False
+    
+    dau_data = {
+        'date': date,
+        'active_users': active_users,
+        'active_groups': active_groups,
+        'total_messages': total_messages,
+        'private_messages': private_messages,
+        'group_join_count': 0,
+        'group_leave_count': 0,
+        'group_count_change': 0,
+        'friend_add_count': 0,
+        'friend_remove_count': 0,
+        'friend_count_change': 0,
+        'message_stats_detail': message_stats_detail,
+        'user_stats_detail': user_stats_detail,
+        'command_stats_detail': command_stats_detail
+    }
+    
+    return add_log_to_db('dau', dau_data)
+
+
+def save_complete_dau_data(dau_data_dict):
+    """保存完整的DAU数据（包含所有详细信息）
+    
+    Args:
+        dau_data_dict: 完整的DAU数据字典
+    """
+    if not log_db_manager:
+        return False
+    
+    # 从完整数据中提取基础统计
+    message_stats = dau_data_dict.get('message_stats', {})
+    user_stats = dau_data_dict.get('user_stats', {})
+    command_stats = dau_data_dict.get('command_stats', [])
+    
+    date = dau_data_dict.get('date')
+    active_users = message_stats.get('active_users', 0)
+    active_groups = message_stats.get('active_groups', 0)
+    total_messages = message_stats.get('total_messages', 0)
+    private_messages = message_stats.get('private_messages', 0)
+    
+    # 构建数据库记录
+    db_data = {
+        'date': date,
+        'active_users': active_users,
+        'active_groups': active_groups,
+        'total_messages': total_messages,
+        'private_messages': private_messages,
+        'group_join_count': 0,  # 事件统计数据会通过add_dau_event_to_db累加
+        'group_leave_count': 0,
+        'group_count_change': 0,
+        'friend_add_count': 0,
+        'friend_remove_count': 0,
+        'friend_count_change': 0,
+        'message_stats_detail': message_stats,
+        'user_stats_detail': user_stats,
+        'command_stats_detail': command_stats
+    }
+    
+    return add_log_to_db('dau', db_data)

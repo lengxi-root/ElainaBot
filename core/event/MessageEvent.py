@@ -90,7 +90,8 @@ class MessageEvent:
         self.content = ""
         self.message_type = self.UNKNOWN_MESSAGE
         self.event_type = self.get('t')
-        self.message_id = self.get('id')
+        # 智能获取消息ID：优先从d/id获取（WebSocket格式），fallback到id（webhook格式）
+        self.message_id = self.get('d/id') or self.get('id')
         self.timestamp = self.get('d/timestamp')
         self.matches = None
         self.db = Database()
@@ -163,7 +164,7 @@ class MessageEvent:
         self.channel_id = self.guild_id = None
         button_data = self.get('d/data/resolved/button_data')
         self.content = self.sanitize_content(button_data) if button_data else ""
-        self.id = self.get('id')
+        self.id = self.get('d/id') or self.get('id')
 
     def _parse_channel_message(self):
         self.message_type = self.CHANNEL_MESSAGE
@@ -198,7 +199,7 @@ class MessageEvent:
         self.is_group = True
         self.is_private = False
         self.timestamp = self.get('d/timestamp')
-        self.id = self.get('id')
+        self.id = self.get('d/id') or self.get('id')
         
         self.handled = True
         self.welcome_allowed = True
@@ -228,9 +229,9 @@ class MessageEvent:
         if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
             payload["msg_id"] = self.message_id
         elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('id') or ""
+            payload["event_id"] = self.get('d/id') or self.get('id') or ""
         elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.get('id')
+            payload["msg_id"] = self.get('d/id') or self.get('id')
         return payload
     
     def _handle_auto_recall(self, message_id, auto_delete_time):
@@ -263,7 +264,7 @@ class MessageEvent:
         endpoint = self._get_endpoint()
         
         if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+            payload['event_id'] = self.get('d/id') or self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
         # 发送消息
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}")
@@ -311,7 +312,7 @@ class MessageEvent:
         
         if self.message_type == self.GROUP_ADD_ROBOT:
             if 'event_id' not in payload or not payload['event_id']:
-                payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+                payload['event_id'] = self.get('d/id') or self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, "消息", f"content: {content}")
         
@@ -377,7 +378,7 @@ class MessageEvent:
         endpoint = self._get_endpoint()
         
         if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+            payload['event_id'] = self.get('d/id') or self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, "markdown模板消息", f"template: {template}, params: {params}")
         
@@ -538,7 +539,7 @@ class MessageEvent:
         endpoint = self._get_endpoint()
         
         if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+            payload['event_id'] = self.get('d/id') or self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"payload: {json.dumps(payload, ensure_ascii=False)}")
         
@@ -557,9 +558,9 @@ class MessageEvent:
         if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
             payload["msg_id"] = self.message_id
         elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('id') or ""
+            payload["event_id"] = self.get('d/id') or self.get('id') or ""
         elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.get('id')
+            payload["msg_id"] = self.get('d/id') or self.get('id')
         
         # 设置内容
         if media:

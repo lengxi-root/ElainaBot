@@ -3,8 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% if title %}{{ title }} - {% endif %}Elaina仪表盘</title>
+    <title>{% if title %}{{ title }} - {% endif %}{{ web_interface.framework_name }}{{ web_interface.pc_title_suffix }}</title>
     <base href="{{ prefix }}/">
+    {% if web_interface.favicon_url %}
+    <link rel="icon" type="image/x-icon" href="{{ web_interface.favicon_url }}">
+    <link rel="shortcut icon" type="image/x-icon" href="{{ web_interface.favicon_url }}">
+    {% endif %}
     <link href="{{ url_for('web.static', filename='css/vendor/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('web.static', filename='css/vendor/bootstrap-icons.css') }}" rel="stylesheet">
     
@@ -32,7 +36,7 @@
                 <!-- 标题：位于1/3处 -->
                 <h1 class="page-title d-flex align-items-center mb-0" style="position: absolute; left: 10%; transform: translateX(0);">
                     <i class="bi bi-laptop me-2"></i>
-                    Elaina仪表盘
+                    {{ web_interface.framework_name }}{{ web_interface.pc_title_suffix }}
                 </h1>
                 
                 <!-- 右侧：状态信息 -->

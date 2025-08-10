@@ -21,7 +21,7 @@ from flask_socketio import SocketIO
 from flask_cors import CORS
 import psutil
 import requests
-from config import LOG_DB_CONFIG, WEB_SECURITY, ROBOT_QQ, appid, WEBSOCKET_CONFIG
+from config import LOG_DB_CONFIG, WEB_SECURITY, WEB_INTERFACE, ROBOT_QQ, appid, WEBSOCKET_CONFIG
 
 # 导入日志数据库函数
 try:
@@ -417,7 +417,7 @@ def require_auth(f):
                 else:
                     del valid_sessions[session_token]
         token = request.args.get('token', '')
-        return render_template('login.html', token=token)
+        return render_template('login.html', token=token, web_interface=WEB_INTERFACE)
     return decorated_function
 
 def require_socketio_token(f):
@@ -648,7 +648,7 @@ def login():
         return response
     else:
         record_ip_access(request.remote_addr, access_type='password_fail')
-        return render_template('login.html', token=token, error='密码错误，请重试')
+        return render_template('login.html', token=token, error='密码错误，请重试', web_interface=WEB_INTERFACE)
 
 @web.route('/')
 @check_ip_ban
@@ -672,7 +672,8 @@ def index():
                                            device_type=device_type,
                                            ROBOT_QQ=ROBOT_QQ,
                                            appid=appid,
-                                           WEBSOCKET_CONFIG=WEBSOCKET_CONFIG))
+                                           WEBSOCKET_CONFIG=WEBSOCKET_CONFIG,
+                                           web_interface=WEB_INTERFACE))
     
     if WEB_SECURITY.get('secure_headers', True):
         response.headers['X-Content-Type-Options'] = 'nosniff'

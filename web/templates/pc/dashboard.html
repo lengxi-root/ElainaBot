@@ -1,0 +1,219 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<!-- 机器人信息卡片 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card robot-info-card">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-auto">
+                        <img id="robot-avatar" src="" alt="机器人头像" class="robot-avatar" style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid #4361ee; object-fit: cover; display: none;">
+                    </div>
+                    <div class="col">
+                        <div class="robot-info">
+                            <h5 class="mb-1">
+                                <i class="bi bi-robot"></i> 
+                                <span id="robot-name">加载中...</span>
+                                <span class="badge bg-primary ms-2" id="connection-type">WebHook</span>
+                            </h5>
+                            <p class="text-muted mb-2" id="robot-desc">正在获取机器人信息...</p>
+                            <div class="d-flex align-items-center flex-wrap">
+                                <span class="me-3 mb-1">
+                                    <i class="bi bi-link-45deg"></i>
+                                    连接状态: <span class="badge" id="connection-status">检测中...</span>
+                                </span>
+                                <span class="me-3 mb-1">
+                                    <i class="bi bi-hash"></i>
+                                    QQ号: <span id="robot-qq">{{ ROBOT_QQ or 'N/A' }}</span>
+                                </span>
+                                <span class="me-3 mb-1">
+                                    <i class="bi bi-key"></i>
+                                    APPID: <span id="robot-appid">{{ appid or 'N/A' }}</span>
+                                </span>
+
+                                <span class="mb-1">
+                                    <i class="bi bi-box-arrow-up-right"></i>
+                                    <a href="#" id="robot-link" target="_blank" style="color: rgba(255,255,255,0.9);">机器人链接</a>
+                                    <button class="btn btn-sm btn-outline-light ms-2" onclick="showRobotQRCode()" title="显示二维码">
+                                        <i class="bi bi-qr-code"></i>
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-outline-light btn-sm" onclick="refreshRobotInfo()">
+                            <i class="bi bi-arrow-clockwise"></i> 刷新
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 系统信息卡片 -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card system-card">
+            <div class="card-body">
+                <div class="system-title">
+                    <i class="bi bi-cpu"></i> 服务器CPU使用率
+                </div>
+                <div class="system-value">
+                    <span id="cpu-text">0%</span>
+                    <small class="text-muted">(框架: <span id="framework-cpu">0%</span>)</small>
+                </div>
+                <div class="progress">
+                    <div id="cpu-progress" class="progress-bar progress-bar-cpu" role="progressbar" style="width: 0%"></div>
+                </div>
+                <small class="text-muted">处理器负载</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card system-card">
+            <div class="card-body">
+                <div class="system-title">
+                    <i class="bi bi-memory"></i> 服务器内存使用率
+                </div>
+                <div class="system-value">
+                    <span id="memory-text">0%</span>
+                    <small class="text-muted">(框架: <span id="framework-memory-percent">0%</span>)</small>
+                </div>
+                <div class="progress">
+                    <div id="memory-progress" class="progress-bar progress-bar-memory" role="progressbar" style="width: 0%"></div>
+                </div>
+                <small class="text-muted">内存占用情况</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card system-card">
+            <div class="card-body">
+                <div class="system-title">
+                    <i class="bi bi-hdd-rack"></i> 服务器总内存使用
+                </div>
+                <div class="system-value">
+                    <span id="total-memory">0 MB</span>
+                    <small class="text-muted">(框架: <span id="framework-memory-total">0 MB</span>)</small>
+                </div>
+                <div class="progress">
+                    <div id="total-memory-progress" class="progress-bar bg-primary" role="progressbar" style="width: 0%"></div>
+                </div>
+                <small class="text-muted">系统所有进程占用的总内存</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card system-card">
+            <div class="card-body">
+                <div class="system-title">
+                    <i class="bi bi-hdd-fill"></i> 硬盘空间
+                </div>
+                <div class="system-value">
+                    <span id="disk-used">0 GB</span>
+                    <small class="text-muted">(框架: <span id="framework-disk">0 GB</span>)</small>
+                </div>
+                <div class="progress">
+                    <div id="disk-progress" class="progress-bar bg-info" role="progressbar" style="width: 0%"></div>
+                </div>
+                <small class="text-muted">磁盘使用情况</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 第二行：服务器状态和内存分配 -->
+<div class="row mb-4">
+    <!-- 服务器状态卡片 -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-server"></i> Server</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><i class="bi bi-cpu me-2"></i>内核数</span>
+                            <span id="cpu-cores" class="fw-bold">0</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><i class="bi bi-memory me-2"></i>总内存</span>
+                            <span id="total-system-memory" class="fw-bold">0 GB</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><i class="bi bi-folder-fill me-2"></i>框架占用空间</span>
+                            <span id="framework-disk-usage" class="fw-bold">0 GB</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><i class="bi bi-hdd-fill me-2"></i>已使用空间</span>
+                            <span id="disk-used" class="fw-bold">0 GB</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><i class="bi bi-hdd-stack me-2"></i>硬盘总容量</span>
+                            <span id="disk-total" class="fw-bold">0 GB</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><i class="bi bi-calendar-check me-2"></i>服务器开机时间</span>
+                            <span id="boot-time" class="fw-bold">未知</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><i class="bi bi-clock-history me-2"></i>服务器运行时间</span>
+                            <span id="system-uptime" class="fw-bold">0天 0小时</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span><i class="bi bi-info-circle me-2"></i>服务器系统版本</span>
+                            <span id="system-version" class="fw-bold">未知</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 内存分配详情卡片 -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-bar-chart-fill"></i> 内存分配详情</h6>
+            </div>
+            <div class="card-body">
+                <div class="row row-cols-2 g-3">
+                    <div class="col">
+                        <div class="p-2 border rounded bg-light h-100">
+                            <div class="d-flex flex-column align-items-center">
+                                <div><i class="bi bi-recycle text-warning"></i> GC计数</div>
+                                <div id="gc-count" class="badge bg-warning mt-1">0/0/0</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="p-2 border rounded bg-light h-100">
+                            <div class="d-flex flex-column align-items-center">
+                                <div><i class="bi bi-boxes text-danger"></i> 对象数</div>
+                                <div id="objects-count" class="badge bg-danger mt-1">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Dashboard页面初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化机器人信息
+    loadRobotInfo();
+    
+    // 初始化WebSocket连接（仅dashboard页面需要的功能）
+    initSocket('dashboard');
+});
+</script>
+{% endblock %}

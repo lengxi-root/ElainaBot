@@ -1,0 +1,979 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<!-- 统计页面 -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h5 class="mb-0">数据统计</h5>
+    <div class="d-flex gap-2">
+        <button class="btn-control btn-warning" id="complete-dau">
+            <i class="bi bi-plus-circle"></i> 补全DAU
+        </button>
+        <button class="btn-control" id="refresh-statistics">
+            <i class="bi bi-arrow-clockwise"></i> 刷新数据
+        </button>
+    </div>
+</div>
+
+<!-- 统计图表 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">数据趋势图 (最近30天)</h6>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <button class="btn btn-sm btn-outline-primary chart-toggle active" data-metric="total_messages">总消息量</button>
+                    <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="active_users">活跃用户数</button>
+                    <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="active_groups">活跃群聊数</button>
+                    <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="private_messages">私聊消息数</button>
+                    <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="total_users">总用户数</button>
+                    <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="total_groups">总群组数</button>
+                    <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="total_friends">总好友数</button>
+                </div>
+                <div class="chart-container position-relative">
+                    <div id="chart-average-display" class="chart-average-display"></div>
+                    <canvas id="statisticsChart" width="400" height="150"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 日期选择器 -->
+<div class="row mb-3 date-selector-container">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body" style="padding-bottom: 20px; position: relative; z-index: 100;">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-3">
+                        <label for="date-selector" class="form-label mb-0">查看日期:</label>
+                        <select class="form-select date-selector-dropdown" id="date-selector" style="width: 200px;">
+                            <option value="today">今日数据</option>
+                        </select>
+                        <small class="text-muted">选择要查看的日期数据</small>
+            </div>
+                    <div id="data-source-info" class="data-source-info">
+                        <span class="badge bg-secondary">
+                            <i class="bi bi-hourglass-split"></i> 加载中...
+                        </span>
+        </div>
+    </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 详细数据表格 -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title" id="stats-table-title">今日数据概览</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <tbody id="today-stats-table">
+                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 指令使用排行放在今日数据下面 -->
+                <hr class="my-3">
+                <h6 class="card-title">指令使用排行</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>指令</th>
+                                <th>使用次数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="command-stats-table">
+                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <!-- 最活跃用户在上方 -->
+                <h6 class="card-title">最活跃用户</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>用户ID</th>
+                                <th>消息数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="top-users-table">
+                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 最活跃群组在下方 -->
+                <hr class="my-3">
+                <h6 class="card-title">最活跃群组</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>群组ID</th>
+                                <th>消息数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="top-groups-table">
+                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+
+<script>
+// =====================
+// 统计页面相关功能
+// =====================
+let statisticsChart = null;
+let statisticsData = null;
+
+// 自定义平均值显示插件（完全照抄老版本）
+const averageDisplayPlugin = {
+    id: 'averageDisplay',
+    afterDraw: function(chart) {
+        const options = chart.options.plugins.averageDisplay;
+        if (!options || !options.display) return;
+        
+        const ctx = chart.ctx;
+        const legend = chart.legend;
+        
+        if (!legend || !legend.legendItems || legend.legendItems.length === 0) return;
+        
+        ctx.save();
+        ctx.font = 'normal 12px Arial';
+        ctx.fillStyle = options.color || '#666';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        
+        const text = ` (${options.text})`;
+        
+        // 获取图例项的位置
+        const legendItem = legend.legendItems[0];
+        if (legendItem) {
+            // 计算文本位置：在图例标签后面
+            const labelWidth = ctx.measureText(legendItem.text).width;
+            const x = legend.left + 35 + labelWidth; // 35是图例色块和间距的宽度
+            const y = legend.top + legend.height / 2;
+            
+            ctx.fillText(text, x, y);
+        }
+        
+        ctx.restore();
+    }
+};
+
+// 数字格式化函数
+function formatNumber(num) {
+    // 处理各种输入类型
+    if (num === null || num === undefined) {
+        return '0';
+    }
+    
+    // 如果是对象，尝试提取数值
+    if (typeof num === 'object') {
+        if (num.value !== undefined) {
+            num = num.value;
+        } else if (num.count !== undefined) {
+            num = num.count;
+        } else {
+            return '0';
+        }
+    }
+    
+    // 转换为数字
+    const numValue = Number(num);
+    
+    // 检查是否为有效数字
+    if (isNaN(numValue)) {
+        return '0';
+    }
+    
+    if (numValue >= 10000) {
+        return (numValue / 10000).toFixed(2).replace(/\.?0+$/, '') + 'w';
+    } else if (numValue >= 1000) {
+        return (numValue / 1000).toFixed(2).replace(/\.?0+$/, '') + 'k';
+    } else {
+        return numValue.toString();
+    }
+}
+
+
+
+// 初始化统计页面
+function initStatistics() {
+    const ctx = document.getElementById('statisticsChart');
+    if (!ctx) return;
+    
+    statisticsChart = new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: '总消息量',
+                data: [],
+                borderColor: '#4361ee',
+                backgroundColor: 'rgba(67, 97, 238, 0.15)',
+                tension: 0.3,
+                fill: true,
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+                    plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                align: 'start'
+            },
+            datalabels: {
+                display: true,
+                align: 'top',
+                anchor: 'end',
+                color: 'rgba(0, 0, 0, 0.6)',
+                font: {
+                    size: 10,
+                    weight: 'normal'
+                },
+                formatter: function(value, context) {
+                    return formatNumber(value);
+                },
+                padding: {
+                    bottom: 4
+                },
+                clip: false
+            },
+            averageDisplay: {
+                display: false
+            }
+        },
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: '日期'
+                    }
+                },
+                y: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: '数量'
+                    },
+                    beginAtZero: true
+                }
+            }
+        },
+        plugins: [ChartDataLabels, averageDisplayPlugin]
+    });
+}
+
+// 加载统计数据（完全照抄老版本实现）
+function loadStatistics(forceRefresh = false) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (!token) {
+        console.error('未找到访问token');
+        return;
+    }
+    
+    // 构建API URL，如果需要强制刷新则添加参数（完全照抄老版本）
+    let apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}`;
+    if (forceRefresh) {
+        apiUrl += '&force_refresh=true';
+    }
+    
+    fetch(apiUrl)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                statisticsData = data;
+                // 只有在加载完整统计数据时才更新图表（完全照抄老版本逻辑）
+                if (data.historical && data.today) {
+                    updateChart('total_messages');
+                    updateTables(data.today || {});
+                } else if (data.selected_date_data) {
+                    // 这是历史日期数据，只更新表格
+                    updateTables(data.selected_date_data);
+                }
+            } else {
+                console.error('加载统计数据失败:', data.error);
+                showStatisticsError('加载统计数据失败: ' + (data.error || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('获取统计数据时出错:', error);
+            showStatisticsError('获取统计数据时出错: ' + error.message);
+        });
+}
+
+// 更新图表
+function updateChart(metric) {
+    if (!statisticsChart || !statisticsData) return;
+    
+    const labels = [];
+    const data = [];
+    let total = 0;
+    let count = 0;
+    
+    statisticsData.forEach(item => {
+        labels.push(item.date);
+        const value = item[metric] || 0;
+        data.push(value);
+        total += value;
+        count++;
+    });
+    
+    const average = count > 0 ? (total / count) : 0;
+    
+    // 更新图表数据
+    statisticsChart.data.labels = labels;
+    statisticsChart.data.datasets[0].data = data;
+    
+    // 获取度量标签
+    const metricLabels = {
+        'total_messages': '总消息量',
+        'active_users': '活跃用户数',
+        'active_groups': '活跃群聊数',
+        'private_messages': '私聊消息数',
+        'total_users': '总用户数',
+        'total_groups': '总群组数',
+        'total_friends': '总好友数'
+    };
+    
+    statisticsChart.data.datasets[0].label = metricLabels[metric] || metric;
+    
+    // 更新平均值显示
+    statisticsChart.options.plugins.averageDisplay.display = true;
+    statisticsChart.options.plugins.averageDisplay.text = `平均: ${formatNumber(Math.round(average))}`;
+    
+    statisticsChart.update();
+    
+    // 更新按钮状态
+    document.querySelectorAll('.chart-toggle').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`[data-metric="${metric}"]`).classList.add('active');
+}
+
+// 更新数据源信息
+function updateDataSourceInfo(data) {
+    const infoElement = document.getElementById('data-source-info');
+    if (!infoElement || !data.data_source_info) return;
+    
+    const sourceInfo = data.data_source_info;
+    let badgeClass = 'bg-secondary';
+    let icon = 'hourglass-split';
+    let text = '未知';
+    
+    if (sourceInfo.source === 'api') {
+        badgeClass = 'bg-success';
+        icon = 'cloud-check';
+        text = '实时数据';
+    } else if (sourceInfo.source === 'cache') {
+        badgeClass = 'bg-info';
+        icon = 'clock-history';
+        text = '缓存数据';
+    }
+    
+    infoElement.innerHTML = `
+        <span class="badge ${badgeClass}">
+            <i class="bi bi-${icon}"></i> ${text}
+        </span>
+        <small>${sourceInfo.update_time || ''}</small>
+    `;
+}
+
+// 填充日期选择器（完全照抄老版本实现）
+function populateDateSelector(dates) {
+    const selector = document.getElementById('date-selector');
+    selector.innerHTML = ''; // 清空现有选项
+    
+    dates.forEach(dateItem => {
+        const option = document.createElement('option');
+        option.value = dateItem.value;
+        option.textContent = dateItem.display;
+        if (dateItem.is_today) {
+            option.selected = true; // 默认选中今日
+        }
+        selector.appendChild(option);
+    });
+}
+
+// 加载可用日期（照抄老版本实现）
+function loadAvailableDates() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (!token) return;
+    
+    fetch(`/web/api/available_dates?token=${encodeURIComponent(token)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.dates) {
+                populateDateSelector(data.dates);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading available dates:', error);
+        });
+}
+
+// 加载指定日期的数据（使用loadDateSpecificData）
+function loadDateData(date) {
+    loadDateSpecificData(date);
+}
+
+// 更新今日统计数据
+function updateTodayStats(data) {
+    const table = document.getElementById('today-stats-table');
+    if (!data) {
+        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+        return;
+    }
+    
+    const statsItems = [
+        { label: '总消息量', value: data.total_messages || 0 },
+        { label: '活跃用户数', value: data.active_users || 0 },
+        { label: '活跃群聊数', value: data.active_groups || 0 },
+        { label: '私聊消息数', value: data.private_messages || 0 },
+        { label: '群聊消息数', value: data.group_messages || 0 },
+        { label: '总用户数', value: data.total_users || 0 },
+        { label: '总群组数', value: data.total_groups || 0 },
+        { label: '总好友数', value: data.total_friends || 0 }
+    ];
+    
+    table.innerHTML = statsItems.map(item => 
+        `<tr><td>${item.label}</td><td class="fw-bold">${formatNumber(item.value)}</td></tr>`
+    ).join('');
+}
+
+// 更新最活跃用户
+function updateTopUsers(users) {
+    const table = document.getElementById('top-users-table');
+    if (!users || users.length === 0) {
+        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+        return;
+    }
+    
+    table.innerHTML = users.map(user => 
+        `<tr><td>${user.user_id}</td><td class="fw-bold">${formatNumber(user.message_count)}</td></tr>`
+    ).join('');
+}
+
+// 更新最活跃群组
+function updateTopGroups(groups) {
+    const table = document.getElementById('top-groups-table');
+    if (!groups || groups.length === 0) {
+        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+        return;
+    }
+    
+    table.innerHTML = groups.map(group => 
+        `<tr><td>${group.group_id}</td><td class="fw-bold">${formatNumber(group.message_count)}</td></tr>`
+    ).join('');
+}
+
+// 更新指令统计
+function updateCommandStats(commands) {
+    const table = document.getElementById('command-stats-table');
+    if (!commands || commands.length === 0) {
+        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+        return;
+    }
+    
+    table.innerHTML = commands.map(cmd => 
+        `<tr><td>${cmd.command}</td><td class="fw-bold">${formatNumber(cmd.count)}</td></tr>`
+    ).join('');
+}
+
+// 补全DAU（照抄老版本实现）
+function completeDau() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (!token) return;
+    
+    const button = document.getElementById('complete-dau');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="bi bi-hourglass-split"></i> 处理中...';
+    button.disabled = true;
+    
+    fetch(`/web/api/complete_dau?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({})
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('DAU补全成功！');
+                loadStatistics(); // 重新加载数据
+            } else {
+                alert('DAU补全失败：' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error completing DAU:', error);
+            alert('DAU补全失败');
+        })
+        .finally(() => {
+            button.innerHTML = originalText;
+            button.disabled = false;
+        });
+}
+
+// 显示统计错误信息（照抄老版本）
+function showStatisticsError(message) {
+    const container = document.getElementById('statistics-container');
+    if (container) {
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i> ${message}
+            </div>
+        `;
+    }
+}
+
+// 更新图表（完全照抄老版本实现）
+function updateChart(metric) {
+    if (!statisticsChart || !statisticsData) return;
+    
+    const labels = [];
+    const data = [];
+    
+    // 处理历史数据
+    if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
+        statisticsData.historical.forEach(item => {
+            // 使用display_date（MM-DD格式）如果存在，否则使用date
+            const displayLabel = item.display_date || item.date || '未知';
+            labels.push(displayLabel);
+            
+            let value = 0;
+            
+            // 根据具体指标确定从哪个统计对象中获取数据
+            switch(metric) {
+                case 'total_messages':
+                case 'active_users':
+                case 'active_groups':
+                case 'private_messages':
+                    value = item.message_stats ? item.message_stats[metric] || 0 : 0;
+            break;
+                case 'total_users':
+                case 'total_groups':
+                case 'total_friends':
+                    value = item.user_stats ? item.user_stats[metric] || 0 : 0;
+            break;
+                default:
+                    value = 0;
+            }
+            
+            data.push(value);
+        });
+    }
+    
+    // 添加今日数据
+    if (statisticsData.today) {
+        labels.push('今日');
+        let todayValue = 0;
+        
+        // 根据具体指标确定从哪个统计对象中获取今日数据
+        switch(metric) {
+            case 'total_messages':
+            case 'active_users':
+            case 'active_groups':
+            case 'private_messages':
+                todayValue = statisticsData.today.message_stats ? statisticsData.today.message_stats[metric] || 0 : 0;
+            break;
+            case 'total_users':
+            case 'total_groups':
+            case 'total_friends':
+                todayValue = statisticsData.today.user_stats ? statisticsData.today.user_stats[metric] || 0 : 0;
+            break;
+        default:
+                todayValue = 0;
+        }
+        
+        data.push(todayValue);
+    }
+    
+    // 计算30天内平均值（只对前4个指标）
+    let averageText = '';
+    const shouldShowAverage = ['total_messages', 'active_users', 'active_groups', 'private_messages'].includes(metric);
+    if (shouldShowAverage && data.length > 0) {
+        const average = data.reduce((sum, val) => sum + val, 0) / data.length;
+        averageText = `30天平均: ${formatNumber(Math.round(average))}`;
+    }
+    
+    const metricNames = {
+        'total_messages': '总消息量',
+        'active_users': '活跃用户数',
+        'active_groups': '活跃群聊数',
+        'private_messages': '私聊消息数',
+        'total_users': '总用户数',
+        'total_groups': '总群组数',
+        'total_friends': '总好友数'
+    };
+    
+    // 为不同指标设置不同颜色
+    const colorSchemes = {
+        'total_messages': { border: '#4361ee', bg: 'rgba(67, 97, 238, 0.15)' },
+        'active_users': { border: '#f72585', bg: 'rgba(247, 37, 133, 0.15)' },
+        'active_groups': { border: '#4cc9f0', bg: 'rgba(76, 201, 240, 0.15)' },
+        'private_messages': { border: '#7209b7', bg: 'rgba(114, 9, 183, 0.15)' },
+        'total_users': { border: '#f77f00', bg: 'rgba(247, 127, 0, 0.15)' },
+        'total_groups': { border: '#fcbf49', bg: 'rgba(252, 191, 73, 0.15)' },
+        'total_friends': { border: '#606c38', bg: 'rgba(96, 108, 56, 0.15)' }
+    };
+    
+    const colors = colorSchemes[metric] || colorSchemes['total_messages'];
+    
+    statisticsChart.data.labels = labels;
+    statisticsChart.data.datasets[0].label = metricNames[metric] || metric;
+    statisticsChart.data.datasets[0].data = data;
+    statisticsChart.data.datasets[0].borderColor = colors.border;
+    statisticsChart.data.datasets[0].backgroundColor = colors.bg;
+    
+    // 更新图表外部的平均值显示
+    const averageDisplayElement = document.getElementById('chart-average-display');
+    if (shouldShowAverage && averageDisplayElement) {
+        averageDisplayElement.textContent = averageText;
+        averageDisplayElement.style.color = colors.border;
+        averageDisplayElement.style.display = 'block';
+    } else if (averageDisplayElement) {
+        averageDisplayElement.style.display = 'none';
+    }
+    
+    // 禁用原来的插件显示
+    statisticsChart.options.plugins.averageDisplay = {
+        display: false
+    };
+    
+    statisticsChart.update();
+    
+    // 更新按钮状态  
+    document.querySelectorAll('.chart-toggle').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.metric === metric) {
+            btn.classList.add('active');
+        }
+    });
+}
+
+// 更新表格（完全照抄老版本实现）
+function updateTables(todayData) {
+    // 更新今日数据概览表格
+    const todayStatsTable = document.getElementById('today-stats-table');
+    const messageStats = todayData.message_stats || {};
+    const userStats = todayData.user_stats || {};
+    
+    // 更新数据源信息显示
+    const dataSourceInfoElement = document.getElementById('data-source-info');
+    if (dataSourceInfoElement) {
+        let sourceHtml = '';
+        if (todayData.is_historical) {
+            sourceHtml = `<span class="badge bg-info">
+                <i class="bi bi-folder"></i> 本地文件
+            </span>`;
+            if (todayData.generated_at) {
+                try {
+                    const genTime = new Date(todayData.generated_at);
+                    const timeStr = genTime.toLocaleString('zh-CN', { 
+                        month: '2-digit', 
+                        day: '2-digit', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                    });
+                    sourceHtml += `<br><small class="text-muted">
+                        <i class="bi bi-clock"></i> ${timeStr}
+                    </small>`;
+                } catch (e) {
+                    // 时间解析失败，忽略
+                }
+            }
+        } else if (todayData.is_realtime) {
+            sourceHtml = `<span class="badge bg-warning text-dark">
+                <i class="bi bi-database"></i> 实时查询
+            </span>`;
+        } else {
+            sourceHtml = `<span class="badge bg-success">
+                <i class="bi bi-folder"></i> 本地文件
+            </span>`;
+        }
+        dataSourceInfoElement.innerHTML = sourceHtml;
+    }
+
+    if (todayStatsTable) {
+        todayStatsTable.innerHTML = `
+            <tr><td>总消息量</td><td>${messageStats.total_messages || 0}</td></tr>
+            <tr><td>活跃用户数</td><td>${messageStats.active_users || 0}</td></tr>
+            <tr><td>活跃群聊数</td><td>${messageStats.active_groups || 0}</td></tr>
+            <tr><td>私聊消息数</td><td>${messageStats.private_messages || 0}</td></tr>
+            <tr><td>最活跃时段</td><td>${messageStats.peak_hour || 0}点 (${messageStats.peak_hour_count || 0}条)</td></tr>
+            <tr><td>总用户数</td><td>${userStats.total_users || 0}</td></tr>
+            <tr><td>总群组数</td><td>${userStats.total_groups || 0}</td></tr>
+            <tr><td>总好友数</td><td>${userStats.total_friends || 0}</td></tr>
+        `;
+    }
+    
+    // 更新最活跃群组表格
+    const topGroupsTable = document.getElementById('top-groups-table');
+    const topGroups = messageStats.top_groups || [];
+    if (topGroupsTable) {
+        if (topGroups.length > 0) {
+            topGroupsTable.innerHTML = topGroups.slice(0, 5).map(group => 
+                `<tr><td>${maskId(group.group_id)}</td><td>${group.message_count}</td></tr>`
+            ).join('');
+        } else {
+            topGroupsTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+        }
+    }
+    
+    // 更新最活跃用户表格
+    const topUsersTable = document.getElementById('top-users-table');
+    const topUsers = messageStats.top_users || [];
+    if (topUsersTable) {
+        if (topUsers.length > 0) {
+            topUsersTable.innerHTML = topUsers.slice(0, 5).map(user => 
+                `<tr><td><span class="user-id-with-nickname" data-user-id="${user.user_id}">${maskId(user.user_id)} <span class="nickname-loading">📝</span></span></td><td>${user.message_count}</td></tr>`
+            ).join('');
+            
+            // 异步加载昵称
+            loadNicknamesForUsers(topUsers.slice(0, 5));
+        } else {
+            topUsersTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+        }
+    }
+    
+    // 更新指令使用排行表格
+    const commandStatsTable = document.getElementById('command-stats-table');
+    const commandStats = todayData.command_stats || [];
+    if (commandStatsTable) {
+        if (commandStats.length > 0) {
+            commandStatsTable.innerHTML = commandStats.slice(0, 5).map(cmd => 
+                `<tr><td>${cmd.command}</td><td>${cmd.count}</td></tr>`
+            ).join('');
+        } else {
+            commandStatsTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+        }
+    }
+}
+
+// 脱敏处理ID（照抄老版本）
+function maskId(id) {
+    if (!id || typeof id !== 'string') return '未知';
+    if (id.length <= 6) return id;
+    return id.substring(0, 3) + '***' + id.substring(id.length - 3);
+}
+
+// 昵称缓存（照抄老版本）
+const nicknameCache = new Map();
+
+// 为用户列表加载昵称（照抄老版本）
+function loadNicknamesForUsers(users) {
+    users.forEach(user => {
+        if (user.user_id && !nicknameCache.has(user.user_id)) {
+            fetchUserNickname(user.user_id);
+        } else if (nicknameCache.has(user.user_id)) {
+            updateUserNickname(user.user_id, nicknameCache.get(user.user_id));
+        }
+    });
+}
+
+// 获取单个用户昵称（照抄老版本）
+function fetchUserNickname(userId) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (!token) return;
+    
+    fetch(`/web/api/get_nickname/${encodeURIComponent(userId)}?token=${encodeURIComponent(token)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.nickname) {
+                nicknameCache.set(userId, data.nickname);
+                updateUserNickname(userId, data.nickname);
+            }
+        })
+        .catch(error => {
+            console.error('获取昵称失败:', error);
+        });
+}
+
+// 更新用户昵称显示（完全照抄老版本）
+function updateUserNickname(userId, nickname) {
+    const elements = document.querySelectorAll(`[data-user-id="${userId}"]`);
+    elements.forEach(element => {
+        const loadingEl = element.querySelector('.nickname-loading');
+        if (loadingEl) {
+            loadingEl.textContent = `(${nickname})`;
+            loadingEl.classList.remove('nickname-loading');
+            loadingEl.classList.add('nickname-display');
+        }
+    });
+}
+
+// 加载特定日期的数据（完全照抄老版本实现）
+function loadDateSpecificData(selectedDate) {
+    if (selectedDate === 'today') {
+        // 加载今日数据（包含图表）
+        loadStatisticsData();
+    } else {
+        // 加载历史数据（仅表格）
+        loadHistoricalDateData(selectedDate);
+    }
+}
+
+// 别名函数，与老版本保持一致
+function loadStatisticsData(forceRefresh = false) {
+    loadStatistics(forceRefresh);
+}
+
+// 加载历史日期数据（完全照抄老版本实现）
+function loadHistoricalDateData(dateStr) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    if (!token) {
+        console.error('未找到访问token');
+        return;
+    }
+    
+    // 构建API URL查询特定日期（完全照抄老版本）
+    const apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}&date=${dateStr}`;
+    
+    fetch(apiUrl)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                // 更新表格数据（不更新图表）
+                if (data.selected_date_data) {
+                    updateTables(data.selected_date_data);
+                } else {
+                    showStatisticsError('该日期没有可用数据');
+                }
+            } else {
+                console.error('加载历史数据失败:', data.error);
+                showStatisticsError('加载历史数据失败: ' + (data.error || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('获取历史数据时出错:', error);
+            showStatisticsError('获取历史数据时出错: ' + error.message);
+        });
+}
+
+// 页面初始化（性能优化版本，避免阻塞主线程）
+document.addEventListener('DOMContentLoaded', function() {
+    // 异步初始化，避免阻塞主线程
+    function initializeStatisticsAsync() {
+        // 分阶段初始化，避免一次性加载过多
+        
+        // 第一阶段：初始化图表（延迟50ms）
+        setTimeout(() => {
+            initStatistics();
+        }, 50);
+        
+        // 第二阶段：加载统计数据（延迟100ms）
+        setTimeout(() => {
+            loadStatistics();
+        }, 100);
+        
+        // 第三阶段：加载可用日期（延迟150ms）
+        setTimeout(() => {
+            loadAvailableDates();
+        }, 150);
+    }
+    
+    // 立即绑定事件，但使用防抖优化
+    function bindEventsWithOptimization() {
+        // 图表切换按钮（使用防抖，避免频繁切换）
+        const debouncedUpdateChart = debounce((metric) => {
+            updateChart(metric);
+        }, 200);
+        
+        document.querySelectorAll('.chart-toggle').forEach(button => {
+            button.addEventListener('click', function() {
+                debouncedUpdateChart(this.dataset.metric);
+            });
+        });
+        
+        // 刷新按钮（防止重复点击）
+        const debouncedRefresh = debounce(() => {
+            loadStatistics();
+            const selectedDate = document.getElementById('date-selector').value;
+            loadDateSpecificData(selectedDate);
+        }, 1000);
+        
+        document.getElementById('refresh-statistics').addEventListener('click', debouncedRefresh);
+        
+        // 补全DAU按钮（防止重复点击）
+        const debouncedComplete = debounce(() => {
+            completeDau();
+        }, 500);
+        
+        document.getElementById('complete-dau').addEventListener('click', debouncedComplete);
+        
+        // 日期选择器（使用防抖，避免频繁切换）
+        const debouncedDateChange = debounce((value) => {
+            loadDateSpecificData(value);
+        }, 300);
+        
+        document.getElementById('date-selector').addEventListener('change', function() {
+            debouncedDateChange(this.value);
+        });
+    }
+    
+    // 立即绑定事件
+    bindEventsWithOptimization();
+    
+    // 使用requestIdleCallback进行异步初始化
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(initializeStatisticsAsync, { timeout: 300 });
+    } else {
+        // 降级到setTimeout
+        setTimeout(initializeStatisticsAsync, 100);
+    }
+    
+    // 统计页面不需要实时WebSocket连接，避免额外性能开销
+    // initSocket('statistics');
+});
+</script>
+{% endblock %}

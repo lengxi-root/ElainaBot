@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if title %}{{ title }} - {% endif %}Elaina仪表盘</title>
+    <base href="{{ prefix }}/">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    
+    <script>
+        // 全局配置将由后端API提供
+        window.websocketEnabled = false; // 将由API更新
+        // 从URL参数获取当前页面
+        const urlParams = new URLSearchParams(window.location.search);
+        const currentPage = urlParams.get('page') || 'dashboard';
+    </script>
+    
+    <!-- 共同的CSS样式 -->
+    <link rel="stylesheet" href="{{ url_for('web.static', filename='css/common.css') }}">
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <div class="page-header">
+        <div class="container-fluid">
+            <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center;">
+                <!-- 左侧：侧边栏切换按钮 -->
+                <button class="toggle-sidebar" id="toggle-sidebar" style="position: absolute; left: 15px;">
+                    <i class="bi bi-list"></i>
+                </button>
+                
+                <!-- 标题：位于1/3处 -->
+                <h1 class="page-title d-flex align-items-center mb-0" style="position: absolute; left: 10%; transform: translateX(0);">
+                    <i class="bi bi-laptop me-2"></i>
+                    Elaina仪表盘
+                </h1>
+                
+                <!-- 右侧：状态信息 -->
+                <div class="d-flex align-items-center" style="margin-left: auto;">
+                    <div class="me-3">
+                        <span class="connection-status disconnected" id="connection-indicator"></span>
+                        <span class="text-light" id="connection-text">未连接</span>
+                    </div>
+                    <div class="me-3">
+                        <span class="text-light"><i class="bi bi-alarm"></i> <span id="topbar-uptime-text">0天 0小时</span></span>
+                    </div>
+                    <div class="me-3">
+                        <span class="text-light"><i class="bi bi-clock-history"></i> <span id="topbar-start-time">未知</span></span>
+                    </div>
+                    <span class="text-light me-3"><i class="bi bi-clock"></i> <span id="current-time"></span></span>
+                    <a href="#" id="mobile-switch-btn" class="btn btn-sm btn-outline-light me-2">
+                        <i class="bi bi-phone"></i> 切换手机版
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="wrapper">
+        <!-- 侧边栏 -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-menu">
+                {% set current_token = request.args.get('token', '') %}
+                <a class="sidebar-item" href="?token={{ current_token }}&page=dashboard" data-page="dashboard">
+                    <i class="bi bi-speedometer2"></i>
+                    <span class="item-text">仪表盘</span>
+                </a>
+                <a class="sidebar-item" href="?token={{ current_token }}&page=logs" data-page="logs">
+                    <i class="bi bi-journal-text"></i>
+                    <span class="item-text">日志</span>
+                </a>
+                <a class="sidebar-item" href="?token={{ current_token }}&page=plugins" data-page="plugins">
+                    <i class="bi bi-grid"></i>
+                    <span class="item-text">插件列表</span>
+                </a>
+                <a class="sidebar-item" href="?token={{ current_token }}&page=statistics" data-page="statistics">
+                    <i class="bi bi-graph-up"></i>
+                    <span class="item-text">统计</span>
+                </a>
+                <a class="sidebar-item" href="?token={{ current_token }}&page=sandbox" data-page="sandbox">
+                    <i class="bi bi-play-circle"></i>
+                    <span class="item-text">沙盒测试</span>
+                </a>
+                <a class="sidebar-item" href="?token={{ current_token }}&page=openapi" data-page="openapi">
+                    <i class="bi bi-cloud-arrow-up"></i>
+                    <span class="item-text">开放平台</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- 主内容区域 -->
+        <div class="content" id="main-content">
+            <div class="container-fluid main-content">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- 共同的模态对话框 -->
+    {% include 'modals/common.html' %}
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Socket.IO Client -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- Chart.js (照抄老版本) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <!-- Chart.js DataLabels插件 -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <!-- 共同的JavaScript -->
+    <script src="{{ url_for('web.static', filename='js/common.js') }}"></script>
+    <!-- 页面特定的JavaScript -->
+    {% block scripts %}{% endblock %}
+    
+    <script>
+        // 设置当前页面高亮并优化页面切换性能
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebarItems = document.querySelectorAll('.sidebar-item');
+            sidebarItems.forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.page === currentPage) {
+                    item.classList.add('active');
+                }
+                
+                // 为每个导航链接添加页面切换优化
+                item.addEventListener('click', function(e) {
+                    const targetPage = this.dataset.page;
+                    if (targetPage && window.pageLoadOptimizer) {
+                        // 使用页面优化器处理切换
+                        window.pageLoadOptimizer.switchPage(targetPage);
+                    }
+                });
+            });
+            
+            // 通知优化器当前页面
+            if (window.pageLoadOptimizer && currentPage) {
+                window.pageLoadOptimizer.currentPage = currentPage;
+            }
+        });
+    </script>
+</body>
+</html>

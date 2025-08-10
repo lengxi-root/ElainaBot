@@ -1,0 +1,316 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<!-- 日志标签页 -->
+<ul class="nav nav-tabs" id="logTabs" role="tablist">
+    <li class="nav-item">
+        <a class="nav-link active" id="received-tab" data-bs-toggle="tab" href="#received" role="tab">
+            <i class="bi bi-chat-dots"></i> 接收消息
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="plugin-tab" data-bs-toggle="tab" href="#plugin" role="tab">
+            <i class="bi bi-puzzle"></i> 插件日志
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="framework-tab" data-bs-toggle="tab" href="#framework" role="tab">
+            <i class="bi bi-gear"></i> 框架日志
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="error-tab" data-bs-toggle="tab" href="#error" role="tab">
+            <i class="bi bi-exclamation-triangle"></i> 错误日志
+        </a>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- 使用JS动态生成的日志面板容器 -->
+    <div class="tab-pane fade show active" id="received" role="tabpanel"></div>
+    <div class="tab-pane fade" id="plugin" role="tabpanel"></div>
+    <div class="tab-pane fade" id="framework" role="tabpanel"></div>
+    <div class="tab-pane fade" id="error" role="tabpanel"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =====================
+// 日志页面相关功能
+// =====================
+const PAGE_SIZE = 50;
+const logPanelConfig = {
+    received: { title: '接收到的消息', icon: 'chat-dots', emptyText: '暂无消息', autoScroll: true },
+    plugin: { title: '插件日志', icon: 'puzzle', emptyText: '暂无日志', autoScroll: true },
+    framework: { title: '框架日志', icon: 'gear', emptyText: '暂无日志', autoScroll: true },
+    error: { title: '错误日志', icon: 'exclamation-triangle', emptyText: '暂无错误日志', autoScroll: true }
+};
+const logContainers = {};
+const autoScrollCheckboxes = {};
+let receivedLogs, pluginLogs, frameworkLogs, errorLogs;
+
+// 初始化日志面板
+function initLogPanels() {
+    Object.keys(logPanelConfig).forEach(type => {
+        const config = logPanelConfig[type];
+        const tabPane = document.getElementById(type);
+        
+        // 创建日志容器HTML
+        tabPane.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="mb-0"><i class="bi bi-${config.icon}"></i> ${config.title}</h6>
+                <div class="auto-scroll-toggle">
+                    <input type="checkbox" id="${type}-auto-scroll" class="form-check-input" checked>
+                    <label for="${type}-auto-scroll" class="form-check-label ms-1">自动滚动</label>
+                </div>
+            </div>
+            <div class="logs-container" id="${type}-logs">
+                <div class="empty-logs">
+                    <i class="bi bi-inbox fs-1 d-block mb-2"></i> ${config.emptyText}
+                </div>
+            </div>
+            <div class="pagination-container">
+                <div class="pagination-info">
+                    显示 <span id="${type}-range">0-0</span> / <span id="${type}-total">0</span> 条记录
+                </div>
+                <div class="pagination-controls">
+                    <button class="btn btn-sm btn-outline-primary" id="${type}-prev" onclick="goToPage('${type}', logContainers['${type}'].currentPage - 1)">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <span class="mx-2 text-small">第 <span id="${type}-current-page">1</span> 页</span>
+                    <button class="btn btn-sm btn-outline-primary" id="${type}-next" onclick="goToPage('${type}', logContainers['${type}'].currentPage + 1)">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        // 存储日志容器信息
+        logContainers[type] = {
+            container: document.getElementById(`${type}-logs`),
+            pagination: {
+                range: document.getElementById(`${type}-range`),
+                total: document.getElementById(`${type}-total`),
+                currentPage: document.getElementById(`${type}-current-page`),
+                prevBtn: document.getElementById(`${type}-prev`),
+                nextBtn: document.getElementById(`${type}-next`)
+            },
+            currentPage: 1,
+            totalPages: 1,
+            totalLogs: 0,
+            autoScroll: config.autoScroll || true,
+        };
+        
+        // 自动滚动复选框（照抄老版本）
+        autoScrollCheckboxes[type] = document.getElementById(`${type}-auto-scroll`);
+    });
+    
+    // 设置自动滚动复选框事件监听器（照抄老版本）
+    Object.keys(autoScrollCheckboxes).forEach(type => {
+        const checkbox = autoScrollCheckboxes[type];
+        if (checkbox) {
+            checkbox.checked = logContainers[type].autoScroll;
+            checkbox.addEventListener('change', function() {
+                logContainers[type].autoScroll = this.checked;
+            });
+        }
+    });
+    
+    // 获取快速引用
+    receivedLogs = document.getElementById('received-logs');
+    pluginLogs = document.getElementById('plugin-logs');
+    frameworkLogs = document.getElementById('framework-logs');
+    errorLogs = document.getElementById('error-logs');
+}
+
+// 分页函数
+function goToPage(type, page) {
+    const logInfo = logContainers[type];
+    if (!logInfo || page < 1 || page > logInfo.totalPages) return;
+    
+    logInfo.currentPage = page;
+    updatePaginationButtons(type);
+    updatePaginationInfo(type);
+    
+    // 请求该页数据
+    if (socket) {
+        socket.emit('request_logs', {
+            type: type,
+            page: page,
+            page_size: PAGE_SIZE
+        });
+    }
+}
+
+// 更新分页按钮状态
+function updatePaginationButtons(type) {
+    const logInfo = logContainers[type];
+    if (!logInfo) return;
+    
+    logInfo.pagination.prevBtn.disabled = logInfo.currentPage <= 1;
+    logInfo.pagination.nextBtn.disabled = logInfo.currentPage >= logInfo.totalPages;
+    logInfo.pagination.currentPage.textContent = logInfo.currentPage;
+}
+
+// 更新分页信息
+function updatePaginationInfo(type) {
+    const logInfo = logContainers[type];
+    if (!logInfo) return;
+    
+    const start = Math.max(1, (logInfo.currentPage - 1) * PAGE_SIZE + 1);
+    const end = Math.min(start + PAGE_SIZE - 1, logInfo.totalLogs);
+    logInfo.pagination.range.textContent = logInfo.totalLogs > 0 ? `${start}-${end}` : '0-0';
+    logInfo.pagination.total.textContent = logInfo.totalLogs;
+}
+
+// 更新日志显示
+function updateLogDisplay(type, logs) {
+    const logInfo = logContainers[type];
+    if (!logInfo) return;
+    
+    const container = logInfo.container;
+    if (!logs || logs.length === 0) {
+        container.innerHTML = `<div class="empty-logs"><i class="bi bi-inbox fs-1 d-block mb-2"></i> 暂无日志</div>`;
+        return;
+    }
+    
+    container.innerHTML = '';
+    logs.forEach(log => {
+        addLogEntry(container, log, false);
+    });
+    
+    // 清除空日志提示
+    const emptyLog = container.querySelector('.empty-logs');
+    if (emptyLog) emptyLog.remove();
+}
+
+// 添加日志条目（完全照抄老版本实现）
+function addLogEntry(container, log, prepend = false) {
+    const emptyLog = container.querySelector('.empty-logs');
+    if (emptyLog) container.removeChild(emptyLog);
+    
+    const entry = document.createElement('div');
+    entry.className = 'log-entry animated-fade';
+    const timestamp = log.timestamp || new Date().toLocaleString('zh-CN');
+    const content = log.content || log;
+    
+    let entryHtml = `
+        <div class="d-flex justify-content-between">
+            <div>
+                <span class="timestamp">[${timestamp}]</span>
+                <span class="message-content">${content}</span>
+            </div>
+            <i class="bi bi-clipboard log-copy-btn" title="复制日志内容" onclick="copyLogContent(this)"></i>
+        </div>
+    `;
+    
+    if (log.traceback) {
+        entryHtml += `
+        <div class="mt-2">
+            <button class="btn btn-sm btn-outline-danger mb-2" 
+                    onclick="this.nextElementSibling.classList.toggle('d-none');this.textContent=this.textContent.includes('显示')?'隐藏调用栈':'显示调用栈'">
+                显示调用栈
+            </button>
+            <pre class="plugin-error d-none">${log.traceback}</pre>
+        </div>`;
+    }
+    
+    entry.innerHTML = entryHtml;
+    if (prepend || container.firstChild) {
+        container.insertBefore(entry, container.firstChild);
+    } else {
+        container.appendChild(entry);
+    }
+    
+    // 自动滚动（完全照抄老版本）
+    const logType = Object.keys(logContainers).find(key => logContainers[key].container === container);
+    if (prepend && logType && logContainers[logType].autoScroll) {
+        container.scrollTop = 0;
+    }
+    
+    // 限制最大条目数
+    const maxEntries = 200;
+    while (container.children.length > maxEntries) {
+        container.removeChild(container.lastChild);
+    }
+}
+
+// 复制日志内容（照抄老版本）
+function copyLogContent(button) {
+    try {
+        const contentElement = button.parentNode.parentNode.querySelector('.message-content');
+        const content = contentElement ? contentElement.textContent.trim() : '';
+        if (!content) return;
+        const textarea = document.createElement('textarea');
+        textarea.value = content;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const successful = document.execCommand('copy');
+        if (successful) {
+            const originalIcon = button.className;
+            button.className = 'bi bi-check-circle log-copy-btn copy-success';
+            button.style.color = '#28a745';
+            setTimeout(() => { button.className = originalIcon; button.style.color = ''; }, 2000);
+        } else {
+            const originalIcon = button.className;
+            button.className = 'bi bi-exclamation-circle log-copy-btn copy-fail';
+            button.style.color = '#dc3545';
+            setTimeout(() => { button.className = originalIcon; button.style.color = ''; }, 2000);
+        }
+        document.body.removeChild(textarea);
+    } catch (err) {
+        alert('复制失败，请手动选择文本并复制');
+    }
+}
+
+// HTML转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 复制日志条目
+function copyLogEntry(button) {
+    const logEntry = button.closest('.log-entry');
+    const content = logEntry.querySelector('.message-content').textContent;
+    
+    navigator.clipboard.writeText(content).then(() => {
+        // 简单的视觉反馈
+        button.style.color = '#28a745';
+        setTimeout(() => {
+            button.style.color = '';
+        }, 1000);
+    }).catch(err => {
+        console.error('复制失败:', err);
+    });
+}
+
+// 页面初始化
+document.addEventListener('DOMContentLoaded', function() {
+    initLogPanels();
+    
+    // 初始化所有日志页面
+    Object.keys(logContainers).forEach(type => {
+        goToPage(type, 1);
+    });
+    
+    // 注册全局日志处理函数
+    window.updateLogDisplay = updateLogDisplay;
+    window.handleNewLog = function(data) {
+        const logType = data.type;
+        if (logContainers[logType] && logContainers[logType].currentPage === 1) {
+            addLogEntry(logContainers[logType].container, data.data, true);
+            logContainers[logType].totalLogs++;
+            updatePaginationInfo(logType);
+        }
+    };
+    
+    // 初始化日志页面的WebSocket连接
+    initSocket('logs');
+});
+</script>
+{% endblock %}

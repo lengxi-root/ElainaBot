@@ -36,45 +36,45 @@ _image_upload_msgid = 0
 
 # ===== 6. 主类定义 =====
 class MessageEvent:
-    # --- 常量定义 ---
-    GROUP_MESSAGE = 'GROUP_AT_MESSAGE_CREATE'
-    DIRECT_MESSAGE = 'C2C_MESSAGE_CREATE'
-    INTERACTION = 'INTERACTION_CREATE'
-    CHANNEL_MESSAGE = 'AT_MESSAGE_CREATE'
-    GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'
-    UNKNOWN_MESSAGE = 'UNKNOWN'
+    # --- 事件消息类型常量定义 ---
+    GROUP_MESSAGE = 'GROUP_AT_MESSAGE_CREATE'     # 群聊@消息事件 - 用户在群中@机器人发送的消息
+    DIRECT_MESSAGE = 'C2C_MESSAGE_CREATE'         # 私聊消息事件 - 用户与机器人的私聊对话
+    INTERACTION = 'INTERACTION_CREATE'            # 交互事件 - 用户点击按钮、选择菜单等交互操作
+    CHANNEL_MESSAGE = 'AT_MESSAGE_CREATE'         # 频道@消息事件 - 用户在频道中@机器人发送的消息
+    GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'           # 群添加机器人事件 - 机器人被邀请加入群聊时触发
+    UNKNOWN_MESSAGE = 'UNKNOWN'                   # 未知消息类型 - 无法识别或不支持的消息事件
 
-    # 消息类型与解析方法的映射表
+    # 消息类型与解析方法的映射表 - 根据事件类型调用对应的解析方法
     _MESSAGE_TYPE_PARSERS = {
-        GROUP_MESSAGE: '_parse_group_message',
-        DIRECT_MESSAGE: '_parse_direct_message',
-        INTERACTION: '_parse_interaction',
-        CHANNEL_MESSAGE: '_parse_channel_message',
-        GROUP_ADD_ROBOT: '_parse_group_add_robot',
+        GROUP_MESSAGE: '_parse_group_message',        # 解析群聊@消息
+        DIRECT_MESSAGE: '_parse_direct_message',      # 解析私聊消息  
+        INTERACTION: '_parse_interaction',            # 解析交互事件
+        CHANNEL_MESSAGE: '_parse_channel_message',    # 解析频道@消息
+        GROUP_ADD_ROBOT: '_parse_group_add_robot',    # 解析群添加机器人事件
     }
 
-    # API接口路径模板
+    # API接口路径模板 - 不同消息类型对应的QQ Bot API端点
     _API_ENDPOINTS = {
-        GROUP_MESSAGE: {
-            'reply': '/v2/groups/{group_id}/messages',
-            'recall': '/v2/groups/{group_id}/messages/{message_id}'
+        GROUP_MESSAGE: {                                      # 群聊消息API
+            'reply': '/v2/groups/{group_id}/messages',        # 群聊回复接口
+            'recall': '/v2/groups/{group_id}/messages/{message_id}'  # 群聊撤回接口
         },
-        DIRECT_MESSAGE: {
-            'reply': '/v2/users/{user_id}/messages',
-            'recall': '/v2/users/{user_id}/messages/{message_id}'
+        DIRECT_MESSAGE: {                                     # 私聊消息API
+            'reply': '/v2/users/{user_id}/messages',          # 私聊回复接口
+            'recall': '/v2/users/{user_id}/messages/{message_id}'    # 私聊撤回接口
         },
-        INTERACTION: {
-            'reply': '/v2/groups/{group_id}/messages',
-            'reply_private': '/v2/users/{user_id}/messages',
-            'recall': '/v2/groups/{group_id}/messages/{message_id}',
-            'recall_private': '/v2/users/{user_id}/messages/{message_id}'
+        INTERACTION: {                                        # 交互事件API（支持群聊和私聊）
+            'reply': '/v2/groups/{group_id}/messages',        # 群聊交互回复
+            'reply_private': '/v2/users/{user_id}/messages',  # 私聊交互回复
+            'recall': '/v2/groups/{group_id}/messages/{message_id}',     # 群聊交互撤回
+            'recall_private': '/v2/users/{user_id}/messages/{message_id}' # 私聊交互撤回
         },
-        CHANNEL_MESSAGE: {
-            'reply': '/channels/{channel_id}/messages',
-            'recall': '/channels/{channel_id}/messages/{message_id}'
+        CHANNEL_MESSAGE: {                                    # 频道消息API
+            'reply': '/channels/{channel_id}/messages',       # 频道回复接口
+            'recall': '/channels/{channel_id}/messages/{message_id}'     # 频道撤回接口
         },
-        GROUP_ADD_ROBOT: {
-            'reply': '/v2/groups/{group_id}/messages'
+        GROUP_ADD_ROBOT: {                                    # 群添加机器人API
+            'reply': '/v2/groups/{group_id}/messages'         # 群欢迎消息接口
         }
     }
 
@@ -90,8 +90,13 @@ class MessageEvent:
         self.content = ""
         self.message_type = self.UNKNOWN_MESSAGE
         self.event_type = self.get('t')
-        # 智能获取消息ID：优先从d/id获取（WebSocket格式），fallback到id（webhook格式）
-        self.message_id = self.get('d/id') or self.get('id')
+        # 根据事件类型智能获取ID：消息事件用d/id，事件通知用id
+        if self.event_type in ('GROUP_AT_MESSAGE_CREATE', 'C2C_MESSAGE_CREATE', 'AT_MESSAGE_CREATE'):
+            # 消息事件：优先从d/id获取（WebSocket格式），fallback到id（webhook格式）
+            self.message_id = self.get('d/id') or self.get('id')
+        else:
+            # 事件通知（GROUP_ADD_ROBOT, INTERACTION等）：直接使用顶层id
+            self.message_id = self.get('id')
         self.timestamp = self.get('d/timestamp')
         self.matches = None
         self.db = Database()
@@ -164,7 +169,8 @@ class MessageEvent:
         self.channel_id = self.guild_id = None
         button_data = self.get('d/data/resolved/button_data')
         self.content = self.sanitize_content(button_data) if button_data else ""
-        self.id = self.get('d/id') or self.get('id')
+        # 交互事件使用顶层id
+        self.id = self.get('id')
 
     def _parse_channel_message(self):
         self.message_type = self.CHANNEL_MESSAGE
@@ -199,7 +205,8 @@ class MessageEvent:
         self.is_group = True
         self.is_private = False
         self.timestamp = self.get('d/timestamp')
-        self.id = self.get('d/id') or self.get('id')
+        # 群添加机器人事件使用顶层id
+        self.id = self.get('id')
         
         self.handled = True
         self.welcome_allowed = True
@@ -229,9 +236,10 @@ class MessageEvent:
         if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
             payload["msg_id"] = self.message_id
         elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('d/id') or self.get('id') or ""
+            # 事件通知类型直接使用顶层id
+            payload["event_id"] = self.get('id') or ""
         elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.get('d/id') or self.get('id')
+            payload["msg_id"] = self.message_id
         return payload
     
     def _handle_auto_recall(self, message_id, auto_delete_time):
@@ -264,7 +272,7 @@ class MessageEvent:
         endpoint = self._get_endpoint()
         
         if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('d/id') or self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
         # 发送消息
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}")
@@ -312,7 +320,7 @@ class MessageEvent:
         
         if self.message_type == self.GROUP_ADD_ROBOT:
             if 'event_id' not in payload or not payload['event_id']:
-                payload['event_id'] = self.get('d/id') or self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+                payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, "消息", f"content: {content}")
         
@@ -378,7 +386,7 @@ class MessageEvent:
         endpoint = self._get_endpoint()
         
         if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('d/id') or self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, "markdown模板消息", f"template: {template}, params: {params}")
         
@@ -539,7 +547,7 @@ class MessageEvent:
         endpoint = self._get_endpoint()
         
         if self.message_type == self.GROUP_ADD_ROBOT:
-            payload['event_id'] = self.get('d/id') or self.get('id') or f"ROBOT_ADD_{int(time.time())}"
+            payload['event_id'] = self.get('id') or f"ROBOT_ADD_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"payload: {json.dumps(payload, ensure_ascii=False)}")
         
@@ -558,9 +566,10 @@ class MessageEvent:
         if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
             payload["msg_id"] = self.message_id
         elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('d/id') or self.get('id') or ""
+            # 事件通知类型直接使用顶层id
+            payload["event_id"] = self.get('id') or ""
         elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.get('d/id') or self.get('id')
+            payload["msg_id"] = self.message_id
         
         # 设置内容
         if media:

@@ -1,6 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# eventlet monkey patch MUST be the first thing imported
+try:
+    import eventlet
+    eventlet.monkey_patch()
+except ImportError:
+    print("WARNING: eventlet not found, some features may not work properly")
+
 import sys
 import os
 import time
@@ -18,12 +25,6 @@ import signal
 
 warnings.filterwarnings("ignore", "Corrupt EXIF data", UserWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="PIL")
-
-try:
-    import eventlet
-    eventlet.monkey_patch()
-except ImportError:
-    logging.warning("WARNING: eventlet not found, some features may not work properly")
 
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO

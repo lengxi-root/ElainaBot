@@ -41,7 +41,8 @@ def get_websocket_status():
 
 PREFIX = '/web'
 web = Blueprint('web', __name__, 
-                     template_folder='templates')
+                     template_folder='templates',
+                     static_folder='static')
 socketio = None
 MAX_LOGS = 1000
 received_messages = deque(maxlen=MAX_LOGS)

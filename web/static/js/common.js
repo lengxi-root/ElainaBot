@@ -856,38 +856,7 @@ function initEventListeners() {
     }
 }
 
-// 清除所有数据
-function clearAllData() {
-    const modal = new bootstrap.Modal(document.getElementById('clearDataModal'));
-    modal.show();
-    
-    document.getElementById('confirmClearData').onclick = function() {
-        fetch(buildApiUrl('/api/clear_data'), {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('数据清除成功！');
-                location.reload();
-            } else {
-                alert('数据清除失败：' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('清除数据失败:', error);
-            alert('清除数据失败');
-        });
-        
-        modal.hide();
-    };
-}
 
-// 显示关于对话框
-function showAbout() {
-    const modal = new bootstrap.Modal(document.getElementById('aboutModal'));
-    modal.show();
-}
 
 // =====================
 // 侧边栏控制功能

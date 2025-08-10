@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import base64
 import uuid
+import random
 from datetime import datetime, timedelta
 from collections import deque
 from flask import Flask, render_template, request, jsonify, Blueprint, make_response
@@ -2720,3 +2721,437 @@ def openapi_render_button_template():
             'success': False,
             'message': f'渲染按钮模板失败: {str(e)}'
         })
+
+# ===== 消息发送界面相关API =====
+
+@web.route('/api/message/get_chats', methods=['POST'])
+@require_auth
+def get_chats():
+    """获取聊天列表（用户或群聊）"""
+    try:
+        data = request.get_json()
+        chat_type = data.get('type', 'user')  # 'user' 或 'group'
+        page = data.get('page', 1)
+        per_page = 20
+        search = data.get('search', '').strip()
+        
+        # 导入数据库连接
+        from function.log_db import LogDatabasePool
+        from pymysql.cursors import DictCursor
+        
+        log_db_pool = LogDatabasePool()
+        connection = log_db_pool.get_connection()
+        
+        if not connection:
+            return jsonify({'success': False, 'message': '数据库连接失败'})
+        
+        try:
+            cursor = connection.cursor(DictCursor)
+            
+            # 检查ID表是否存在
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM information_schema.tables 
+                WHERE table_schema = DATABASE() 
+                AND table_name = 'Mlog_id'
+            """)
+            if cursor.fetchone()['count'] == 0:
+                return jsonify({'success': False, 'message': 'ID表不存在'})
+            
+            # 构建查询
+            offset = (page - 1) * per_page
+            
+            if search:
+                # 搜索功能 - 使用参数化查询避免SQL注入
+                search_condition = "AND chat_id LIKE %s"
+                search_param = f"%{search}%"
+            else:
+                search_condition = ""
+                search_param = None
+            
+            # 获取总数
+            count_sql = f"""
+                SELECT COUNT(DISTINCT chat_id) as total 
+                FROM Mlog_id 
+                WHERE chat_type = %s {search_condition}
+            """
+            if search_param:
+                cursor.execute(count_sql, (chat_type, search_param))
+            else:
+                cursor.execute(count_sql, (chat_type,))
+            total = cursor.fetchone()['total']
+            
+            # 获取分页数据
+            data_sql = f"""
+                SELECT chat_id, last_message_id, MAX(timestamp) as last_time
+                FROM Mlog_id 
+                WHERE chat_type = %s {search_condition}
+                GROUP BY chat_id, last_message_id
+                ORDER BY last_time DESC
+                LIMIT %s OFFSET %s
+            """
+            if search_param:
+                cursor.execute(data_sql, (chat_type, search_param, per_page, offset))
+            else:
+                cursor.execute(data_sql, (chat_type, per_page, offset))
+            chats = cursor.fetchall()
+            
+            # 处理数据
+            chat_list = []
+            for chat in chats:
+                chat_info = {
+                    'chat_id': chat['chat_id'],
+                    'last_message_id': chat['last_message_id'],
+                    'last_time': chat['last_time'].strftime('%Y-%m-%d %H:%M:%S') if chat['last_time'] else '',
+                    'avatar': get_chat_avatar(chat['chat_id'], chat_type),
+                    'nickname': 'Loading...'  # 异步加载
+                }
+                chat_list.append(chat_info)
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'chats': chat_list,
+                    'total': total,
+                    'page': page,
+                    'per_page': per_page,
+                    'total_pages': (total + per_page - 1) // per_page
+                }
+            })
+            
+        finally:
+            cursor.close()
+            log_db_pool.release_connection(connection)
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取聊天列表失败: {str(e)}'})
+
+@web.route('/api/message/get_chat_history', methods=['POST'])
+@require_auth
+def get_chat_history():
+    """获取聊天记录（仅今日）"""
+    try:
+        data = request.get_json()
+        chat_type = data.get('chat_type')
+        chat_id = data.get('chat_id')
+        
+        if not chat_type or not chat_id:
+            return jsonify({'success': False, 'message': '缺少必要参数'})
+        
+        from function.log_db import LogDatabasePool
+        from pymysql.cursors import DictCursor
+        import datetime
+        
+        log_db_pool = LogDatabasePool()
+        connection = log_db_pool.get_connection()
+        
+        if not connection:
+            return jsonify({'success': False, 'message': '数据库连接失败'})
+        
+        try:
+            cursor = connection.cursor(DictCursor)
+            
+            # 获取今日消息表名
+            today = datetime.datetime.now().strftime('%Y%m%d')
+            table_name = f'Mlog_{today}_message'
+            
+            # 检查表是否存在
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM information_schema.tables 
+                WHERE table_schema = DATABASE() 
+                AND table_name = %s
+            """, (table_name,))
+            
+            if cursor.fetchone()['count'] == 0:
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'messages': [],
+                        'chat_info': {
+                            'chat_id': chat_id,
+                            'chat_type': chat_type,
+                            'avatar': get_chat_avatar(chat_id, chat_type)
+                        }
+                    }
+                })
+            
+            # 构建查询条件
+            if chat_type == 'group':
+                where_condition = "group_id = %s AND group_id != 'c2c'"
+            else:  # user
+                where_condition = "user_id = %s AND group_id = 'c2c'"
+            
+            # 获取消息记录
+            sql = f"""
+                SELECT user_id, group_id, content, timestamp
+                FROM {table_name}
+                WHERE {where_condition}
+                ORDER BY timestamp ASC
+                LIMIT 100
+            """
+            cursor.execute(sql, (chat_id,))
+            messages = cursor.fetchall()
+            
+            # 处理消息数据 - 快速返回版本（昵称由前端异步加载）
+            message_list = []
+            
+            for msg in messages:
+                message_info = {
+                    'user_id': msg['user_id'],
+                    'content': msg['content'],
+                    'timestamp': msg['timestamp'].strftime('%H:%M:%S') if msg['timestamp'] else '',
+                    'avatar': get_chat_avatar(msg['user_id'], 'user'),
+                    'is_self': False  # 暂时都设为False，实际使用中可以判断是否为机器人自己
+                }
+                message_list.append(message_info)
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'messages': message_list,
+                    'chat_info': {
+                        'chat_id': chat_id,
+                        'chat_type': chat_type,
+                        'avatar': get_chat_avatar(chat_id, chat_type)
+                    }
+                }
+            })
+            
+        finally:
+            cursor.close()
+            log_db_pool.release_connection(connection)
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取聊天记录失败: {str(e)}'})
+
+@web.route('/api/message/send', methods=['POST'])
+@require_auth
+def send_message():
+    """发送消息"""
+    try:
+        data = request.get_json()
+        chat_type = data.get('chat_type')
+        chat_id = data.get('chat_id')
+        content = data.get('content', '').strip()
+        
+        if not chat_type or not chat_id or not content:
+            return jsonify({'success': False, 'message': '缺少必要参数'})
+        
+        # 检查ID是否过期
+        from function.log_db import LogDatabasePool
+        from pymysql.cursors import DictCursor
+        import datetime
+        
+        log_db_pool = LogDatabasePool()
+        connection = log_db_pool.get_connection()
+        
+        if not connection:
+            return jsonify({'success': False, 'message': '数据库连接失败'})
+        
+        try:
+            cursor = connection.cursor(DictCursor)
+            
+            # 获取最后的消息ID和时间
+            cursor.execute("""
+                SELECT last_message_id, timestamp 
+                FROM Mlog_id 
+                WHERE chat_type = %s AND chat_id = %s
+            """, (chat_type, chat_id))
+            
+            result = cursor.fetchone()
+            if not result:
+                return jsonify({'success': False, 'message': 'ID记录不存在'})
+            
+            last_message_id = result['last_message_id']
+            last_time = result['timestamp']
+            
+            # 检查ID是否过期
+            now = datetime.datetime.now()
+            time_diff = (now - last_time).total_seconds() / 60  # 转换为分钟
+            
+            if chat_type == 'group' and time_diff > 5:
+                return jsonify({'success': False, 'message': 'ID已过期无法发送（群聊超过5分钟）'})
+            elif chat_type == 'user' and time_diff > 60:
+                return jsonify({'success': False, 'message': 'ID已过期无法发送（私聊超过1小时）'})
+            
+            # 发送消息
+            from core.event.MessageEvent import MessageEvent
+            from function.Access import BOTAPI, Json
+            
+            # 构建发送payload
+            payload = {
+                "msg_type": 0,
+                "msg_seq": random.randint(10000, 999999),
+                "content": content,
+                "msg_id": last_message_id
+            }
+            
+            # 确定API端点
+            if chat_type == 'group':
+                endpoint = f'/v2/groups/{chat_id}/messages'
+            else:  # user
+                endpoint = f'/v2/users/{chat_id}/messages'
+            
+            # 发送请求
+            response = BOTAPI(endpoint, "POST", Json(payload))
+            
+            return jsonify({
+                'success': True,
+                'message': '消息发送成功',
+                'data': {
+                    'response': response,
+                    'content': content,
+                    'timestamp': now.strftime('%H:%M:%S')
+                }
+            })
+            
+        finally:
+            cursor.close()
+            log_db_pool.release_connection(connection)
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'发送消息失败: {str(e)}'})
+
+@web.route('/api/message/get_nickname', methods=['POST'])
+@require_auth
+def get_nickname():
+    """获取用户昵称"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'success': False, 'message': '缺少用户ID'})
+        
+        # 调用API获取昵称
+        import requests
+        
+        api_url = f"https://i.elaina.vin/api/bot/xx.php"
+        params = {
+            'openid': user_id,
+            'appid': appid
+        }
+        
+        try:
+            response = requests.get(api_url, params=params, timeout=5)
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    nickname = data.get('名字', f"用户{user_id[-6:]}")
+                except:
+                    # 如果JSON解析失败，fallback到原来的text处理
+                    nickname = response.text.strip() if response.text.strip() else f"用户{user_id[-6:]}"
+            else:
+                nickname = f"用户{user_id[-6:]}"
+        except:
+            nickname = f"用户{user_id[-6:]}"
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'user_id': user_id,
+                'nickname': nickname
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取昵称失败: {str(e)}'})
+
+def get_chat_avatar(chat_id, chat_type):
+    """获取聊天头像URL"""
+    if chat_type == 'user':
+        return f"https://q.qlogo.cn/qqapp/{appid}/{chat_id}/100"
+    else:  # group
+        # 群聊显示第一个字母作为头像
+        return chat_id[0].upper() if chat_id else 'G'
+
+def get_user_nickname(user_id):
+    """获取用户昵称（内部函数，用于聊天记录）"""
+    try:
+        import requests
+        
+        api_url = f"https://i.elaina.vin/api/bot/xx.php"
+        params = {
+            'openid': user_id,
+            'appid': appid
+        }
+        
+        try:
+            response = requests.get(api_url, params=params, timeout=3)  # 减少超时时间
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    return data.get('名字', f"用户{user_id[-6:]}")
+                except:
+                    # JSON解析失败时的fallback处理
+                    nickname = response.text.strip()
+                    return nickname if nickname else f"用户{user_id[-6:]}"
+            else:
+                return f"用户{user_id[-6:]}"
+        except:
+            return f"用户{user_id[-6:]}"
+            
+    except Exception:
+        return f"用户{user_id[-6:]}"
+
+# 昵称缓存 - 全局变量，避免重复请求
+_nickname_cache = {}
+_cache_timeout = 86400  # 1天缓存过期
+
+def get_user_nicknames_batch(user_ids):
+    """批量获取用户昵称（带缓存优化）"""
+    import time
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    current_time = time.time()
+    result = {}
+    users_to_fetch = []
+    
+    # 检查缓存，过滤出需要获取的用户
+    for user_id in user_ids:
+        if user_id in _nickname_cache:
+            cached_data = _nickname_cache[user_id]
+            if current_time - cached_data['timestamp'] < _cache_timeout:
+                result[user_id] = cached_data['nickname']
+                continue
+        users_to_fetch.append(user_id)
+    
+    # 如果没有需要获取的用户，直接返回缓存结果
+    if not users_to_fetch:
+        return result
+    
+    # 并发获取昵称
+    def fetch_single_nickname(user_id):
+        try:
+            nickname = get_user_nickname(user_id)
+            # 更新缓存
+            _nickname_cache[user_id] = {
+                'nickname': nickname,
+                'timestamp': current_time
+            }
+            return user_id, nickname
+        except Exception as e:
+            fallback_name = f"用户{user_id[-6:]}"
+            _nickname_cache[user_id] = {
+                'nickname': fallback_name,
+                'timestamp': current_time
+            }
+            return user_id, fallback_name
+    
+    # 使用线程池并发请求，最多5个并发
+    max_workers = min(5, len(users_to_fetch))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_user = {executor.submit(fetch_single_nickname, user_id): user_id 
+                         for user_id in users_to_fetch}
+        
+        for future in as_completed(future_to_user, timeout=10):  # 10秒总超时
+            try:
+                user_id, nickname = future.result()
+                result[user_id] = nickname
+            except Exception as e:
+                user_id = future_to_user[future]
+                result[user_id] = f"用户{user_id[-6:]}"
+    
+    return result

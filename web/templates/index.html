@@ -18,6 +18,9 @@
 {% elif page == 'openapi' %}
     {% set title = '开放平台' %}
     {% include 'pc/openapi.html' %}
+{% elif page == 'message' %}
+    {% set title = '消息发送' %}
+    {% include 'pc/message.html' %}
 {% else %}
     {% set title = '仪表盘' %}
     {% include 'pc/dashboard.html' %}

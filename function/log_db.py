@@ -28,14 +28,15 @@ logger = logging.getLogger('log_db')
 
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_INSERT_INTERVAL = 10
-LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'unmatched', 'dau']
+LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'unmatched', 'dau', 'id']
 TABLE_SUFFIX = {
     'received': 'message',
     'plugin': 'plugin',
     'framework': 'framework',
     'error': 'error',
     'unmatched': 'unmatched',
-    'dau': 'dau'
+    'dau': 'dau',
+    'id': 'id'
 }
 
 class LogDatabasePool:
@@ -255,6 +256,9 @@ class LogDatabaseManager:
         self.pool = LogDatabasePool()
         self.tables_created = set()
         self.log_queues = {log_type: queue.Queue() for log_type in LOG_TYPES}
+        # ID缓存字典，存储格式：{(chat_type, chat_id): message_id}
+        self.id_cache = {}
+        self.id_cache_lock = threading.Lock()
         
         if LOG_DB_CONFIG.get('create_tables', True):
             self._create_all_tables()
@@ -277,6 +281,8 @@ class LogDatabaseManager:
                 name="LogDBCleanupThread"
             )
             self._cleanup_thread.start()
+        
+        # ID清理任务已集成到DAU分析调度器中
 
     def _safe_execute(self, operation, error_msg="操作失败"):
         """安全执行操作"""
@@ -313,8 +319,8 @@ class LogDatabaseManager:
         prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
         suffix = TABLE_SUFFIX.get(log_type, log_type)
         
-        # DAU表不按日期分表，使用统一表名
-        if log_type == 'dau':
+        # DAU表和ID表不按日期分表，使用统一表名
+        if log_type in ('dau', 'id'):
             return f"{prefix}{suffix}"
         
         if LOG_DB_CONFIG.get('table_per_day', True):
@@ -336,8 +342,8 @@ class LogDatabaseManager:
 
     def _get_create_table_sql(self, table_name, log_type):
         """获取创建表SQL"""
-        if log_type == 'dau':
-            # DAU表特殊处理，不需要id和timestamp字段
+        if log_type in ('dau', 'id'):
+            # DAU表和ID表特殊处理，不需要默认的id和timestamp字段
             base_sql = f"""
                 CREATE TABLE IF NOT EXISTS `{table_name}` (
             """
@@ -387,6 +393,13 @@ class LogDatabaseManager:
                 `user_stats_detail` json COMMENT '详细用户统计数据(JSON)',
                 `command_stats_detail` json COMMENT '详细命令统计数据(JSON)',
             """
+        elif log_type == 'id':
+            specific_fields = """
+                `chat_type` varchar(10) NOT NULL COMMENT '聊天类型:group/user',
+                `chat_id` varchar(255) NOT NULL COMMENT '聊天ID:群ID或用户ID',
+                `last_message_id` varchar(255) NOT NULL COMMENT '最后一个消息ID',
+                PRIMARY KEY (`chat_type`, `chat_id`),
+            """
         else:
             specific_fields = """
                 `content` text NOT NULL,
@@ -395,6 +408,11 @@ class LogDatabaseManager:
         if log_type == 'dau':
             end_sql = """
                     `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """
+        elif log_type == 'id':
+            end_sql = """
+                    `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间'
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """
         else:
@@ -422,8 +440,8 @@ class LogDatabaseManager:
                 create_table_sql = self._get_create_table_sql(table_name, log_type)
                 cursor.execute(create_table_sql)
                 
-                # DAU表不创建时间索引，因为没有timestamp字段
-                if log_type != 'dau':
+                # DAU表和ID表不创建时间索引，因为没有timestamp字段
+                if log_type not in ('dau', 'id'):
                     cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
                 
                 if log_type == 'unmatched':
@@ -459,6 +477,41 @@ class LogDatabaseManager:
             
         return True
     
+    def update_id_cache(self, chat_type, chat_id, message_id):
+        """更新ID缓存"""
+        if not message_id:
+            return False
+            
+        with self.id_cache_lock:
+            cache_key = (chat_type, chat_id)
+            self.id_cache[cache_key] = message_id
+        return True
+    
+    def _save_id_cache_to_db(self):
+        """保存ID缓存到数据库"""
+        if not self.id_cache:
+            return
+            
+        with self.id_cache_lock:
+            # 复制缓存并清空原缓存
+            cache_to_save = self.id_cache.copy()
+            self.id_cache.clear()
+        
+        if not cache_to_save:
+            return
+        
+        # 转换为日志格式并加入队列
+        for (chat_type, chat_id), message_id in cache_to_save.items():
+            id_data = {
+                'chat_type': chat_type,
+                'chat_id': chat_id,
+                'last_message_id': message_id
+            }
+            self.log_queues['id'].put(id_data)
+        
+        # 立即保存ID日志
+        self._save_log_type_to_db('id')
+    
     def _periodic_save(self):
         """定期保存日志"""
         while not self._stop_event.is_set():
@@ -469,6 +522,8 @@ class LogDatabaseManager:
                         break
                 
                 self._save_logs_to_db()
+                # 保存ID缓存
+                self._save_id_cache_to_db()
                 
             except Exception as e:
                 logger.error(f"定期保存失败: {str(e)}")
@@ -561,6 +616,20 @@ class LogDatabaseManager:
                 json.dumps(log.get('message_stats_detail', {}), ensure_ascii=False) if log.get('message_stats_detail') else None,
                 json.dumps(log.get('user_stats_detail', {}), ensure_ascii=False) if log.get('user_stats_detail') else None,
                 json.dumps(log.get('command_stats_detail', []), ensure_ascii=False) if log.get('command_stats_detail') else None
+            ) for log in logs]
+        elif log_type == 'id':
+            sql = f"""
+                INSERT INTO `{table_name}` 
+                (`chat_type`, `chat_id`, `last_message_id`) 
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                `last_message_id` = VALUES(`last_message_id`),
+                `timestamp` = CURRENT_TIMESTAMP
+            """
+            values = [(
+                log.get('chat_type'),
+                log.get('chat_id'),
+                log.get('last_message_id')
             ) for log in logs]
         else:
             sql = f"""
@@ -696,11 +765,35 @@ class LogDatabaseManager:
                     
             except Exception as e:
                 logger.error(f"清理过期表失败: {str(e)}")
-    
+
+    def _cleanup_yesterday_ids(self):
+        """清理昨天的ID记录"""
+        try:
+            with self._with_cursor() as (cursor, connection):
+                table_name = self._get_table_name('id')
+                yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                
+                # 删除昨天的记录（timestamp字段是DATE类型时的比较）
+                cursor.execute(f"""
+                    DELETE FROM `{table_name}` 
+                    WHERE DATE(`timestamp`) = %s
+                """, (yesterday,))
+                
+                deleted_count = cursor.rowcount
+                connection.commit()
+                
+                if deleted_count > 0:
+                    logger.info(f"已清理昨天({yesterday})的ID记录: {deleted_count}条")
+                    
+        except Exception as e:
+            logger.error(f"清理昨天ID记录失败: {str(e)}")
+
     def shutdown(self):
         """关闭管理器"""
         self._stop_event.set()
         self._save_logs_to_db()
+        # 保存剩余的ID缓存
+        self._save_id_cache_to_db()
         
         if hasattr(self, '_save_thread') and self._save_thread.is_alive():
             self._save_thread.join(timeout=5)
@@ -840,3 +933,30 @@ def save_complete_dau_data(dau_data_dict):
     }
     
     return add_log_to_db('dau', db_data)
+
+
+def record_last_message_id(chat_type, chat_id, message_id):
+    """记录最后一个消息ID到缓存（定期批量保存）
+    
+    Args:
+        chat_type: 聊天类型，'group' 或 'user'
+        chat_id: 聊天ID，群ID或用户ID
+        message_id: 消息ID
+    """
+    if not log_db_manager:
+        return False
+    
+    return log_db_manager.update_id_cache(chat_type, chat_id, message_id)
+
+
+def cleanup_yesterday_ids():
+    """手动清理昨天的ID记录
+    
+    Returns:
+        bool: 清理是否成功
+    """
+    if not log_db_manager:
+        return False
+    
+    log_db_manager._cleanup_yesterday_ids()
+    return True

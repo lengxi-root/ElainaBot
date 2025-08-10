@@ -27,6 +27,8 @@ SERVER_CONFIG = {
     'port': 5001,                               # HTTP服务监听端口号
     'socket_timeout': 30,                       # Socket连接超时时间(秒)
     'keepalive': True,                          # 是否启用HTTP Keep-Alive连接复用
+    'web_dual_process': False,                  # 是否将Web面板作为独立进程启动，开启后日志无法推送，但不会阻塞程序
+    'web_port': 5002,                          # Web面板独立进程端口号（仅在dual_process=True时有效）
 }
 
 # Web界面外观配置 - 自定义框架名称和网页图标

@@ -19,7 +19,7 @@ import os
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
 from config import USE_MARKDOWN, IMAGE_BED_CHANNEL_ID, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, ENABLE_FRIEND_ADD_MESSAGE, HIDE_AVATAR_GLOBAL
-from function.log_db import add_log_to_db
+from function.log_db import add_log_to_db, record_last_message_id
 from core.plugin.message_templates import MessageTemplate, MSG_TYPE_WELCOME, MSG_TYPE_USER_WELCOME, MSG_TYPE_FRIEND_ADD, MSG_TYPE_API_ERROR
 from function.httpx_pool import sync_post, get_binary_content
 
@@ -934,7 +934,7 @@ class MessageEvent:
     
     def _record_message_to_db_only(self):
         """仅将消息记录到数据库中（不推送web面板）"""
-        from function.log_db import add_log_to_db
+        from function.log_db import add_log_to_db, record_last_message_id
         
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
@@ -984,6 +984,44 @@ class MessageEvent:
                 MessageTemplate.send(self, MSG_TYPE_USER_WELCOME, user_count=user_count)
             except Exception as e:
                 self._log_error(f'新用户欢迎消息发送失败: {str(e)}')
+
+    def record_last_message_id(self):
+        """记录最后一个消息ID到数据库
+        
+        根据消息类型记录相应的ID：
+        - 消息事件（群聊、私聊、频道）：记录 message_id (d/id)
+        - 事件通知（交互、群添加、好友添加）：记录顶层 id
+        - 排除：删好友和踢群事件不记录
+        """
+        # 排除不需要记录的事件类型
+        if self.message_type in (self.GROUP_DEL_ROBOT, self.FRIEND_DEL):
+            return False
+            
+        # 确定要记录的消息ID
+        message_id_to_record = None
+        
+        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE, self.CHANNEL_MESSAGE):
+            # 消息事件：使用 message_id (已经处理了d/id的逻辑)
+            message_id_to_record = self.message_id
+        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
+            # 事件通知：使用顶层id
+            message_id_to_record = self.get('id')
+        
+        if not message_id_to_record:
+            return False
+            
+        # 确定聊天类型和聊天ID
+        if self.is_group and self.group_id:
+            # 群聊
+            return record_last_message_id('group', self.group_id, message_id_to_record)
+        elif self.is_private and self.user_id:
+            # 私聊
+            return record_last_message_id('user', self.user_id, message_id_to_record)
+        elif self.message_type == self.CHANNEL_MESSAGE and self.channel_id:
+            # 频道消息（当作特殊的群聊类型处理）
+            return record_last_message_id('channel', self.channel_id, message_id_to_record)
+            
+        return False
 
     def _log_error(self, msg, tb=None, resp_obj=None, send_payload=None, raw_message=None):
         log_data = {

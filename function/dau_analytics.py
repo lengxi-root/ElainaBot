@@ -108,6 +108,7 @@ class DAUAnalytics:
         self.is_running = True
         schedule.clear()
         schedule.every().day.at("00:10").do(self._daily_dau_task)
+        schedule.every().day.at("01:00").do(self._daily_id_cleanup_task)
         
         self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
         self.scheduler_thread.start()
@@ -145,6 +146,22 @@ class DAUAnalytics:
                 
         except Exception as e:
             logger.error(f"每日DAU统计任务失败: {e}")
+
+    def _daily_id_cleanup_task(self):
+        """每日ID清理任务 - 每天1点执行"""
+        try:
+            # 调用log_db中的清理功能
+            from function.log_db import cleanup_yesterday_ids
+            success = cleanup_yesterday_ids()
+            
+            if success:
+                yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                logger.info(f"ID清理任务完成: {yesterday}")
+            else:
+                logger.warning("ID清理任务执行失败")
+                
+        except Exception as e:
+            logger.error(f"每日ID清理任务失败: {e}")
 
     def collect_dau_data(self, target_date: datetime.datetime) -> Optional[Dict[str, Any]]:
         """收集指定日期的DAU数据"""

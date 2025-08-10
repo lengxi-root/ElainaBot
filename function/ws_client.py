@@ -14,7 +14,7 @@ import sys
 import concurrent.futures
 from typing import Dict, Any, Optional, List, Callable
 from contextlib import asynccontextmanager
-from core.event.MessageEvent import MessageEvent
+
 from function.Access import BOT凭证
 
 def setup_asyncio_policy():
@@ -303,12 +303,12 @@ class WebSocketClient:
             if seq:
                 self.last_seq = seq
             
-            await self._handle_op_code(op_code, event_type, event_data)
+            await self._handle_op_code(op_code, event_type, event_data, data)
             
         except Exception:
             pass
 
-    async def _handle_op_code(self, op_code, event_type, event_data):
+    async def _handle_op_code(self, op_code, event_type, event_data, raw_data=None):
         """处理操作码"""
         try:
             if op_code == WSOpCode.HELLO:
@@ -320,7 +320,7 @@ class WebSocketClient:
             elif op_code == WSOpCode.INVALID_SESSION:
                 self._handle_invalid_session()
             elif op_code == WSOpCode.DISPATCH:
-                await self._handle_dispatch(event_type, event_data)
+                await self._handle_dispatch(event_type, event_data, raw_data)
         except Exception:
             pass
 
@@ -345,15 +345,15 @@ class WebSocketClient:
             logger.error("身份验证失败")
             self.connected = False
     
-    async def _handle_dispatch(self, event_type, event_data):
+    async def _handle_dispatch(self, event_type, event_data, raw_data=None):
         """处理分发事件"""
         if event_type == "READY":
             await self._handle_ready(event_data)
         else:
-            await self._handle_message_event(event_type, event_data)
+            await self._handle_message_event(event_type, event_data, raw_data)
 
-    async def _handle_message_event(self, event_type, event_data):
-        """处理消息事件"""
+    async def _handle_message_event(self, event_type, event_data, raw_data=None):
+        """处理消息事件 - 仅作为连接器，传递原始数据"""
         supported_types = {
             'GROUP_AT_MESSAGE_CREATE',
             'C2C_MESSAGE_CREATE', 
@@ -364,19 +364,11 @@ class WebSocketClient:
         
         if event_type in supported_types:
             try:
-                message_data = {
-                    't': event_type,
-                    'd': event_data,
-                    'id': event_data.get('id'),
-                    's': self.last_seq
-                }
-                
-                message_event = MessageEvent(message_data)
-                if not message_event.ignore:
-                    await self._call_handlers('message', message_event)
+                # 传递原始数据给处理器，让上层统一处理
+                await self._call_handlers('message', raw_data)
                     
             except Exception as e:
-                logger.error(f"处理MessageEvent失败: {e}")
+                logger.error(f"处理消息事件失败: {e}")
     
     async def _handle_ready(self, data):
         """处理Ready事件"""
@@ -616,6 +608,8 @@ def get_all_stats() -> Dict[str, Dict[str, Any]]:
 
 def run_in_thread_safe_loop(coro):
     """在线程安全的事件循环中运行异步代码"""
+    import threading
+    import concurrent.futures
     
     def run_with_loop():
         """In the new thread, create and run event loop"""

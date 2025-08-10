@@ -176,7 +176,7 @@ def create_app():
             if op == 0:
                 threading.Thread(
                     target=process_message_event, 
-                    args=(json_data, data.decode()),
+                    args=(data.decode(),),
                     daemon=True
                 ).start()
                 return "OK"
@@ -223,25 +223,29 @@ def _process_message_concurrent(event):
         except Exception as e:
             log_error(f"存储推送失败: {str(e)}")
     
-    # 并发执行
+    # 异步执行，避免阻塞主线程
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [
-            executor.submit(plugin_task),
-            executor.submit(storage_and_web_task)
-        ]
-        # 等待所有任务完成
-        concurrent.futures.wait(futures)
+        # 提交任务但不等待完成，避免阻塞HTTP响应
+        plugin_future = executor.submit(plugin_task)
+        storage_future = executor.submit(storage_and_web_task)
+        
+        # 只等待插件处理结果，存储推送异步进行
+        try:
+            plugin_future.result(timeout=0.1)  # 短暂等待插件结果
+        except concurrent.futures.TimeoutError:
+            # 插件处理超时，让它在后台继续运行
+            pass
     
     return result[0]
 
-def process_message_event(data, raw_data=None):
+def process_message_event(data):
     """处理消息事件"""
     if not data:
         return False
         
     try:
         from core.event.MessageEvent import MessageEvent
-        event = MessageEvent(raw_data if raw_data else data)
+        event = MessageEvent(data)
         if event.ignore:
             return False
         
@@ -252,19 +256,13 @@ def process_message_event(data, raw_data=None):
         log_error(f"消息处理失败: {str(e)}")
         return False
 
-async def handle_ws_message(event):
-    """处理WebSocket消息"""
-    def process_plugin():
-        try:
-            from core.event.MessageEvent import MessageEvent
-            message_event = MessageEvent(event.raw_data if hasattr(event, 'raw_data') else event)
-            if not message_event.ignore:
-                _process_message_concurrent(message_event)
-            cleanup_gc()
-        except Exception as e:
-            log_error(f"WebSocket消息处理失败: {str(e)}")
-    
-    threading.Thread(target=process_plugin, daemon=True).start()
+async def handle_ws_message(raw_data):
+    """处理WebSocket消息 - 与webhook使用相同的处理流程"""
+    threading.Thread(
+        target=process_message_event,
+        args=(raw_data,),
+        daemon=True
+    ).start()
 
 async def create_websocket_client():
     """创建WebSocket客户端"""

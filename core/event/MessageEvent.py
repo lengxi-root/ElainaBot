@@ -90,7 +90,7 @@ class MessageEvent:
         self.content = ""
         self.message_type = self.UNKNOWN_MESSAGE
         self.event_type = self.get('t')
-        self.message_id = self.get('d/id')
+        self.message_id = self.get('id')
         self.timestamp = self.get('d/timestamp')
         self.matches = None
         self.db = Database()
@@ -228,9 +228,9 @@ class MessageEvent:
         if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
             payload["msg_id"] = self.message_id
         elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('id') or self.get('d/id') or ""
+            payload["event_id"] = self.get('id') or ""
         elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.get('d/id')
+            payload["msg_id"] = self.get('id')
         return payload
     
     def _handle_auto_recall(self, message_id, auto_delete_time):
@@ -557,9 +557,9 @@ class MessageEvent:
         if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
             payload["msg_id"] = self.message_id
         elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
-            payload["event_id"] = self.get('id') or self.get('d/id') or ""
+            payload["event_id"] = self.get('id') or ""
         elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.get('d/id')
+            payload["msg_id"] = self.get('id')
         
         # 设置内容
         if media:

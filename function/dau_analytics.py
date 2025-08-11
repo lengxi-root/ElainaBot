@@ -87,15 +87,14 @@ class DAUAnalytics:
     def _daily_dau_task(self):
         yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
         
-        existing_data = self.load_dau_data(yesterday)
-        if existing_data:
-            logger.info(f"DAU数据已存在: {self._format_date(yesterday)}")
-            return
-        
+        # 直接收集并保存数据，不检查是否已存在
+        # 数据库会保留原有的加群等事件数据，只更新消息统计
         dau_data = self.collect_dau_data(yesterday)
         if dau_data:
             self.save_dau_data(dau_data, yesterday)
             logger.info(f"DAU数据已生成: {self._format_date(yesterday)}")
+        else:
+            logger.warning(f"DAU数据生成失败: {self._format_date(yesterday)}")
 
     def _daily_id_cleanup_task(self):
         from function.log_db import cleanup_yesterday_ids

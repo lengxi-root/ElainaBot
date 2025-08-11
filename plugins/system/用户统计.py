@@ -12,6 +12,10 @@ import traceback
 from function.httpx_pool import sync_get
 from function.database import Database  # 导入Database类获取QQ号
 from functools import wraps
+import os
+import sys
+import subprocess
+import platform
 
 # 导入日志数据库相关内容
 try:
@@ -32,52 +36,44 @@ class system_plugin(Plugin):
     # 设置插件优先级
     priority = 10
     
-    # 公共方法区域
-    @staticmethod
-    def error_handler(func):
-        """统一错误处理装饰器"""
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                # 获取event对象（通常是第一个或第二个参数）
-                event = None
-                for arg in args:
-                    if hasattr(arg, 'reply') and hasattr(arg, 'user_id'):
-                        event = arg
-                        break
-                
-                logger.error(f'{func.__name__}执行失败: {e}', exc_info=True)
-                if event:
-                    event.reply(f'<@{event.user_id}>\n❌ 操作失败: {str(e)}')
-                else:
-                    logger.error(f'无法发送错误消息，找不到event对象')
-        return wrapper
-    
     @staticmethod
     def mask_id(id_str, mask_char="*"):
-        """统一ID脱敏处理"""
+        """ID脱敏处理"""
         if not id_str or len(id_str) <= 6:
+            return id_str
+        if len(id_str) <= 3:
             return id_str
         return id_str[:3] + mask_char * 4 + id_str[-3:]
     
-
+    @staticmethod
+    def create_buttons(event, button_configs):
+        """创建按钮"""
+        rows = []
+        for row_config in button_configs:
+            row = []
+            for btn_config in row_config:
+                button = {
+                    'text': btn_config.get('text', ''),
+                    'data': btn_config.get('data', ''),
+                    'type': btn_config.get('type', 1),
+                    'style': btn_config.get('style', 1),
+                    'enter': btn_config.get('enter', True)
+                }
+                row.append(button)
+            rows.append(event.rows(row))
+        return event.button(rows)
     
     @staticmethod
-    def safe_db_operation(operation_func, *args, **kwargs):
-        """安全的数据库操作包装"""
-        connection = None
-        cursor = None
+    def safe_reply(event, message, buttons=None):
+        """安全回复消息"""
         try:
-            result = operation_func(*args, **kwargs)
-            return result
+            if buttons:
+                event.reply(message, buttons, hide_avatar_and_center=True)
+            else:
+                event.reply(message)
         except Exception as e:
-            logger.error(f'数据库操作失败: {e}', exc_info=True)
-            raise
-        finally:
-            # 清理资源的逻辑在具体的operation_func中处理
-            pass
+            logger.error(f'回复消息失败: {e}')
+            event.reply(f'<@{event.user_id}>\n❌ 操作失败: {str(e)}')
     
     @staticmethod
     def get_regex_handlers():
@@ -109,100 +105,155 @@ class system_plugin(Plugin):
             r'^删除历史数据$': {
                 'handler': 'clean_historical_data',
                 'owner_only': True  # 仅限主人使用
+            },
+            r'^dm(.+)$': {
+                'handler': 'send_dm',
+                'owner_only': True  # 仅限主人使用
+            },
+            r'^重启$': {
+                'handler': 'restart_bot',
+                'owner_only': True  # 仅限主人使用
             }
         }
     
     @staticmethod
     def getid(event):
         """获取用户ID信息"""
+        info_parts = [
+            f"<@{event.user_id}>",
+            f"用户ID: {event.user_id}",
+            f"群组ID: {event.group_id}"
+        ]
+        
+        system_plugin.safe_reply(event, "\n".join(info_parts))
+    
+    @staticmethod
+    def send_dm(event):
+        """发送自定义消息"""
         try:
-            info_parts = [f"<@{event.user_id}>"]
+            # 从正则匹配中获取消息内容
+            content = event.matches[0] if event.matches and event.matches[0] else ""
             
-
+            if not content.strip():
+                event.reply(f"<@{event.user_id}>\n❌ 消息内容不能为空\n💡 使用格式：dm+消息内容")
+                return
             
-            # 添加基本信息
-            info_parts.extend([
-                f"用户ID: {event.user_id}",
-                f"群组ID: {event.group_id}"
-            ])
+            # 处理转义字符，但保持中文字符不变
+            try:
+                # 只对包含转义字符的内容进行处理
+                if '\\n' in content or '\\t' in content or '\\r' in content or '\\\\' in content:
+                    content = content.encode('utf-8').decode('unicode_escape')
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                # 如果处理失败，保持原内容不变
+                pass
             
-
+            # 创建按钮
+            button_configs = [[
+                {
+                    'text': '再次重试',
+                    'data': event.content,  # 用户发送的原始内容
+                    'enter': False,
+                    'style': 1,
+                    'type': 2
+                },
+                {
+                    'text': '重新测试',
+                    'data': 'dm',  # dm前缀
+                    'enter': False,
+                    'style': 1,
+                    'type': 2
+                }
+            ]]
+            buttons = system_plugin.create_buttons(event, button_configs)
             
-            event.reply("\n".join(info_parts))
+            # 发送处理后的内容，转义字符已转换为实际字符
+            event.reply(content, buttons)
+            
         except Exception as e:
-            logger.error(f'获取用户信息失败: {e}')
-            event.reply(f'<@{event.user_id}>\n❌ 获取信息失败: {str(e)}')
+            logger.error(f'发送自定义消息失败: {e}')
+            event.reply(f'<@{event.user_id}>\n❌ 发送失败: {str(e)}')
+    
+    @staticmethod
+    def _get_user_qq(user_id):
+        """获取用户QQ号"""
+        try:
+            sql = "SELECT qq FROM M_users WHERE user_id = %s"
+            result = DatabaseService.execute_query(sql, (user_id,))
+            return result.get('qq') if result else None
+        except:
+            return None
     
 
     
-
+    @staticmethod
+    def _get_user_permission(user_id):
+        """获取用户权限"""
+        try:
+            api_url = 'https://api.elaina.vin/api/积分/特殊用户.php'
+            resp = sync_get(api_url, timeout=5)
+            data = resp.json()
+            user_id_str = str(user_id)
+            
+            for item in data:
+                if item.get('openid') == user_id_str or item.get('qq') == user_id_str:
+                    return item.get('reason', '特殊权限用户')
+            return "普通用户"
+        except:
+            return "查询失败"
     
     
     @classmethod
     def admin_tools(cls, event):
-        """管理工具，显示所有可用指令和统计数据"""
-        # 如果无法导入PluginManager，则返回错误
+        """管理工具"""
         if PluginManager is None:
             event.reply("无法加载插件管理器，请检查系统配置")
             return
             
         try:
-            # 创建插件管理器实例并加载所有插件
             plugin_manager = PluginManager()
             plugin_manager.load_plugins()
-            
-            # 获取所有已加载的插件及其优先级 - 使用_plugins字典
             plugins = list(plugin_manager._plugins.keys())
             
-            # 构建头部信息
             header = [
                 f'<@{event.user_id}>',
                 f'📋 所有可用指令列表',
                 f'总插件数: {len(plugins)}个'
             ]
             
-            # 构建代码框内容
             code_content = []
-            
-            # 遍历所有插件并提取命令
             total_commands = 0
             
             for plugin in plugins:
                 plugin_name = plugin.__name__
-                priority = plugin_manager._plugins[plugin]  # 从_plugins字典获取优先级
+                priority = plugin_manager._plugins[plugin]
                 handlers = plugin.get_regex_handlers()
                 
                 if handlers:
                     code_content.append(f'🔧 插件: {plugin_name} (优先级: {priority})')
-                    
-                    # 所有命令统一显示，不再区分权限
                     commands = []
                     
                     for pattern, handler_info in handlers.items():
                         total_commands += 1
-                        # 根据是否是主人命令添加不同的emoji
                         if isinstance(handler_info, dict) and handler_info.get('owner_only', False):
-                            emoji = "👑"  # 主人命令
+                            emoji = "👑"
                         else:
-                            emoji = "🔹"  # 普通命令
+                            emoji = "🔹"
                         
-                        # 删除正则表达式的^和$符号
                         clean_pattern = pattern.replace('^', '').replace('$', '')
                         commands.append(f"  {emoji} {clean_pattern}")
                     
-                    # 只有命令非空的插件才添加到输出中
                     if commands:
                         code_content.extend(sorted(commands))
                         code_content.append('-' * 30)
             
-            # 命令总结
             code_content.append(f'总命令数: {total_commands}个')
             
-            # 创建最终消息内容 - 使用代码框包裹
             message = '\n'.join(header) + "\n\n```python\n" + '\n'.join(code_content) + "\n```\n"
             
-            # 发送消息
-            event.reply(message)
+            button_configs = [[{'text': '查看DAU', 'data': 'dau', 'enter': False}]]
+            buttons = system_plugin.create_buttons(event, button_configs)
+            
+            event.reply(message, buttons, hide_avatar_and_center=True)
             
         except Exception as e:
             logger.error(f'管理工具执行失败: {e}')
@@ -210,16 +261,13 @@ class system_plugin(Plugin):
     
     @classmethod
     def handle_dau(cls, event):
-        """统一处理DAU查询请求"""
+        """处理DAU查询"""
         try:
-            # 从正则匹配中获取日期参数（MMDD格式，可选）
             date_str = event.matches[0] if event.matches and event.matches[0] else None
             
             if date_str:
-                # 查询指定日期的DAU
                 cls._handle_specific_date_dau(event, date_str)
             else:
-                # 查询今日DAU
                 cls._handle_today_dau(event)
                 
         except Exception as e:
@@ -272,61 +320,47 @@ class system_plugin(Plugin):
     
     @classmethod
     def _get_dau_data(cls, event, date_str, yesterday_str=None, current_hour=None, current_minute=None):
-        """获取特定日期的DAU统计数据的通用方法
-        
-        Args:
-            event: 消息事件
-            date_str: 日期字符串，格式为YYYYMMDD
-            yesterday_str: 昨天日期字符串，格式为YYYYMMDD（可选）
-            current_hour: 当前小时（可选）
-            current_minute: 当前分钟（可选）
-        """
+        """获取DAU数据"""
         start_time = time.time()
-        
-        # 将YYYYMMDD格式转换为datetime对象
         target_date = datetime.datetime.strptime(date_str, '%Y%m%d')
         today = datetime.datetime.now().date()
         is_today = target_date.date() == today
         
-        # 优先尝试从本地文件读取DAU数据
-        try:
-            from function.dau_analytics import get_dau_analytics
-            
-            dau_analytics = get_dau_analytics()
-            dau_data = dau_analytics.load_dau_data(target_date)
-            
-            if dau_data:
-                # 从本地文件成功读取到数据
-                cls._send_dau_from_file(event, dau_data, target_date, start_time)
-                return
-                
-        except Exception as e:
-            logger.warning(f"尝试从本地文件读取DAU数据失败: {e}")
-        
-        # 如果是非今日数据且文件不存在，直接返回提示
+        # 如果不是今日，优先尝试从数据库读取历史DAU数据
         if not is_today:
+            try:
+                from function.dau_analytics import get_dau_analytics
+                dau_analytics = get_dau_analytics()
+                dau_data = dau_analytics.load_dau_data(target_date)
+                
+                if dau_data:
+                    cls._send_dau_from_database(event, dau_data, target_date, start_time)
+                    return
+            except Exception as e:
+                logger.warning(f"尝试从数据库读取DAU数据失败: {e}")
+            
             display_date = f"{date_str[4:6]}-{date_str[6:8]}"
+            button_configs = [[{'text': '补全DAU', 'data': '补全dau'}]]
+            buttons = system_plugin.create_buttons(event, button_configs)
             
             event.reply(
                 f"<@{event.user_id}>\n"
                 f"❌ {display_date} 的DAU数据未生成或无该日期数据\n"
-                f"💡 可以尝试使用'补全dau'命令补全DAU记录"
+                f"💡 可以尝试使用下方按钮补全DAU记录",
+                buttons,
+                hide_avatar_and_center=True
             )
             return
         
-        # 如果是今日数据且本地文件不存在，则从数据库查询（保持原有逻辑）
-        # 如果日志数据库功能未启用，则返回提示
         if not LOG_DB_CONFIG.get('enabled', False):
             event.reply("日志数据库未启用，无法获取DAU统计")
             return
             
-        # 如果无法导入LogDatabasePool，则使用普通数据库
         if LogDatabasePool is None:
             event.reply("无法访问日志数据库，请检查配置")
             return
         
         try:
-            # 使用日志数据库连接池
             log_db_pool = LogDatabasePool()
             connection = log_db_pool.get_connection()
             
@@ -338,12 +372,9 @@ class system_plugin(Plugin):
             
             try:
                 cursor = connection.cursor()
-                
-                # 构建消息表名
                 table_name = f"Mlog_{date_str}_message"
                 
-                # 检查消息表是否存在
-                check_query = f"""
+                check_query = """
                     SELECT COUNT(*) as count 
                     FROM information_schema.tables 
                     WHERE table_schema = DATABASE() 
@@ -353,45 +384,39 @@ class system_plugin(Plugin):
                 cursor.execute(check_query, (table_name,))
                 result = cursor.fetchone()
                 if not result or result['count'] == 0:
-                    # 将YYYYMMDD格式转换为更易读的格式
                     display_date = f"{date_str[4:6]}-{date_str[6:8]}"
                     event.reply(f"该日期({display_date})无消息记录")
                     return
                 
-                # 时间限制条件 - 如果有当前小时和分钟，则限制查询范围
                 time_condition = ""
                 if current_hour is not None and current_minute is not None:
                     time_limit = f"{current_hour:02d}:{current_minute:02d}:00"
                     time_condition = f" WHERE TIME(timestamp) <= '{time_limit}'"
                 
-                # 查询总消息数
                 total_messages_query = f"SELECT COUNT(*) as count FROM {table_name}{time_condition}"
                 cursor.execute(total_messages_query)
                 total_messages_result = cursor.fetchone()
                 total_messages = total_messages_result['count'] if total_messages_result else 0
                 
-                # 查询不同用户数量（去重）
                 unique_users_query = f"SELECT COUNT(DISTINCT user_id) as count FROM {table_name}{time_condition}"
                 unique_users_query += " AND user_id IS NOT NULL AND user_id != ''" if time_condition else " WHERE user_id IS NOT NULL AND user_id != ''"
                 cursor.execute(unique_users_query)
                 unique_users_result = cursor.fetchone()
                 unique_users = unique_users_result['count'] if unique_users_result else 0
                 
-                # 查询不同群组数量（去重）- 不包括私聊
                 unique_groups_query = f"SELECT COUNT(DISTINCT group_id) as count FROM {table_name}{time_condition}"
                 unique_groups_query += " AND group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''" if time_condition else " WHERE group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''"
                 cursor.execute(unique_groups_query)
                 unique_groups_result = cursor.fetchone()
                 unique_groups = unique_groups_result['count'] if unique_groups_result else 0
                 
-                # 查询私聊消息数量
                 private_messages_query = f"SELECT COUNT(*) as count FROM {table_name}{time_condition}"
                 private_messages_query += " AND group_id = 'c2c'" if time_condition else " WHERE group_id = 'c2c'"
                 cursor.execute(private_messages_query)
                 private_messages_result = cursor.fetchone()
                 private_messages = private_messages_result['count'] if private_messages_result else 0
                 
-                # 获取最活跃的5个群组
+                # 获取最活跃的2个群组
                 active_groups_query = f"""
                     SELECT group_id, COUNT(*) as msg_count 
                     FROM {table_name}{time_condition}
@@ -400,12 +425,12 @@ class system_plugin(Plugin):
                 active_groups_query += """
                     GROUP BY group_id 
                     ORDER BY msg_count DESC 
-                    LIMIT 3
+                    LIMIT 2
                 """
                 cursor.execute(active_groups_query)
                 active_groups_result = cursor.fetchall()
                 
-                # 获取最活跃的5个用户
+                # 获取最活跃的2个用户
                 active_users_query = f"""
                     SELECT user_id, COUNT(*) as msg_count 
                     FROM {table_name}{time_condition}
@@ -414,7 +439,7 @@ class system_plugin(Plugin):
                 active_users_query += """
                     GROUP BY user_id 
                     ORDER BY msg_count DESC 
-                    LIMIT 3
+                    LIMIT 2
                 """
                 cursor.execute(active_users_query)
                 active_users_result = cursor.fetchall()
@@ -439,6 +464,35 @@ class system_plugin(Plugin):
                 
                 # 查找最活跃的小时
                 most_active_hour = max(hours_data.items(), key=lambda x: x[1]) if hours_data else (0, 0)
+                
+                # 读取DAU表中的事件数据（仅限今日）
+                event_stats = {'group_join_count': 0, 'group_leave_count': 0, 'friend_add_count': 0, 'friend_remove_count': 0}
+                if is_today:
+                    try:
+                        dau_table_name = "Mlog_dau"
+                        cursor.execute(f"""
+                            SELECT COUNT(*) as count 
+                            FROM information_schema.tables 
+                            WHERE table_schema = DATABASE() 
+                            AND table_name = %s
+                        """, (dau_table_name,))
+                        dau_table_exists = cursor.fetchone()
+                        
+                        if dau_table_exists and dau_table_exists['count'] > 0:
+                            cursor.execute(f"""
+                                SELECT group_join_count, group_leave_count, friend_add_count, friend_remove_count
+                                FROM {dau_table_name}
+                                WHERE date = %s
+                            """, (target_date.strftime('%Y-%m-%d'),))
+                            dau_result = cursor.fetchone()
+                            
+                            if dau_result:
+                                event_stats['group_join_count'] = dau_result.get('group_join_count', 0)
+                                event_stats['group_leave_count'] = dau_result.get('group_leave_count', 0)
+                                event_stats['friend_add_count'] = dau_result.get('friend_add_count', 0)
+                                event_stats['friend_remove_count'] = dau_result.get('friend_remove_count', 0)
+                    except Exception as e:
+                        logger.warning(f"读取DAU事件数据失败: {e}")
                 
                 # 将YYYYMMDD格式转换为更易读的格式
                 display_date = f"{date_str[4:6]}-{date_str[6:8]}"
@@ -523,6 +577,22 @@ class system_plugin(Plugin):
                 
                 info.append(f'⏰ 最活跃时段: {most_active_hour[0]}点 ({most_active_hour[1]})')
                 
+                # 添加事件统计（仅限今日）
+                if is_today and event_stats and any(event_stats.values()):
+                    info.append(f'📈 今日事件统计:')
+                    group_join = event_stats["group_join_count"]
+                    group_leave = event_stats["group_leave_count"]
+                    friend_add = event_stats["friend_add_count"] 
+                    friend_remove = event_stats["friend_remove_count"]
+                    
+                    info.append(f'  👥 加群: {group_join} | 退群: {group_leave}')
+                    info.append(f'  👤 加友: {friend_add} | 删友: {friend_remove}')
+                    
+                    # 计算群组和好友的净增长
+                    group_net = group_join - group_leave
+                    friend_net = friend_add - friend_remove
+                    info.append(f'  📊 群组净增: {group_net:+d} | 好友净增: {friend_net:+d}')
+                
                 # 添加最活跃群组信息
                 if active_groups_result:
                     info.append('🔝 最活跃群组:')
@@ -552,8 +622,18 @@ class system_plugin(Plugin):
                 info.append(f'🕒 查询耗时: {query_time}ms')
                 info.append(f'📁 数据源: 实时数据库查询')
                 
-                # 发送消息
-                event.reply('\n'.join(info))
+                # 创建按钮
+                button_configs = [
+                    [
+                        {'text': '查询dau', 'data': 'dau', 'type': 2, 'enter': False},
+                        {'text': '今日DAU', 'data': 'dau'}
+                    ],
+                    [{'text': '用户统计', 'data': '用户统计'}]
+                ]
+                buttons = system_plugin.create_buttons(event, button_configs)
+                
+                # 发送带按钮的消息
+                event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
                 
             finally:
                 # 确保关闭游标和释放连接
@@ -567,8 +647,8 @@ class system_plugin(Plugin):
             event.reply(f'DAU统计服务暂时不可用，错误信息: {str(e)}')
     
     @classmethod
-    def _send_dau_from_file(cls, event, dau_data, target_date, start_time):
-        """从本地文件加载DAU数据并发送"""
+    def _send_dau_from_database(cls, event, dau_data, target_date, start_time):
+        """从数据库加载DAU数据并发送"""
         try:
             # 获取消息统计数据
             msg_stats = dau_data.get('message_stats', {})
@@ -589,12 +669,25 @@ class system_plugin(Plugin):
             peak_hour_count = msg_stats.get("peak_hour_count", 0)
             info.append(f'⏰ 最活跃时段: {peak_hour}点 ({peak_hour_count}条)')
             
+            # 添加事件统计数据（如果有）
+            event_stats = dau_data.get('event_stats', {})
+            if event_stats and any(event_stats.values()):
+                info.append(f'📈 事件统计:')
+                group_join = event_stats.get("group_join_count", 0)
+                group_leave = event_stats.get("group_leave_count", 0) 
+                friend_add = event_stats.get("friend_add_count", 0)
+                friend_remove = event_stats.get("friend_remove_count", 0)
+                group_net = group_join - group_leave
+                friend_net = friend_add - friend_remove
+                info.append(f'  👥 加群: {group_join} | 退群: {group_leave} | 净增: {group_net:+d}')
+                info.append(f'  👤 加友: {friend_add} | 删友: {friend_remove} | 净增: {friend_net:+d}')
+            
             # 添加最活跃群组信息
             top_groups = msg_stats.get("top_groups", [])
             if top_groups:
                 info.append('🔝 最活跃群组:')
                 idx = 1
-                for group in top_groups[:3]:  # 只显示前3个
+                for group in top_groups[:2]:  # 只显示前2个
                     group_id = group.get("group_id", "")
                     if not group_id:
                         continue  # 跳过空/None
@@ -607,7 +700,7 @@ class system_plugin(Plugin):
             if top_users:
                 info.append('👑 最活跃用户:')
                 idx = 1
-                for user in top_users[:3]:  # 只显示前3个
+                for user in top_users[:2]:  # 只显示前2个
                     user_id = user.get("user_id", "")
                     if not user_id:
                         continue  # 跳过空/None
@@ -618,7 +711,7 @@ class system_plugin(Plugin):
             # 计算查询耗时
             query_time = round((time.time() - start_time) * 1000)
             info.append(f'🕒 查询耗时: {query_time}ms')
-            info.append(f'📁 数据源: 本地文件')
+            info.append(f'📁 数据源: 数据库')
             
             # 添加生成时间信息
             if dau_data.get('generated_at'):
@@ -628,13 +721,23 @@ class system_plugin(Plugin):
                 except:
                     pass
             
-            # 发送消息
-            event.reply('\n'.join(info))
+            # 创建按钮
+            button_configs = [
+                [
+                    {'text': '查询dau', 'data': 'dau', 'type': 2, 'enter': False},
+                    {'text': '今日DAU', 'data': 'dau'}
+                ],
+                [{'text': '用户统计', 'data': '用户统计'}]
+            ]
+            buttons = system_plugin.create_buttons(event, button_configs)
+            
+            # 发送带按钮的消息
+            event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
             
         except Exception as e:
-            logger.error(f"发送DAU文件数据失败: {e}")
-            # 如果解析文件数据失败，回退到原始错误消息
-            event.reply(f"DAU数据文件解析失败: {str(e)}")
+            logger.error(f"发送DAU数据库数据失败: {e}")
+            # 如果解析数据库数据失败，回退到原始错误消息
+            event.reply(f"DAU数据库数据解析失败: {str(e)}")
     
     @classmethod
     def _get_query_params(cls):
@@ -782,8 +885,12 @@ class system_plugin(Plugin):
             query_time = round((time.time() - start_time) * 1000)
             info.append(f'🕒 查询耗时: {query_time}ms')
             
-            # 发送消息
-            event.reply('\n'.join(info))
+            # 创建按钮
+            button_configs = [[{'text': 'DAU查询', 'data': 'dau'}]]
+            buttons = system_plugin.create_buttons(event, button_configs)
+            
+            # 发送带按钮的消息
+            event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
             
         except Exception as e:
             logger.error(f'获取统计信息失败: {e}')
@@ -791,47 +898,38 @@ class system_plugin(Plugin):
     
     @staticmethod
     def about_info(event):
-        """关于界面，展示内核、版本、作者等信息（不使用代码框，每行前加表情）"""
-        # 导入config配置
-        from config import ROBOT_QQ, appid
-        
-        # 导入PluginManager获取插件和功能数量
+        """关于界面"""
         try:
             from core.plugin.PluginManager import PluginManager
-            
-            # 创建插件管理器实例并加载所有插件
             plugin_manager = PluginManager()
             plugin_manager.load_plugins()
-            
-            # 获取内核数（已加载的插件数）
             kernel_count = len(plugin_manager._plugins)
-            
-            # 获取功能数（已注册的处理器数）
             function_count = len(plugin_manager._regex_handlers)
-        except Exception as e:
-            # 如果获取失败，使用默认值
+        except:
             kernel_count = "获取失败"
             function_count = "获取失败"
-            logger.error(f"获取插件信息失败: {e}", exc_info=True)
             
-        # 获取Python版本
         import platform
         python_version = platform.python_version()
             
-        # 添加用户@并用markdown横线分隔
         msg = (
 f'<@{event.user_id}>关于伊蕾娜\n___\n'
 '🔌 连接方式: WebHook\n'
-f'🤖 机器人QQ: {ROBOT_QQ}\n'
-f'🆔 机器人appid: {appid}\n'
+'🤖 机器人QQ: 3889045760\n'
+'🆔 机器人appid: 102134274\n'
 '🚀 内核版本：Elaina 1.2.3\n'
-'🏗️ 连接Bot框架: Elaina-Bot\n'
+'🏗️ 连接Bot框架: Elaina-Mbot\n'
 f'⚙️ Python版本: {python_version}\n'
 f'💫 已加载内核数: {kernel_count}\n'
 f'⚡ 已加载处理器数: {function_count}\n'
 '\n\n>Tip:只有艾特伊蕾娜，伊蕾娜才能接收到你的消息~！'
         )
-        event.reply(msg) 
+        button_configs = [[
+            {'text': '菜单', 'data': '/菜单'},
+            {'text': '娱乐菜单', 'data': '/娱乐菜单'}
+        ]]
+        btn = system_plugin.create_buttons(event, button_configs)
+        system_plugin.safe_reply(event, msg, btn) 
     
     @staticmethod
     def complete_dau(event):
@@ -848,7 +946,7 @@ f'⚡ 已加载处理器数: {function_count}\n'
             for i in range(1, 31):  # 从昨天开始，检查30天
                 target_date = today - datetime.timedelta(days=i)
                 
-                # 检查是否存在DAU数据文件
+                # 检查是否存在DAU数据
                 dau_data = dau_analytics.load_dau_data(target_date)
                 if not dau_data:
                     missing_dates.append(target_date)
@@ -916,8 +1014,12 @@ f'⚡ 已加载处理器数: {function_count}\n'
             for date in failed_dates:
                 info.append(f'  • {date}')
         
-        # 发送消息
-        event.reply('\n'.join(info))
+        # 创建按钮
+        button_configs = [[{'text': 'DAU查询', 'data': 'dau'}]]
+        buttons = system_plugin.create_buttons(event, button_configs)
+        
+        # 发送带按钮的消息
+        event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
     
     @staticmethod
     def clean_historical_data(event):
@@ -1089,4 +1191,185 @@ f'⚡ 已加载处理器数: {function_count}\n'
             f'📅 清理范围: {eight_days_ago.strftime("%Y-%m-%d")}之前的日志表'
         ])
         
-        event.reply('\n'.join(info)) 
+        button_configs = [[
+            {'text': '用户统计', 'data': '用户统计'},
+            {'text': 'DAU查询', 'data': 'dau'}
+        ]]
+        buttons = system_plugin.create_buttons(event, button_configs)
+        
+        event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+    
+
+    @staticmethod
+    def restart_bot(event):
+        """重启机器人"""
+        try:
+            # 获取当前进程PID和系统信息
+            current_pid = os.getpid()
+            system_info = platform.system()
+            python_version = platform.python_version()
+            
+            # 检查main.py是否存在
+            current_dir = os.getcwd()
+            main_py_path = os.path.join(current_dir, 'main.py')
+            main_py_exists = os.path.exists(main_py_path)
+            
+            # 发送重启状态信息
+            info = [
+                f'<@{event.user_id}>',
+                f'🔄 正在重启机器人...',
+                f'🔹 进程PID: {current_pid}',
+                f'🔹 系统: {system_info}',
+                f'🔹 Python: {python_version}',
+                f'🔹 工作目录: {current_dir}',
+                f'⏱️  预计重启时间: 3秒'
+            ]
+            
+            if not main_py_exists:
+                info.append(f'')
+                info.append(f'❌ 检测到main.py文件不存在，重启可能失败！')
+                event.reply('\n'.join(info))
+                return
+            
+            # 发送状态信息
+            event.reply('\n'.join(info))
+            
+            # 创建重启器Python脚本
+            restart_script_content = system_plugin._create_restart_python_script(current_pid, main_py_path)
+            restart_script_path = os.path.join(current_dir, 'bot_restarter.py')
+            
+            # 写入重启器脚本
+            with open(restart_script_path, 'w', encoding='utf-8') as f:
+                f.write(restart_script_content)
+            
+            logger.info(f"准备重启机器人，当前PID: {current_pid}")
+            
+            # 启动新的重启器进程（这个进程会处理重启逻辑）
+            is_windows = platform.system().lower() == 'windows'
+            
+            if is_windows:
+                # Windows: 在新的控制台窗口启动重启器
+                subprocess.Popen(
+                    ['python', restart_script_path],
+                    cwd=current_dir,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                    stdout=None,
+                    stderr=None,
+                    stdin=None
+                )
+            else:
+                # Linux: 在新的进程中启动重启器
+                subprocess.Popen(
+                    [sys.executable, restart_script_path],
+                    cwd=current_dir,
+                    stdout=None,
+                    stderr=None,
+                    stdin=None,
+                    start_new_session=True
+                )
+            
+            logger.info("重启器进程已启动")
+            
+        except Exception as e:
+            logger.error(f'重启机器人失败: {e}')
+            event.reply(f'<@{event.user_id}>\n❌ 重启失败: {str(e)}')
+    
+    @staticmethod
+    def _create_restart_python_script(current_pid, main_py_path):
+        """创建Python重启器脚本"""
+        script_content = f'''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+机器人重启器
+自动停止老进程并启动新进程
+"""
+
+import os
+import sys
+import time
+import signal
+import platform
+import subprocess
+
+def main():
+    """主重启流程"""
+    current_pid = {current_pid}
+    main_py_path = r"{main_py_path}"
+    
+    # 第一步：等待消息发送完成
+    time.sleep(0.5)
+    
+    # 第二步：停止老进程
+    try:
+        if platform.system().lower() == 'windows':
+            # Windows: 使用taskkill
+            subprocess.run(['taskkill', '/PID', str(current_pid), '/F'], 
+                         check=False, capture_output=True)
+        else:
+            # Linux/Mac: 使用kill
+            try:
+                os.kill(current_pid, signal.SIGTERM)
+                time.sleep(1)
+                # 如果进程还在，强制杀死
+                try:
+                    os.kill(current_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass  # 进程已经停止
+            except ProcessLookupError:
+                pass  # 进程已经停止
+        
+    except Exception as e:
+        pass
+    
+    # 第三步：等待进程完全退出
+    time.sleep(1.5)
+    
+    # 第四步：启动新进程
+    try:
+        # 切换到正确的工作目录
+        os.chdir(os.path.dirname(main_py_path))
+        
+        # 启动新的机器人进程
+        if platform.system().lower() == 'windows':
+            # Windows: 在新控制台窗口启动
+            subprocess.Popen(
+                [sys.executable, main_py_path],
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                cwd=os.path.dirname(main_py_path)
+            )
+        else:
+            # Linux: 直接替换当前进程（这样日志会显示在当前终端）
+            # 清理重启器脚本
+            try:
+                script_path = __file__
+                if os.path.exists(script_path):
+                    os.remove(script_path)
+            except:
+                pass
+            
+            # 使用exec替换当前进程，这样日志会继续在当前终端显示
+            os.execv(sys.executable, [sys.executable, main_py_path])
+        
+    except Exception as e:
+        sys.exit(1)
+    
+    # Windows下清理并退出
+    if platform.system().lower() == 'windows':
+        time.sleep(0.5)
+        
+        # 清理重启器脚本
+        try:
+            script_path = __file__
+            if os.path.exists(script_path):
+                os.remove(script_path)
+        except:
+            pass
+        
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
+'''
+        return script_content
+    
+ 

@@ -29,14 +29,31 @@ warnings.filterwarnings("ignore", category=UserWarning, module="PIL")
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
 from config import LOG_CONFIG, LOG_DB_CONFIG, WEBSOCKET_CONFIG, SERVER_CONFIG, WEB_SECURITY
-try:
-    from web.app import start_web, add_plugin_log, add_framework_log, add_error_log
-    _web_available = True
-except ImportError:
-    _web_available = False
-    def add_plugin_log(*args, **kwargs): pass
-    def add_framework_log(*args, **kwargs): pass 
-    def add_error_log(*args, **kwargs): pass
+# 延迟导入Web模块，避免在双进程模式下主进程加载Web功能
+_web_available = False
+_web_functions_loaded = False
+
+def _load_web_functions():
+    """延迟加载Web功能函数"""
+    global _web_available, _web_functions_loaded, add_plugin_log, add_framework_log, add_error_log
+    
+    if _web_functions_loaded:
+        return
+        
+    try:
+        from web.app import add_plugin_log, add_framework_log, add_error_log
+        _web_available = True
+        _web_functions_loaded = True
+    except ImportError:
+        _web_available = False
+        def add_plugin_log(*args, **kwargs): pass
+        def add_framework_log(*args, **kwargs): pass 
+        def add_error_log(*args, **kwargs): pass
+
+# 默认空函数，避免未加载时报错
+def add_plugin_log(*args, **kwargs): pass
+def add_framework_log(*args, **kwargs): pass 
+def add_error_log(*args, **kwargs): pass
 
 try:
     from function.log_db import add_log_to_db
@@ -78,7 +95,8 @@ def log_error(error_msg, tb_str=None):
         logging.error(f"{tb_str}")
     
     try:
-        add_error_log(error_msg, tb_str)
+        if _web_functions_loaded:
+            add_error_log(error_msg, tb_str)
     except:
         pass
     
@@ -102,6 +120,7 @@ def start_web_process():
     setup_logging()
     log_to_console("Web进程已启动")
     
+    # Web进程中独立导入Web模块
     from web.app import start_web
     import eventlet
     from eventlet import wsgi
@@ -111,7 +130,10 @@ def start_web_process():
     
     log_to_console(f"Web面板独立进程启动在 {web_host}:{web_port}")
     
-    web_app, web_socketio = start_web(main_app=None)
+    # 创建Web专用Flask应用并集成Web面板
+    web_base_app = create_web_app()
+    start_web(web_base_app)  # 集成Web面板到基础应用
+    web_app = web_base_app   # 使用集成后的应用
     
     wsgi.server(
         eventlet.listen((web_host, web_port)),
@@ -146,22 +168,37 @@ def stop_web_process():
     """停止Web进程"""
     global _web_process, _web_process_event
     
-    _web_process_event.set()
-    
-    if _web_process and _web_process.is_alive():
-        log_to_console("正在停止Web进程...")
-        _web_process.terminate()
-        _web_process.join(timeout=5)
-        log_to_console("Web进程已停止")
+    try:
+        _web_process_event.set()
+        
+        if _web_process and _web_process.is_alive():
+            log_to_console("正在停止Web进程...")
+            _web_process.terminate()
+            _web_process.join(timeout=5)
+            
+            # 检查进程是否成功停止
+            if _web_process.is_alive():
+                log_to_console("Web进程未能正常停止，强制终止...")
+                _web_process.kill()
+                _web_process.join(timeout=2)
+            
+            log_to_console("Web进程已停止")
+        else:
+            log_to_console("Web进程未运行或已停止")
+    except Exception as e:
+        log_error(f"停止Web进程时发生错误: {str(e)}")
+    finally:
+        _web_process = None
 
 def log_to_console(message):
     """输出消息到宝塔项目日志"""
     # 只使用logging模块输出，避免重复
     logging.info(f"{message}")
     
-    # 也推送到Web面板（如果可用）
+    # 也推送到Web面板（如果可用且已加载）
     try:
-        add_framework_log(message)
+        if _web_functions_loaded:
+            add_framework_log(message)
     except:
         pass
 
@@ -209,8 +246,8 @@ sys.excepthook = global_exception_handler
 import flask.cli
 flask.cli.show_server_banner = lambda *args: None
 
-def create_app():
-    """创建Flask应用"""
+def create_main_app():
+    """创建主进程Flask应用"""
     flask_app = Flask(__name__)
     flask_app.config['SECRET_KEY'] = 'elainabot_secret'
     flask_app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -264,7 +301,22 @@ def create_app():
             log_error(f"处理请求时发生错误: {str(e)}")
             return "Server error", 500
     
-    log_to_console("Flask应用创建成功")
+    log_to_console("主进程Flask应用创建成功")
+    return flask_app
+
+def create_web_app():
+    """创建Web进程专用Flask应用"""
+    flask_app = Flask(__name__)
+    flask_app.config['SECRET_KEY'] = 'elainabot_secret'
+    flask_app.config['TEMPLATES_AUTO_RELOAD'] = True
+    flask_app.jinja_env.auto_reload = True
+    flask_app.logger.disabled = True
+    
+    @flask_app.route('/')
+    def web_root():
+        return jsonify({"message": "Web panel process"}), 200
+    
+    log_to_console("Web进程Flask应用创建成功")
     return flask_app
 
 # record_message函数已移除，消息记录现在在MessageEvent初始化时自动完成
@@ -432,8 +484,8 @@ def setup_websocket():
     except Exception as e:
         log_error(f"WebSocket设置失败: {str(e)}")
 
-def init_systems():
-    """初始化系统组件"""
+def init_main_systems():
+    """初始化主进程系统组件"""
     try:
         setup_logging()
         
@@ -461,27 +513,33 @@ def init_systems():
         log_error(f"系统初始化失败: {str(e)}")
         return False
 
-def initialize_app():
-    """初始化应用"""
+def initialize_main_app():
+    """初始化主进程应用"""
     global _app_initialized, app
     
     if _app_initialized:
         return app
     
-    app = create_app()
-    init_systems()
+    app = create_main_app()
+    init_main_systems()
     
     # 集成Web面板服务
-    if _web_available and SERVER_CONFIG.get('enable_web', True):
+    if SERVER_CONFIG.get('enable_web', True):
         if SERVER_CONFIG.get('web_dual_process', False):
-            # 双进程模式：启动独立的Web进程
+            # 双进程模式：启动独立的Web进程，主进程不加载Web功能
             start_web_dual_process()
             log_to_console("Web面板独立进程启动成功")
         else:
-            # 单进程模式：集成到主进程
-            start_web(app)
-            log_to_console("Web面板服务已集成到主进程")
+            # 单进程模式：加载Web功能并集成到主进程
+            _load_web_functions()
+            if _web_available:
+                from web.app import start_web
+                start_web(app)
+                log_to_console("Web面板服务已集成到主进程")
+            else:
+                log_to_console("Web模块不可用，跳过Web面板集成")
     
+    # 启动DAU分析服务
     if _dau_available:
         try:
             start_dau_analytics()
@@ -492,8 +550,20 @@ def initialize_app():
     _app_initialized = True
     return app
 
-# WSGI应用入口点
-wsgi_app = initialize_app()
+# WSGI应用入口点 - 延迟初始化
+wsgi_app = None
+
+def get_wsgi_app():
+    """获取WSGI应用实例"""
+    global wsgi_app
+    if wsgi_app is None:
+        wsgi_app = initialize_main_app()
+    return wsgi_app
+
+# 为了兼容性，提供wsgi_app访问
+def get_main_wsgi_app():
+    """获取主进程WSGI应用实例 - 显式调用"""
+    return get_wsgi_app()
 
 def signal_handler(signum, frame):
     """信号处理器"""
@@ -514,7 +584,7 @@ def start_main_process():
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
-        app = initialize_app()
+        app = get_wsgi_app()
         
         import eventlet
         from eventlet import wsgi

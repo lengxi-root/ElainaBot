@@ -868,6 +868,66 @@ def get_robot_qrcode():
         'Cache-Control': 'public, max-age=3600'
     }
 
+@web.route('/api/changelog')
+@catch_error
+def get_changelog():
+    """获取更新日志API"""
+    try:
+        # 从指定的API获取更新日志数据
+        api_url = "https://i.elaina.vin/api/elainabot/"
+        
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()
+        
+        commits = response.json()
+        
+        # 处理数据格式，转换为前端需要的格式
+        changelog_data = []
+        for commit in commits:
+            if commit.get('commit'):
+                commit_info = commit['commit']
+                author = commit_info.get('author', {})
+                
+                # 格式化日期
+                date_str = author.get('date', '')
+                try:
+                    if date_str:
+                        # 解析ISO格式日期并转换为本地时间格式
+                        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                        formatted_date = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        formatted_date = '未知时间'
+                except Exception:
+                    formatted_date = date_str or '未知时间'
+                
+                changelog_data.append({
+                    'sha': commit.get('sha', '')[:8],  # 短SHA
+                    'message': commit_info.get('message', '').strip(),
+                    'author': author.get('name', '未知作者'),
+                    'date': formatted_date,
+                    'url': commit.get('html_url', ''),
+                    'full_sha': commit.get('sha', '')
+                })
+        
+        return jsonify({
+            'success': True,
+            'data': changelog_data,
+            'total': len(changelog_data)
+        })
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            'success': False,
+            'error': f'获取更新日志失败: {str(e)}',
+            'data': []
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'处理更新日志数据失败: {str(e)}',
+            'data': []
+        }), 500
+
 @catch_error
 def get_system_info():
     global _last_gc_time, _last_gc_log_time
@@ -3199,3 +3259,4 @@ def get_user_nicknames_batch(user_ids):
                 result[user_id] = f"用户{user_id[-6:]}"
     
     return result
+

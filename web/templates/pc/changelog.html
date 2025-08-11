@@ -1,0 +1,182 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<!-- 更新日志列表 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-list-ul"></i> 更新日志
+                    </h5>
+                    <button class="btn btn-primary btn-sm" onclick="refreshChangelog()">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- 加载状态 -->
+                <div id="loading-container" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">加载中...</span>
+                    </div>
+                    <p class="mt-3 text-muted">正在获取更新日志...</p>
+                </div>
+
+                <!-- 错误提示 -->
+                <div id="error-container" class="alert alert-danger" style="display: none;">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <span id="error-message">加载失败</span>
+                    <button class="btn btn-sm btn-outline-danger ms-2" onclick="refreshChangelog()">重试</button>
+                </div>
+
+                <!-- 更新日志内容 -->
+                <div id="changelog-container" style="display: none;">
+                    <div id="changelog-list" class="changelog-list">
+                        <!-- 动态内容将在这里生成 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.changelog-list {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.commit-item {
+    border-left: 3px solid #dee2e6;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: #f8f9fa;
+    border-radius: 0 0.375rem 0.375rem 0;
+    transition: all 0.2s ease;
+}
+
+.commit-item:hover {
+    border-left-color: #4361ee;
+    background: #e7f1ff;
+}
+
+.commit-sha {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    background: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #495057;
+}
+
+.commit-author {
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+.commit-date {
+    color: #6c757d;
+    font-size: 0.85rem;
+}
+
+.commit-message {
+    font-weight: 500;
+    color: #212529;
+    margin: 0.5rem 0;
+}
+
+.commit-link {
+    font-size: 0.85rem;
+}
+</style>
+
+<script>
+let changelogData = [];
+
+// 页面加载时获取更新日志
+document.addEventListener('DOMContentLoaded', function() {
+    loadChangelog();
+});
+
+async function loadChangelog() {
+    const loadingContainer = document.getElementById('loading-container');
+    const errorContainer = document.getElementById('error-container');
+    const changelogContainer = document.getElementById('changelog-container');
+    
+    // 显示加载状态
+    loadingContainer.style.display = 'block';
+    errorContainer.style.display = 'none';
+    changelogContainer.style.display = 'none';
+    
+    try {
+        const response = await fetch('/web/api/changelog');
+        const result = await response.json();
+        
+        if (result.success) {
+            changelogData = result.data;
+            renderChangelog();
+            
+            // 显示内容
+            loadingContainer.style.display = 'none';
+            changelogContainer.style.display = 'block';
+        } else {
+            throw new Error(result.error || '获取更新日志失败');
+        }
+    } catch (error) {
+        console.error('加载更新日志失败:', error);
+        
+        // 显示错误
+        loadingContainer.style.display = 'none';
+        errorContainer.style.display = 'block';
+        document.getElementById('error-message').textContent = error.message;
+    }
+}
+
+function renderChangelog() {
+    const container = document.getElementById('changelog-list');
+    
+    if (changelogData.length === 0) {
+        container.innerHTML = '<div class="text-center py-4 text-muted">没有提交记录</div>';
+        return;
+    }
+    
+    const html = changelogData.map(commit => `
+        <div class="commit-item">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <div class="d-flex align-items-center">
+                    <span class="commit-sha me-2">${commit.sha}</span>
+                    <span class="commit-author">
+                        <i class="bi bi-person"></i> ${commit.author}
+                    </span>
+                </div>
+                <div class="commit-date">
+                    <i class="bi bi-calendar3"></i> ${commit.date}
+                </div>
+            </div>
+            <div class="commit-message">${escapeHtml(commit.message)}</div>
+            ${commit.url ? `
+                <div class="mt-2">
+                    <a href="${commit.url}" target="_blank" class="commit-link text-decoration-none">
+                        <i class="bi bi-box-arrow-up-right"></i> 查看详情
+                    </a>
+                </div>
+            ` : ''}
+        </div>
+    `).join('');
+    
+    container.innerHTML = html;
+}
+
+function refreshChangelog() {
+    loadChangelog();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

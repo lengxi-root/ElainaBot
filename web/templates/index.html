@@ -21,6 +21,9 @@
 {% elif page == 'message' %}
     {% set title = '消息发送' %}
     {% include 'pc/message.html' %}
+{% elif page == 'changelog' %}
+    {% set title = '更新日志' %}
+    {% include 'pc/changelog.html' %}
 {% else %}
     {% set title = '仪表盘' %}
     {% include 'pc/dashboard.html' %}

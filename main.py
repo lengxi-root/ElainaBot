@@ -1,6 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# eventlet monkey patch MUST be the first thing imported
+try:
+    import eventlet
+    eventlet.monkey_patch()
+except ImportError:
+    print("WARNING: eventlet not found, some features may not work properly")
+
 import sys
 import os
 import time
@@ -11,20 +18,25 @@ import logging
 import traceback
 import random
 import warnings
+import multiprocessing
+from multiprocessing import Process, Queue, Event
+
+import signal
 
 warnings.filterwarnings("ignore", "Corrupt EXIF data", UserWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="PIL")
 
-try:
-    import eventlet
-    eventlet.monkey_patch()
-except ImportError:
-    logging.warning("WARNING: eventlet not found, some features may not work properly")
-
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
 from config import LOG_CONFIG, LOG_DB_CONFIG, WEBSOCKET_CONFIG, SERVER_CONFIG, WEB_SECURITY
-from web.app import start_web, add_received_message, add_plugin_log, add_framework_log, add_error_log
+try:
+    from web.app import start_web, add_plugin_log, add_framework_log, add_error_log
+    _web_available = True
+except ImportError:
+    _web_available = False
+    def add_plugin_log(*args, **kwargs): pass
+    def add_framework_log(*args, **kwargs): pass 
+    def add_error_log(*args, **kwargs): pass
 
 try:
     from function.log_db import add_log_to_db
@@ -49,6 +61,10 @@ except ImportError:
 _logging_initialized = False
 _app_initialized = False
 http_pool = get_pool_manager()
+
+# 进程管理变量
+_web_process = None
+_web_process_event = Event()
 
 # 通用错误处理函数
 def log_error(error_msg, tb_str=None):
@@ -80,6 +96,63 @@ def cleanup_gc():
     """执行垃圾回收"""
     if random.random() < 0.05:
         gc.collect(0)
+
+def start_web_process():
+    """Web进程启动函数"""
+    setup_logging()
+    log_to_console("Web进程已启动")
+    
+    from web.app import start_web
+    import eventlet
+    from eventlet import wsgi
+    
+    web_host = SERVER_CONFIG.get('host', '0.0.0.0')
+    web_port = SERVER_CONFIG.get('web_port', 5002)
+    
+    log_to_console(f"Web面板独立进程启动在 {web_host}:{web_port}")
+    
+    web_app, web_socketio = start_web(main_app=None)
+    
+    wsgi.server(
+        eventlet.listen((web_host, web_port)),
+        web_app,
+        log=None,
+        log_output=False
+    )
+
+def start_web_dual_process():
+    """启动Web面板作为独立进程"""
+    global _web_process
+    
+    _web_process = Process(target=start_web_process, daemon=True)
+    _web_process.start()
+    
+    web_port = SERVER_CONFIG.get('web_port', 5002)
+    web_host = SERVER_CONFIG.get('host', '0.0.0.0')
+    display_host = 'localhost' if web_host == '0.0.0.0' else web_host
+    
+    log_to_console(f"Web面板独立进程已启动，PID: {_web_process.pid}")
+    
+    # 构造Web面板访问URL
+    web_token = WEB_SECURITY.get('access_token', '')
+    web_url = f"http://{display_host}:{web_port}/web/"
+    if web_token:
+        web_url += f"?token={web_token}"
+    log_to_console(f"🌐 Web管理面板: {web_url}")
+    
+    return True
+
+def stop_web_process():
+    """停止Web进程"""
+    global _web_process, _web_process_event
+    
+    _web_process_event.set()
+    
+    if _web_process and _web_process.is_alive():
+        log_to_console("正在停止Web进程...")
+        _web_process.terminate()
+        _web_process.join(timeout=5)
+        log_to_console("Web进程已停止")
 
 def log_to_console(message):
     """输出消息到宝塔项目日志"""
@@ -176,7 +249,7 @@ def create_app():
             if op == 0:
                 threading.Thread(
                     target=process_message_event, 
-                    args=(json_data, data.decode()),
+                    args=(data.decode(),),
                     daemon=True
                 ).start()
                 return "OK"
@@ -194,54 +267,81 @@ def create_app():
     log_to_console("Flask应用创建成功")
     return flask_app
 
-def record_message(message_data):
-    """记录消息到Web面板"""
-    try:
-        add_received_message(message_data)
-    except Exception as e:
-        log_error(f"记录消息失败: {str(e)}")
+# record_message函数已移除，消息记录现在在MessageEvent初始化时自动完成
 
-def process_message_event(data, raw_data=None):
+def _process_message_concurrent(event):
+    """统一的并发消息处理逻辑"""
+    import concurrent.futures
+    from core.plugin.PluginManager import PluginManager
+    
+    result = [False]
+    
+    def plugin_task():
+        """插件处理任务"""
+        try:
+            plugin_manager = PluginManager()
+            result[0] = plugin_manager.dispatch_message(event)
+        except Exception as e:
+            log_error(f"插件处理失败: {str(e)}")
+    
+    def storage_and_web_task():
+        """数据库存储+web推送任务"""
+        try:
+            if not event.skip_recording:
+                # 先存储再推送
+                event._record_message_to_db_only()
+                import datetime
+                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                event._notify_web_display(timestamp)
+        except Exception as e:
+            log_error(f"存储推送失败: {str(e)}")
+    
+    # 异步执行，避免阻塞主线程
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        # 提交任务但不等待完成，避免阻塞HTTP响应
+        plugin_future = executor.submit(plugin_task)
+        storage_future = executor.submit(storage_and_web_task)
+        
+        # 只等待插件处理结果，存储推送异步进行
+        try:
+            plugin_future.result(timeout=0.1)  # 短暂等待插件结果
+        except concurrent.futures.TimeoutError:
+            # 插件处理超时，让它在后台继续运行
+            pass
+    
+    # 插件处理完成后，更新ID缓存（定期批量保存）
+    try:
+        event.record_last_message_id()
+    except Exception as e:
+        log_error(f"更新消息ID缓存失败: {str(e)}")
+    
+    return result[0]
+
+def process_message_event(data):
     """处理消息事件"""
     if not data:
         return False
         
-    record_message(data)
-    
     try:
-        from core.plugin.PluginManager import PluginManager
         from core.event.MessageEvent import MessageEvent
+        event = MessageEvent(data)
+        if event.ignore:
+            return False
         
-        plugin_manager = PluginManager()
-        event = MessageEvent(raw_data if raw_data else data)
-        result = plugin_manager.dispatch_message(event)
-        
+        result = _process_message_concurrent(event)
         cleanup_gc()
         return result
-        
     except Exception as e:
-        log_error(f"插件系统处理消息失败: {str(e)}")
+        log_error(f"消息处理失败: {str(e)}")
         return False
 
-async def handle_ws_message(event):
-    """处理WebSocket消息"""
-    try:
-        if hasattr(event, 'raw_data'):
-            record_message(event.raw_data)
-        
-        def process_plugin():
-            try:
-                from core.plugin.PluginManager import PluginManager
-                plugin_manager = PluginManager()
-                plugin_manager.dispatch_message(event)
-                cleanup_gc()
-            except Exception as e:
-                log_error(f"WebSocket插件处理失败: {str(e)}")
-        
-        threading.Thread(target=process_plugin, daemon=True).start()
-        
-    except Exception as e:
-        log_error(f"WebSocket消息处理失败: {str(e)}")
+async def handle_ws_message(raw_data):
+    """处理WebSocket消息 - 与webhook使用相同的处理流程"""
+    threading.Thread(
+        target=process_message_event,
+        args=(raw_data,),
+        daemon=True
+    ).start()
 
 async def create_websocket_client():
     """创建WebSocket客户端"""
@@ -311,6 +411,8 @@ def run_websocket_client():
                 log_to_console(f"等待 10 秒后重试...")
                 time.sleep(10)  # 增加等待时间
 
+
+
 def setup_websocket():
     """设置WebSocket连接"""
     if not WEBSOCKET_CONFIG.get('enabled', False) or not WEBSOCKET_CONFIG.get('auto_connect', True):
@@ -369,9 +471,16 @@ def initialize_app():
     app = create_app()
     init_systems()
     
-    if not any(bp.name == 'web' for bp in app.blueprints.values()):
-        start_web(app)
-        log_to_console("Web面板初始化成功")
+    # 集成Web面板服务
+    if _web_available and SERVER_CONFIG.get('enable_web', True):
+        if SERVER_CONFIG.get('web_dual_process', False):
+            # 双进程模式：启动独立的Web进程
+            start_web_dual_process()
+            log_to_console("Web面板独立进程启动成功")
+        else:
+            # 单进程模式：集成到主进程
+            start_web(app)
+            log_to_console("Web面板服务已集成到主进程")
     
     if _dau_available:
         try:
@@ -386,28 +495,49 @@ def initialize_app():
 # WSGI应用入口点
 wsgi_app = initialize_app()
 
-if __name__ == "__main__":
+def signal_handler(signum, frame):
+    """信号处理器"""
+    print("\n收到退出信号，正在关闭服务...")
+    
+    if SERVER_CONFIG.get('web_dual_process', False):
+        stop_web_process()
+    
+    if _dau_available:
+        stop_dau_analytics()
+    
+    sys.exit(0)
+
+def start_main_process():
+    """主进程启动函数"""
     try:
+        # 设置信号处理
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
         app = initialize_app()
         
         import eventlet
         from eventlet import wsgi
         
         host = SERVER_CONFIG.get('host', '0.0.0.0')
-        port = SERVER_CONFIG.get('port', 5005)
+        port = SERVER_CONFIG.get('port', 5001)
         socket_timeout = SERVER_CONFIG.get('socket_timeout', 30)
         keepalive = SERVER_CONFIG.get('keepalive', True)
-        web_token = WEB_SECURITY.get('access_token', '')
         
-        # 构建Web面板URL
-        display_host = 'localhost' if host == '0.0.0.0' else host
-        web_url = f"http://{display_host}:{port}/web/"
-        if web_token:
-            web_url += f"?token={web_token}"
+        logging.info(f"🚀 主框架启动成功！")
+        logging.info(f"📡 主服务器地址: {host}:{port}")
         
-        logging.info(f"🚀 框架启动成功！")
-        logging.info(f"📡 服务器地址: {host}:{port}")
-        logging.info(f"🌐 Web管理面板: {web_url}")
+        if _web_available and SERVER_CONFIG.get('enable_web', True):
+            if not SERVER_CONFIG.get('web_dual_process', False):
+                # 单进程模式：Web面板集成在主端口
+                web_token = WEB_SECURITY.get('access_token', '')
+                display_host = 'localhost' if host == '0.0.0.0' else host
+                web_url = f"http://{display_host}:{port}/web/"
+                if web_token:
+                    web_url += f"?token={web_token}"
+                logging.info(f"🌐 Web管理面板: {web_url}")
+            # 双进程模式的URL在start_web_dual_process函数中已经输出
+        
         logging.info(f"⚡ 系统就绪，等待消息处理...")
         
         wsgi.server(
@@ -419,5 +549,29 @@ if __name__ == "__main__":
             socket_timeout=socket_timeout
         )
     except Exception as e:
-        log_error(f"ElainaBot服务启动失败: {str(e)}")
-        sys.exit(1)  
+        log_error(f"主进程启动失败: {str(e)}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    # 设置多进程启动方法，确保跨平台兼容性
+    if hasattr(multiprocessing, 'set_start_method'):
+        try:
+            multiprocessing.set_start_method('spawn', force=True)
+        except RuntimeError:
+            # 如果已经设置过启动方法，则忽略错误
+            pass
+    
+    try:
+        start_main_process()
+    except KeyboardInterrupt:
+        print("\n收到中断信号，正在关闭...")
+    except Exception as e:
+        print(f"ElainaBot服务启动失败: {str(e)}")
+    finally:
+        if SERVER_CONFIG.get('web_dual_process', False):
+            stop_web_process()
+        
+        if _dau_available:
+            stop_dau_analytics()
+        
+        sys.exit(0)  

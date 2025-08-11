@@ -34,6 +34,8 @@ DEFAULT_RESPONSE_EXCLUDED_REGEX = []             # 排除默认回复的消息�
 MAINTENANCE_MODE = False                         # 维护模式开关，开启后机器人暂停服务
 ENABLE_WELCOME_MESSAGE = False                    # 是否启用入群欢迎消息功能
 ENABLE_NEW_USER_WELCOME = False                   # 是否启用新用户首次交互欢迎
+ENABLE_FRIEND_ADD_MESSAGE = False                 # 是否启用添加好友自动发送消息功能
+SAVE_RAW_MESSAGE_TO_DB = False                   # 是否将消息的原始内容存储到数据库中
 
 # 服务器配置 - HTTP服务相关设置
 SERVER_CONFIG = {
@@ -41,6 +43,17 @@ SERVER_CONFIG = {
     'port': SERVER_PORT,                               # HTTP服务监听端口号
     'socket_timeout': 30,                       # Socket连接超时时间(秒)
     'keepalive': True,                          # 是否启用HTTP Keep-Alive连接复用
+    'web_dual_process': False,                  # 是否将Web面板作为独立进程启动，开启后日志无法推送，但不会阻塞程序
+    'web_port': 5002,                          # Web面板独立进程端口号（仅在dual_process=True时有效）
+}
+
+# Web界面外观配置 - 自定义框架名称和网页图标
+WEB_INTERFACE = {
+    'framework_name': 'Elaina',                 # 框架名称，显示在页面标题和导航栏中
+    'favicon_url': f'http://q1.qlogo.cn/g?b=qq&nk={ROBOT_QQ}&s=100',  # 网页图标URL，默认使用机器人QQ头像
+    'mobile_title_suffix': '手机仪表盘',        # 移动端标题后缀
+    'pc_title_suffix': '仪表盘',               # PC端标题后缀
+    'login_title_suffix': '面板'               # 登录页面标题后缀
 }
 
 # 日志配置 - 控制台日志输出设置

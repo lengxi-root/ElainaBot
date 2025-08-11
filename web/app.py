@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import base64
 import uuid
+import random
 from datetime import datetime, timedelta
 from collections import deque
 from flask import Flask, render_template, request, jsonify, Blueprint, make_response
@@ -21,9 +22,8 @@ from flask_socketio import SocketIO
 from flask_cors import CORS
 import psutil
 import requests
-from config import LOG_DB_CONFIG, WEB_SECURITY, ROBOT_QQ, appid, WEBSOCKET_CONFIG
+from config import LOG_DB_CONFIG, WEB_SECURITY, WEB_INTERFACE, ROBOT_QQ, appid, WEBSOCKET_CONFIG
 
-# 导入日志数据库函数
 try:
     from function.log_db import add_log_to_db
 except ImportError:
@@ -31,17 +31,17 @@ except ImportError:
         return False
 
 def get_websocket_status():
-    """获取WebSocket连接状态"""
     try:
         from function.ws_client import get_client
         client = get_client("qq_bot")
-        return "连接中" if (client and hasattr(client, 'connected') and client.connected) else "连接失败"
+        return "连接成功" if (client and hasattr(client, 'connected') and client.connected) else "连接失败"
     except Exception:
         return "连接失败"
 
 PREFIX = '/web'
 web = Blueprint('web', __name__, 
-                     template_folder='templates')
+                     template_folder='templates',
+                     static_folder='static')
 socketio = None
 MAX_LOGS = 1000
 received_messages = deque(maxlen=MAX_LOGS)
@@ -60,22 +60,16 @@ IP_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 ip_access_data = {}
 _last_ip_cleanup = 0
 
-# 性能优化缓存配置
-historical_data_cache = None  # 历史数据永久缓存（框架重启时清空）
-historical_cache_loaded = False  # 标记历史数据是否已加载
-
+historical_data_cache = None
+historical_cache_loaded = False
 today_data_cache = None
 today_cache_time = 0
-TODAY_CACHE_DURATION = 600  # 今日数据10分钟缓存
-
-# 向后兼容的统一缓存（已废弃，保留以防出错）
+TODAY_CACHE_DURATION = 600
 statistics_cache = None
 statistics_cache_time = 0
 STATISTICS_CACHE_DURATION = 300
 
-# ===== 通用工具函数 =====
 def format_datetime(dt_str):
-    """格式化日期时间字符串"""
     try:
         if isinstance(dt_str, str):
             dt = datetime.fromisoformat(dt_str)
@@ -86,7 +80,6 @@ def format_datetime(dt_str):
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 def cleanup_expired_records(data_dict, time_field, expiry_seconds, cleanup_interval=3600):
-    """通用的过期记录清理函数"""
     current_time = datetime.now()
     cleaned_count = 0
     
@@ -105,7 +98,6 @@ def cleanup_expired_records(data_dict, time_field, expiry_seconds, cleanup_inter
     return cleaned_count
 
 def safe_file_operation(operation, file_path, data=None, default_return=None):
-    """安全的文件操作函数"""
     try:
         if operation == 'read':
             if os.path.exists(file_path):
@@ -121,7 +113,6 @@ def safe_file_operation(operation, file_path, data=None, default_return=None):
         return default_return
 
 def extract_device_info(request):
-    """提取设备信息"""
     user_agent = request.headers.get('User-Agent', '')
     device_info = {
         'user_agent': user_agent[:500],
@@ -152,16 +143,13 @@ def extract_device_info(request):
     return device_info
 
 def load_ip_data():
-    """加载IP访问数据"""
     global ip_access_data
     ip_access_data = safe_file_operation('read', IP_DATA_FILE, default_return={})
 
 def save_ip_data():
-    """保存IP数据到文件"""
     safe_file_operation('write', IP_DATA_FILE, ip_access_data)
 
 def record_ip_access(ip_address, access_type='token_success', device_info=None):
-    """记录IP访问"""
     global ip_access_data
     current_time = datetime.now()
     
@@ -333,7 +321,6 @@ def check_openapi_login(user_id):
     return openapi_user_data.get(user_id)
 
 def catch_error(func):
-    """统一错误捕获装饰器"""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
@@ -353,11 +340,9 @@ def catch_error(func):
     return wrapper
 
 def generate_session_token():
-    """生成安全的会话令牌"""
     return base64.urlsafe_b64encode(uuid.uuid4().bytes).decode('utf-8').rstrip('=')
 
 def sign_cookie_value(value, secret):
-    """对cookie值进行签名"""
     signature = hmac.new(
         secret.encode('utf-8'),
         value.encode('utf-8'),
@@ -366,7 +351,6 @@ def sign_cookie_value(value, secret):
     return f"{value}.{signature}"
 
 def verify_cookie_value(signed_value, secret):
-    """验证cookie值的签名"""
     try:
         value, signature = signed_value.rsplit('.', 1)
         expected_signature = hmac.new(
@@ -378,9 +362,7 @@ def verify_cookie_value(signed_value, secret):
     except:
         return False, None
 
-# ===== 装饰器 =====
 def require_token(f):
-    """要求访问令牌的装饰器"""
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         token = request.args.get('token') or request.form.get('token')
@@ -394,7 +376,6 @@ def require_token(f):
     return decorated_function
 
 def require_auth(f):
-    """要求身份验证的装饰器"""
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         cleanup_expired_sessions()
@@ -416,11 +397,10 @@ def require_auth(f):
                 else:
                     del valid_sessions[session_token]
         token = request.args.get('token', '')
-        return render_template('login.html', token=token)
+        return render_template('login.html', token=token, web_interface=WEB_INTERFACE)
     return decorated_function
 
 def require_socketio_token(f):
-    """SocketIO事件要求token和cookie双重验证的装饰器"""
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         cleanup_expired_ip_bans()
@@ -554,69 +534,38 @@ error_handler = LogHandler('error')
 
 # ===== 日志与消息相关API =====
 @catch_error
-def add_received_message(message):
-    user_id, group_id, pure_content, formatted_message = _parse_message_info(message)
+def add_display_message(formatted_message, timestamp=None):
+    """添加消息到web面板显示（仅用于显示，不存储到数据库）
     
-    display_entry = received_handler.add(formatted_message, skip_db=True)
-    
-    db_entry = {
-        'timestamp': display_entry['timestamp'],
-        'content': pure_content,
-        'user_id': user_id,
-        'group_id': group_id
-    }
-    try:
-        add_log_to_db('received', db_entry)
-    except Exception:
-        pass
+    Args:
+        formatted_message: 格式化后的显示消息
+        timestamp: 时间戳，如果为None则使用当前时间
+    """
+    if timestamp:
+        # 使用传入的时间戳创建显示条目
+        entry = {
+            'timestamp': timestamp,
+            'content': formatted_message
+        }
+        received_handler.logs.append(entry)
+        received_handler.global_logs.append(entry)
         
-    return display_entry
+        # 发送到Socket.IO
+        if socketio is not None:
+            try:
+                socketio.emit('new_message', {
+                    'type': 'received',
+                    'data': entry
+                }, namespace=PREFIX)
+            except Exception:
+                pass
+        return entry
+    else:
+        # 使用LogHandler的正常流程（会生成新的时间戳）
+        return received_handler.add(formatted_message, skip_db=True)
 
 
 
-def _parse_message_info(message):
-    """解析消息信息，提取用户ID、群组ID和内容"""
-    try:
-        if isinstance(message, str) and not message.startswith('{'):
-            return "未知用户", "c2c", message, message
-        
-        event = MessageEvent(message)
-        user_id = event.user_id or "未知用户"
-        group_id = event.group_id or "c2c"
-        pure_content = event.content or ""
-        
-        # 特殊处理邀请进群事件
-        if getattr(event, 'event_type', None) == 'GROUP_ADD_ROBOT':
-            inviter_id = user_id  # 邀请者ID
-            group_id = event.group_id or "未知群组"
-            pure_content = f"机器人被邀请进群"
-            formatted_message = f"{inviter_id} 邀请机器人进入群组 {group_id}"
-            return inviter_id, group_id, pure_content, formatted_message
-        
-        if getattr(event, 'event_type', None) == 'INTERACTION_CREATE':
-            chat_type = event.get('d/chat_type')
-            scene = event.get('d/scene')
-            if chat_type == 2 or scene == 'c2c':
-                group_id = "c2c"
-                user_id = event.get('d/user_openid') or user_id
-            button_data = event.get('d/data/resolved/button_data')
-            if button_data and not pure_content:
-                pure_content = button_data
-        
-        if group_id != "c2c":
-            formatted_message = f"{user_id}（{group_id}）：{pure_content}"
-        else:
-            formatted_message = f"{user_id}：{pure_content}"
-            
-        return user_id, group_id, pure_content, formatted_message
-        
-    except Exception as e:
-        try:
-            pure_content = json.dumps(message, ensure_ascii=False)
-        except:
-            pure_content = str(message)
-        add_error_log(f"消息解析失败: {str(e)}")
-        return "未知用户", "c2c", pure_content, pure_content
 
 @catch_error
 def add_plugin_log(log):
@@ -678,7 +627,7 @@ def login():
         return response
     else:
         record_ip_access(request.remote_addr, access_type='password_fail')
-        return render_template('login.html', token=token, error='密码错误，请重试')
+        return render_template('login.html', token=token, error='密码错误，请重试', web_interface=WEB_INTERFACE)
 
 @web.route('/')
 @check_ip_ban
@@ -702,13 +651,14 @@ def index():
                                            device_type=device_type,
                                            ROBOT_QQ=ROBOT_QQ,
                                            appid=appid,
-                                           WEBSOCKET_CONFIG=WEBSOCKET_CONFIG))
+                                           WEBSOCKET_CONFIG=WEBSOCKET_CONFIG,
+                                           web_interface=WEB_INTERFACE))
     
     if WEB_SECURITY.get('secure_headers', True):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
         response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
         response.headers['Strict-Transport-Security'] = 'max-age=0'
@@ -1371,8 +1321,60 @@ def get_statistics_data(force_refresh=False):
         }
 
 def load_historical_dau_data():
-    """原始的历史数据加载函数（保持向后兼容）"""
-    return load_historical_dau_data_optimized()
+    """原始的历史数据加载函数（从数据库加载）"""
+    return load_historical_dau_data_from_database()
+
+def load_historical_dau_data_from_database():
+    """从数据库加载历史DAU数据"""
+    try:
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
+        
+        dau_analytics = get_dau_analytics()
+        historical_data = []
+        
+        today = datetime.now()
+        
+        # 从数据库加载历史数据
+        for i in range(1, 31):
+            target_date = today - timedelta(days=i)
+            
+            try:
+                # 从数据库读取DAU数据
+                dau_data = dau_analytics.load_dau_data(target_date)
+                
+                if dau_data:
+                    display_date = target_date.strftime('%m-%d')
+                    dau_data['display_date'] = display_date
+                    
+                    # 确保事件统计数据存在
+                    if 'event_stats' not in dau_data:
+                        dau_data['event_stats'] = {
+                            'group_join_count': 0,
+                            'group_leave_count': 0,
+                            'friend_add_count': 0,
+                            'friend_remove_count': 0
+                        }
+                    
+                    historical_data.append(dau_data)
+            except Exception as e:
+                add_error_log(f"加载历史DAU数据失败 {target_date.strftime('%Y-%m-%d')}: {str(e)}")
+                continue
+        
+        # 按日期排序
+        historical_data.sort(key=lambda x: x.get('date', ''))
+        
+        return historical_data
+        
+    except Exception as e:
+        add_error_log(f"从数据库加载历史DAU数据失败: {str(e)}")
+        # 如果数据库加载失败，回退到文件加载
+        return load_historical_dau_data_fallback()
 
 def load_historical_dau_data_optimized():
     """优化版的历史数据加载函数，使用并行处理"""
@@ -1479,37 +1481,84 @@ def get_today_dau_data(force_refresh=False):
         dau_analytics = get_dau_analytics()
         today = datetime.now()
         
+        # 今日数据混合模式：基础统计实时计算，事件统计从DAU表读取
         today_data = None
-        if not force_refresh:
-            today_data = dau_analytics.load_dau_data(today)
         
-        if not today_data:
+        if not force_refresh:
+            # 先尝试实时收集今日基础数据
             try:
                 today_data = dau_analytics.collect_dau_data(today)
-                
                 if today_data:
                     today_data['is_realtime'] = True
                     today_data['cache_time'] = time.time()
+                    
+                    # 从DAU表读取事件统计数据并合并
+                    try:
+                        dau_data = dau_analytics.load_dau_data(today)
+                        if dau_data and 'event_stats' in dau_data:
+                            today_data['event_stats'] = dau_data['event_stats']
+                        elif 'event_stats' not in today_data:
+                            today_data['event_stats'] = {
+                                'group_join_count': 0,
+                                'group_leave_count': 0,
+                                'friend_add_count': 0,
+                                'friend_remove_count': 0
+                            }
+                    except Exception as e:
+                        # 如果DAU表读取失败，使用默认事件统计
+                        if 'event_stats' not in today_data:
+                            today_data['event_stats'] = {
+                                'group_join_count': 0,
+                                'group_leave_count': 0,
+                                'friend_add_count': 0,
+                                'friend_remove_count': 0
+                            }
+                        
             except Exception as e:
-                today_data = {
-                    'message_stats': {
-                        'total_messages': 0,
-                        'active_users': 0,
-                        'active_groups': 0,
-                        'private_messages': 0,
-                        'peak_hour': 0,
-                        'peak_hour_count': 0,
-                        'top_groups': [],
-                        'top_users': []
-                    },
-                    'user_stats': {
-                        'total_users': 0,
-                        'total_groups': 0,
-                        'total_friends': 0
-                    },
-                    'command_stats': [],
-                    'error': str(e)
-                }
+                # 如果实时收集失败，尝试完全从数据库读取
+                try:
+                    today_data = dau_analytics.load_dau_data(today)
+                    if today_data:
+                        today_data['from_database'] = True
+                except Exception:
+                    pass
+        
+        if not today_data:
+            # 最终回退到空数据结构
+            today_data = {
+                'message_stats': {
+                    'total_messages': 0,
+                    'active_users': 0,
+                    'active_groups': 0,
+                    'private_messages': 0,
+                    'peak_hour': 0,
+                    'peak_hour_count': 0,
+                    'top_groups': [],
+                    'top_users': []
+                },
+                'user_stats': {
+                    'total_users': 0,
+                    'total_groups': 0,
+                    'total_friends': 0
+                },
+                'command_stats': [],
+                'event_stats': {
+                    'group_join_count': 0,
+                    'group_leave_count': 0,
+                    'friend_add_count': 0,
+                    'friend_remove_count': 0
+                },
+                'error': 'No data available'
+            }
+        
+        # 确保事件统计数据存在
+        if today_data and 'event_stats' not in today_data:
+            today_data['event_stats'] = {
+                'group_join_count': 0,
+                'group_leave_count': 0,
+                'friend_add_count': 0,
+                'friend_remove_count': 0
+            }
         
         return today_data or {}
         
@@ -1519,6 +1568,12 @@ def get_today_dau_data(force_refresh=False):
             'message_stats': {},
             'user_stats': {},
             'command_stats': [],
+            'event_stats': {
+                'group_join_count': 0,
+                'group_leave_count': 0,
+                'friend_add_count': 0,
+                'friend_remove_count': 0
+            },
             'error': str(e)
         }
 
@@ -1743,7 +1798,7 @@ def sandbox_test():
         }
     
     try:
-        event = MessageEvent(mock_data)
+        event = MessageEvent(mock_data, skip_recording=True)  # 沙盒测试不记录到数据库
         
         replies = []
         original_reply = event.reply
@@ -1789,33 +1844,32 @@ def sandbox_test():
         return api_error_response(f'MessageEvent创建错误: {str(event_error)}')
 
 def get_available_dau_dates():
-    import os
-    import glob
-    from datetime import datetime, timedelta
-    
+    """从数据库获取可用的DAU日期列表"""
     try:
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        dau_folder = os.path.join(project_root, 'data', 'dau')
+        try:
+            from function.dau_analytics import get_dau_analytics
+        except ImportError:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from function.dau_analytics import get_dau_analytics
         
-        if not os.path.exists(dau_folder):
-            return []
-        
-        json_files = glob.glob(os.path.join(dau_folder, '*.json'))
-        
+        dau_analytics = get_dau_analytics()
         available_dates = []
         today = datetime.now().date()
         thirty_days_ago = today - timedelta(days=30)
         
-        for file_path in json_files:
-            filename = os.path.basename(file_path)
-            if filename.endswith('.json'):
-                date_str = filename[:-5]
+        # 检查近30天的数据库DAU数据
+        for i in range(31):  # 包括今天，共31天
+            check_date = today - timedelta(days=i)
+            if check_date >= thirty_days_ago:
                 try:
-                    file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    dau_data = dau_analytics.load_dau_data(datetime.combine(check_date, datetime.min.time()))
                     
-                    if file_date >= thirty_days_ago and file_date <= today:
-                        is_today = file_date == today
-                        display_name = "今日数据" if is_today else f"{file_date.strftime('%m-%d')} ({file_date.strftime('%Y-%m-%d')})"
+                    if dau_data:
+                        is_today = check_date == today
+                        date_str = check_date.strftime('%Y-%m-%d')
+                        display_name = "今日数据" if is_today else f"{check_date.strftime('%m-%d')} ({date_str})"
                         
                         available_dates.append({
                             'value': 'today' if is_today else date_str,
@@ -1823,34 +1877,35 @@ def get_available_dau_dates():
                             'display': display_name,
                             'is_today': is_today
                         })
-                except ValueError:
+                except Exception:
                     continue
         
+        # 确保今日数据始终存在
         today_exists = any(item['is_today'] for item in available_dates)
         if not today_exists:
             available_dates.append({
                 'value': 'today',
                 'date': today.strftime('%Y-%m-%d'),
-                'display': '今日数据 (实时)',
+                'display': '今日数据',
                 'is_today': True
             })
         
+        # 按日期排序，今日数据在前
         available_dates.sort(key=lambda x: (not x['is_today'], -int(x['date'].replace('-', ''))))
         
         return available_dates
         
     except Exception as e:
+        add_error_log(f"获取可用DAU日期失败: {str(e)}")
         return [{
             'value': 'today',
             'date': datetime.now().strftime('%Y-%m-%d'),
             'display': '今日数据',
-                         'is_today': True
-         }]
+            'is_today': True
+        }]
 
 def get_specific_date_data(date_str):
-    import os
-    from datetime import datetime
-    
+    """从数据库获取特定日期的DAU数据"""
     try:
         try:
             from function.dau_analytics import get_dau_analytics
@@ -1871,17 +1926,20 @@ def get_specific_date_data(date_str):
         message_stats = dau_data.get('message_stats', {})
         user_stats = dau_data.get('user_stats', {})
         command_stats = dau_data.get('command_stats', [])
+        event_stats = dau_data.get('event_stats', {})
         
         return {
             'message_stats': message_stats,
             'user_stats': user_stats,
             'command_stats': command_stats,
+            'event_stats': event_stats,
             'date': date_str,
             'generated_at': dau_data.get('generated_at', ''),
             'is_historical': True
         }
         
     except Exception as e:
+        add_error_log(f"获取特定日期DAU数据失败 {date_str}: {str(e)}")
         return None
 
 # 在文件末尾添加开放平台相关的代码
@@ -2641,3 +2699,503 @@ def openapi_render_button_template():
             'success': False,
             'message': f'渲染按钮模板失败: {str(e)}'
         })
+
+# ===== 消息发送界面相关API =====
+
+@web.route('/api/message/get_chats', methods=['POST'])
+@require_auth
+def get_chats():
+    """获取聊天列表（用户或群聊）"""
+    try:
+        data = request.get_json()
+        chat_type = data.get('type', 'user')  # 'user' 或 'group'
+        search = data.get('search', '').strip()
+        limit = 30  # 直接加载30个聊天记录
+        
+        # 导入数据库连接
+        from function.log_db import LogDatabasePool
+        from pymysql.cursors import DictCursor
+        
+        log_db_pool = LogDatabasePool()
+        connection = log_db_pool.get_connection()
+        
+        if not connection:
+            return jsonify({'success': False, 'message': '数据库连接失败'})
+        
+        try:
+            cursor = connection.cursor(DictCursor)
+            
+            # 检查ID表是否存在
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM information_schema.tables 
+                WHERE table_schema = DATABASE() 
+                AND table_name = 'Mlog_id'
+            """)
+            if cursor.fetchone()['count'] == 0:
+                return jsonify({'success': False, 'message': 'ID表不存在'})
+            
+            # 构建查询
+            if search:
+                # 搜索功能 - 使用参数化查询避免SQL注入
+                search_condition = "AND chat_id LIKE %s"
+                search_param = f"%{search}%"
+            else:
+                search_condition = ""
+                search_param = None
+            
+            # 获取聊天数据（最多30个）
+            data_sql = f"""
+                SELECT chat_id, last_message_id, MAX(timestamp) as last_time
+                FROM Mlog_id 
+                WHERE chat_type = %s {search_condition}
+                GROUP BY chat_id, last_message_id
+                ORDER BY last_time DESC
+                LIMIT %s
+            """
+            if search_param:
+                cursor.execute(data_sql, (chat_type, search_param, limit))
+            else:
+                cursor.execute(data_sql, (chat_type, limit))
+            chats = cursor.fetchall()
+            
+            # 处理数据
+            chat_list = []
+            for chat in chats:
+                chat_info = {
+                    'chat_id': chat['chat_id'],
+                    'last_message_id': chat['last_message_id'],
+                    'last_time': chat['last_time'].strftime('%Y-%m-%d %H:%M:%S') if chat['last_time'] else '',
+                    'avatar': get_chat_avatar(chat['chat_id'], chat_type),
+                    'nickname': 'Loading...'  # 异步加载
+                }
+                chat_list.append(chat_info)
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'chats': chat_list
+                }
+            })
+            
+        finally:
+            cursor.close()
+            log_db_pool.release_connection(connection)
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取聊天列表失败: {str(e)}'})
+
+@web.route('/api/message/get_chat_history', methods=['POST'])
+@require_auth
+def get_chat_history():
+    """获取聊天记录（仅今日）"""
+    try:
+        data = request.get_json()
+        chat_type = data.get('chat_type')
+        chat_id = data.get('chat_id')
+        
+        if not chat_type or not chat_id:
+            return jsonify({'success': False, 'message': '缺少必要参数'})
+        
+        from function.log_db import LogDatabasePool
+        from pymysql.cursors import DictCursor
+        import datetime
+        
+        log_db_pool = LogDatabasePool()
+        connection = log_db_pool.get_connection()
+        
+        if not connection:
+            return jsonify({'success': False, 'message': '数据库连接失败'})
+        
+        try:
+            cursor = connection.cursor(DictCursor)
+            
+            # 获取今日消息表名
+            today = datetime.datetime.now().strftime('%Y%m%d')
+            table_name = f'Mlog_{today}_message'
+            
+            # 检查表是否存在
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM information_schema.tables 
+                WHERE table_schema = DATABASE() 
+                AND table_name = %s
+            """, (table_name,))
+            
+            if cursor.fetchone()['count'] == 0:
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'messages': [],
+                        'chat_info': {
+                            'chat_id': chat_id,
+                            'chat_type': chat_type,
+                            'avatar': get_chat_avatar(chat_id, chat_type)
+                        }
+                    }
+                })
+            
+            # 构建查询条件
+            if chat_type == 'group':
+                where_condition = "group_id = %s AND group_id != 'c2c'"
+            else:  # user
+                where_condition = "user_id = %s AND group_id = 'c2c'"
+            
+            # 获取消息记录
+            sql = f"""
+                SELECT user_id, group_id, content, timestamp
+                FROM {table_name}
+                WHERE {where_condition}
+                ORDER BY timestamp ASC
+                LIMIT 100
+            """
+            cursor.execute(sql, (chat_id,))
+            messages = cursor.fetchall()
+            
+            # 处理消息数据 - 快速返回版本（昵称由前端异步加载）
+            message_list = []
+            
+            for msg in messages:
+                message_info = {
+                    'user_id': msg['user_id'],
+                    'content': msg['content'],
+                    'timestamp': msg['timestamp'].strftime('%H:%M:%S') if msg['timestamp'] else '',
+                    'avatar': get_chat_avatar(msg['user_id'], 'user'),
+                    'is_self': False  # 暂时都设为False，实际使用中可以判断是否为机器人自己
+                }
+                message_list.append(message_info)
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'messages': message_list,
+                    'chat_info': {
+                        'chat_id': chat_id,
+                        'chat_type': chat_type,
+                        'avatar': get_chat_avatar(chat_id, chat_type)
+                    }
+                }
+            })
+            
+        finally:
+            cursor.close()
+            log_db_pool.release_connection(connection)
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取聊天记录失败: {str(e)}'})
+
+@web.route('/api/message/send', methods=['POST'])
+@require_auth
+def send_message():
+    """发送消息"""
+    try:
+        data = request.get_json()
+        chat_type = data.get('chat_type')
+        chat_id = data.get('chat_id')
+        send_method = data.get('send_method', 'text')
+        
+        if not chat_type or not chat_id:
+            return jsonify({'success': False, 'message': '缺少必要参数'})
+        
+        # 检查ID是否过期
+        from function.log_db import LogDatabasePool
+        from pymysql.cursors import DictCursor
+        import datetime
+        
+        log_db_pool = LogDatabasePool()
+        connection = log_db_pool.get_connection()
+        
+        if not connection:
+            return jsonify({'success': False, 'message': '数据库连接失败'})
+        
+        try:
+            cursor = connection.cursor(DictCursor)
+            
+            # 获取最后的消息ID和时间
+            cursor.execute("""
+                SELECT last_message_id, timestamp 
+                FROM Mlog_id 
+                WHERE chat_type = %s AND chat_id = %s
+            """, (chat_type, chat_id))
+            
+            result = cursor.fetchone()
+            if not result:
+                return jsonify({'success': False, 'message': 'ID记录不存在'})
+            
+            last_message_id = result['last_message_id']
+            last_time = result['timestamp']
+            
+            # 检查ID是否过期
+            now = datetime.datetime.now()
+            time_diff = (now - last_time).total_seconds() / 60  # 转换为分钟
+            
+            if chat_type == 'group' and time_diff > 5:
+                return jsonify({'success': False, 'message': 'ID已过期无法发送（群聊超过5分钟）'})
+            elif chat_type == 'user' and time_diff > 60:
+                return jsonify({'success': False, 'message': 'ID已过期无法发送（私聊超过1小时）'})
+            
+            # 创建模拟消息事件来发送消息
+            mock_raw_data = {
+                'd': {
+                    'id': last_message_id,
+                    'author': {'id': '2218872014'},
+                    'content': '',
+                    'timestamp': last_time.isoformat()
+                },
+                'id': last_message_id,
+                't': 'C2C_MESSAGE_CREATE' if chat_type == 'user' else 'GROUP_AT_MESSAGE_CREATE'
+            }
+            
+            if chat_type == 'group':
+                mock_raw_data['d']['group_id'] = chat_id
+            else:
+                mock_raw_data['d']['author']['id'] = chat_id
+                
+            from core.event.MessageEvent import MessageEvent
+            event = MessageEvent(mock_raw_data, skip_recording=True)
+            
+            # 根据发送方法调用相应的发送函数
+            message_id = None
+            display_content = ''
+            
+            if send_method == 'text':
+                content = data.get('content', '').strip()
+                if not content:
+                    return jsonify({'success': False, 'message': '请输入消息内容'})
+                message_id = event.reply(content)
+                display_content = content
+                
+            elif send_method == 'markdown':
+                content = data.get('content', '').strip()
+                if not content:
+                    return jsonify({'success': False, 'message': '请输入Markdown内容'})
+                # 使用原生markdown（通过设置USE_MARKDOWN=True）
+                from config import USE_MARKDOWN
+                original_use_md = USE_MARKDOWN
+                import config
+                config.USE_MARKDOWN = True
+                try:
+                    message_id = event.reply(content)
+                finally:
+                    config.USE_MARKDOWN = original_use_md
+                display_content = content
+                
+            elif send_method == 'template_markdown':
+                template = data.get('template')
+                params = data.get('params', [])
+                keyboard_id = data.get('keyboard_id')
+                
+                if not template:
+                    return jsonify({'success': False, 'message': '请选择模板'})
+                if not params:
+                    return jsonify({'success': False, 'message': '请输入模板参数'})
+                    
+                message_id = event.reply_markdown(template, tuple(params), keyboard_id)
+                display_content = f'[模板消息: {template}]'
+                
+            elif send_method == 'image':
+                image_url = data.get('image_url', '').strip()
+                image_text = data.get('image_text', '').strip()
+                
+                if not image_url:
+                    return jsonify({'success': False, 'message': '请输入图片URL'})
+                    
+                message_id = event.reply_image(image_url, image_text)
+                display_content = f'[图片消息: {image_text or "图片"}]'
+                
+            elif send_method == 'voice':
+                voice_url = data.get('voice_url', '').strip()
+                
+                if not voice_url:
+                    return jsonify({'success': False, 'message': '请输入语音文件URL'})
+                    
+                message_id = event.reply_voice(voice_url)
+                display_content = '[语音消息]'
+                
+            elif send_method == 'video':
+                video_url = data.get('video_url', '').strip()
+                
+                if not video_url:
+                    return jsonify({'success': False, 'message': '请输入视频文件URL'})
+                    
+                message_id = event.reply_video(video_url)
+                display_content = '[视频消息]'
+                
+            elif send_method == 'ark':
+                ark_type = data.get('ark_type')
+                ark_params = data.get('ark_params', [])
+                
+                if not ark_type:
+                    return jsonify({'success': False, 'message': '请选择ARK卡片类型'})
+                if not ark_params:
+                    return jsonify({'success': False, 'message': '请输入卡片参数'})
+                    
+                message_id = event.reply_ark(ark_type, tuple(ark_params))
+                display_content = f'[ARK卡片: 类型{ark_type}]'
+                
+            else:
+                return jsonify({'success': False, 'message': '不支持的发送方法'})
+            
+            if message_id:
+                return jsonify({
+                    'success': True,
+                    'message': '消息发送成功',
+                    'data': {
+                        'message_id': message_id,
+                        'content': display_content,
+                        'timestamp': now.strftime('%H:%M:%S'),
+                        'send_method': send_method
+                    }
+                })
+            else:
+                return jsonify({'success': False, 'message': '消息发送失败'})
+            
+        finally:
+            cursor.close()
+            log_db_pool.release_connection(connection)
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'发送消息失败: {str(e)}'})
+
+@web.route('/api/message/get_nickname', methods=['POST'])
+@require_auth
+def get_nickname():
+    """获取用户昵称"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'success': False, 'message': '缺少用户ID'})
+        
+        # 调用API获取昵称
+        import requests
+        
+        api_url = f"https://i.elaina.vin/api/bot/xx.php"
+        params = {
+            'openid': user_id,
+            'appid': appid
+        }
+        
+        try:
+            response = requests.get(api_url, params=params, timeout=5)
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    nickname = data.get('名字', f"用户{user_id[-6:]}")
+                except:
+                    # 如果JSON解析失败，fallback到原来的text处理
+                    nickname = response.text.strip() if response.text.strip() else f"用户{user_id[-6:]}"
+            else:
+                nickname = f"用户{user_id[-6:]}"
+        except:
+            nickname = f"用户{user_id[-6:]}"
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'user_id': user_id,
+                'nickname': nickname
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取昵称失败: {str(e)}'})
+
+def get_chat_avatar(chat_id, chat_type):
+    """获取聊天头像URL"""
+    if chat_type == 'user':
+        return f"https://q.qlogo.cn/qqapp/{appid}/{chat_id}/100"
+    else:  # group
+        # 群聊显示第一个字母作为头像
+        return chat_id[0].upper() if chat_id else 'G'
+
+def get_user_nickname(user_id):
+    """获取用户昵称（内部函数，用于聊天记录）"""
+    try:
+        import requests
+        
+        api_url = f"https://i.elaina.vin/api/bot/xx.php"
+        params = {
+            'openid': user_id,
+            'appid': appid
+        }
+        
+        try:
+            response = requests.get(api_url, params=params, timeout=3)  # 减少超时时间
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    return data.get('名字', f"用户{user_id[-6:]}")
+                except:
+                    # JSON解析失败时的fallback处理
+                    nickname = response.text.strip()
+                    return nickname if nickname else f"用户{user_id[-6:]}"
+            else:
+                return f"用户{user_id[-6:]}"
+        except:
+            return f"用户{user_id[-6:]}"
+            
+    except Exception:
+        return f"用户{user_id[-6:]}"
+
+# 昵称缓存 - 全局变量，避免重复请求
+_nickname_cache = {}
+_cache_timeout = 86400  # 1天缓存过期
+
+def get_user_nicknames_batch(user_ids):
+    """批量获取用户昵称（带缓存优化）"""
+    import time
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    current_time = time.time()
+    result = {}
+    users_to_fetch = []
+    
+    # 检查缓存，过滤出需要获取的用户
+    for user_id in user_ids:
+        if user_id in _nickname_cache:
+            cached_data = _nickname_cache[user_id]
+            if current_time - cached_data['timestamp'] < _cache_timeout:
+                result[user_id] = cached_data['nickname']
+                continue
+        users_to_fetch.append(user_id)
+    
+    # 如果没有需要获取的用户，直接返回缓存结果
+    if not users_to_fetch:
+        return result
+    
+    # 并发获取昵称
+    def fetch_single_nickname(user_id):
+        try:
+            nickname = get_user_nickname(user_id)
+            # 更新缓存
+            _nickname_cache[user_id] = {
+                'nickname': nickname,
+                'timestamp': current_time
+            }
+            return user_id, nickname
+        except Exception as e:
+            fallback_name = f"用户{user_id[-6:]}"
+            _nickname_cache[user_id] = {
+                'nickname': fallback_name,
+                'timestamp': current_time
+            }
+            return user_id, fallback_name
+    
+    # 使用线程池并发请求，最多5个并发
+    max_workers = min(5, len(users_to_fetch))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_user = {executor.submit(fetch_single_nickname, user_id): user_id 
+                         for user_id in users_to_fetch}
+        
+        for future in as_completed(future_to_user, timeout=10):  # 10秒总超时
+            try:
+                user_id, nickname = future.result()
+                result[user_id] = nickname
+            except Exception as e:
+                user_id = future_to_user[future]
+                result[user_id] = f"用户{user_id[-6:]}"
+    
+    return result

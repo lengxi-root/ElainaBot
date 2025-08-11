@@ -1,0 +1,1170 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h5 class="mb-0">开放平台管理</h5>
+    <small class="text-muted">管理QQ开发者平台的机器人数据</small>
+</div>
+
+<!-- 登录状态卡片 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card" id="openapi-login-card">
+            <div class="card-body">
+                <div id="openapi-not-logged-in" class="text-center">
+                    <h6 class="card-title"><i class="bi bi-shield-lock"></i> 开放平台登录</h6>
+                    <p class="text-muted mb-3">请先登录QQ开发者平台以查看和管理机器人数据</p>
+                    <button class="btn btn-primary" id="openapi-start-login">
+                        <i class="bi bi-qr-code"></i> 开始登录
+                    </button>
+                    <div id="openapi-login-progress" class="mt-3" style="display: none;">
+                        <div class="d-flex flex-column align-items-center">
+                            <div id="openapi-login-loading" class="mb-3">
+                                <div class="spinner-border text-primary mb-2" role="status">
+                                    <span class="visually-hidden">生成二维码中...</span>
+            </div>
+                                <p class="text-muted mb-2">正在生成登录二维码...</p>
+        </div>
+                            <div id="openapi-qr-container" style="display: none;">
+                                <div class="card" style="max-width: 300px;">
+                                    <div class="card-header text-center">
+                                        <h6 class="mb-0"><i class="bi bi-qr-code"></i> 扫描二维码登录</h6>
+    </div>
+            <div class="card-body text-center">
+                                        <img id="openapi-qr-image" src="" alt="登录二维码" class="img-fluid mb-3" style="max-width: 200px; border: 1px solid #ddd; border-radius: 8px;">
+                                        <p class="text-muted small mb-2">请使用手机QQ扫描上方二维码</p>
+                                        <button class="btn btn-outline-secondary btn-sm" id="openapi-login-url" target="_blank">
+                                            <i class="bi bi-box-arrow-up-right"></i> 或点击打开登录页面
+                </button>
+            </div>
+                    </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="openapi-logged-in" style="display: none;">
+                    <div class="row align-items-center">
+                        <div class="col">
+                            <h6 class="card-title mb-1">
+                                <i class="bi bi-person-check text-success"></i> 已登录开放平台
+                            </h6>
+                            <div class="d-flex flex-wrap gap-3">
+                                <span class="badge bg-primary">
+                                    <i class="bi bi-hash"></i> UIN: <span id="openapi-uin">-</span>
+                                </span>
+                                <span class="badge bg-secondary">
+                                    <i class="bi bi-tag"></i> 类型: <span id="openapi-app-type">-</span>
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-outline-danger btn-sm" id="openapi-logout">
+                                <i class="bi bi-box-arrow-right"></i> 重新登录
+                            </button>
+                        </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+<!-- 机器人列表 -->
+<div class="row" id="openapi-main-content" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-robot"></i> 机器人列表</h6>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-info btn-sm" id="openapi-get-notifications">
+                        <i class="bi bi-bell"></i> 查看通知消息
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" id="openapi-refresh-botlist">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="openapi-botlist-loading" class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">加载中...</span>
+                    </div>
+                    <p class="text-muted mt-2">正在获取机器人列表...</p>
+                </div>
+                <div id="openapi-botlist-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th style="width: 35%;">机器人名称</th>
+                                    <th style="width: 30%;">AppID</th>
+                                    <th style="width: 35%;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="openapi-botlist-table">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据展示区域 -->
+<div class="row mt-4" id="openapi-data-section" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0" id="openapi-data-title"><i class="bi bi-table"></i> 数据详情</h6>
+                <div class="d-flex gap-2">
+                    <span class="badge bg-primary">30天数据</span>
+                    <button class="btn btn-outline-secondary btn-sm" id="openapi-close-data">
+                        <i class="bi bi-x-lg"></i> 关闭
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="openapi-data-loading" class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">加载中...</span>
+                    </div>
+                    <p class="text-muted mt-2">正在获取数据...</p>
+                </div>
+                
+                <!-- 隐藏的数据存储 -->
+                <div id="openapi-data-summary" style="display: none;">
+                    <span id="openapi-data-appid" style="display: none;">-</span>
+                    <span id="openapi-data-avg-dau" style="display: none;">-</span>
+                </div>
+                
+                <!-- 数据表格 -->
+                <div id="openapi-data-table-container" style="display: none;">
+                        <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>日期</th>
+                                    <th>上行消息</th>
+                                    <th>活跃用户</th>
+                                    <th>下行消息</th>
+                                    <th>总消息</th>
+                                    <th>群组(新增/现有)</th>
+                                    <th>好友(新增/现有)</th>
+                                </tr>
+                                <tr class="table-info">
+                                    <td colspan="7" class="text-center">
+                                        <strong>平均DAU: <span id="openapi-avg-dau-display">-</span></strong>
+                                    </td>
+                                    </tr>
+                                </thead>
+                            <tbody id="openapi-data-table">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- 通知消息表格 -->
+                <div id="openapi-notifications-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>时间</th>
+                                    <th>标题</th>
+                                    <th>内容</th>
+                                    <th>类型</th>
+                                    </tr>
+                            </thead>
+                            <tbody id="openapi-notifications-table">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- 模板列表 -->
+                <div id="openapi-templates-container" style="display: none;">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="mb-3" id="template-list-title"><i class="bi bi-layout-text-sidebar-reverse"></i> 模板列表</h6>
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th style="width: 40%;">模板名称</th>
+                                            <th style="width: 25%;">类型</th>
+                                            <th style="width: 20%;">状态</th>
+                                            <th style="width: 15%;">操作</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="openapi-templates-table">
+                                </tbody>
+                            </table>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div id="openapi-template-detail" style="display: none;">
+                                <h6 class="mb-3">
+                                    <i class="bi bi-info-circle"></i> 模板详情
+                                    <span class="badge bg-primary ms-2" id="template-detail-index">1/1</span>
+                                </h6>
+                                <div class="card">
+                                    <div class="card-body">
+                                        <div class="mb-3">
+                                            <div class="row">
+                                                <div class="col-sm-3"><strong>模板ID:</strong></div>
+                                                <div class="col-sm-9" id="template-detail-id">-</div>
+                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <div class="row">
+                                                <div class="col-sm-3"><strong>名称:</strong></div>
+                                                <div class="col-sm-9" id="template-detail-name">-</div>
+                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <div class="row">
+                                                <div class="col-sm-3"><strong>类型:</strong></div>
+                                                <div class="col-sm-9" id="template-detail-type">-</div>
+                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <div class="row">
+                                                <div class="col-sm-3"><strong>状态:</strong></div>
+                                                <div class="col-sm-9" id="template-detail-status">-</div>
+                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <div class="row">
+                                                <div class="col-sm-3"><strong>创建时间:</strong></div>
+                                                <div class="col-sm-9" id="template-detail-create-time">-</div>
+                                            </div>
+                        </div>
+                        
+                                        <!-- 模板内容展示 -->
+                                        <div class="mb-3">
+                                            <strong>模板内容:</strong>
+                                            <div id="template-content-text" class="mt-2">
+                                                <pre class="bg-light p-3 rounded" style="max-height: 200px; overflow-y: auto; font-size: 12px;" id="template-detail-content">-</pre>
+                                            </div>
+                    </div>
+                    
+                                        <!-- 按钮模板预览 -->
+                                        <div id="template-button-preview" style="display: none;">
+                                            <strong>按钮预览:</strong>
+                                            <div class="mt-2 p-3 bg-light rounded">
+                                                <div id="template-button-rows"></div>
+                                                <small class="text-muted mt-2 d-block">
+                                                    <i class="bi bi-info-circle"></i> 按钮仅供参考，实际效果以实际为准<br>
+                                                    类型: 0=跳转链接, 1=回调, 2=回车命令
+                                                </small>
+                                            </div>
+                    </div>
+                    
+                                        <!-- 导航按钮 -->
+                                        <div class="mt-3 d-flex justify-content-between">
+                                            <button class="btn btn-outline-secondary btn-sm" id="template-prev-btn" style="display: none;">
+                                                <i class="bi bi-chevron-left"></i> 上一个
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm" id="template-next-btn" style="display: none;">
+                                                下一个 <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =====================
+// 开放平台页面相关功能
+// =====================
+let openApiLoginCheckInterval = null;
+let currentTemplates = [];
+let currentTemplateIndex = 0;
+
+// 初始化开放平台
+function initOpenAPI() {
+    // 检查登录状态
+    checkOpenAPILoginStatus();
+    
+    // 绑定事件
+    document.getElementById('openapi-start-login').addEventListener('click', startOpenAPILogin);
+    document.getElementById('openapi-logout').addEventListener('click', logoutOpenAPI);
+    document.getElementById('openapi-refresh-botlist').addEventListener('click', refreshBotList);
+    document.getElementById('openapi-get-notifications').addEventListener('click', getNotifications);
+    document.getElementById('openapi-close-data').addEventListener('click', closeDataSection);
+}
+
+// 检查登录状态
+function checkOpenAPILoginStatus() {
+    fetch('/web/openapi/get_login_status', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            user_id: 'web_user'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.logged_in) {
+            showLoggedInState(data);
+            loadBotList();
+        } else {
+            showNotLoggedInState();
+        }
+    })
+    .catch(error => {
+        console.error('检查登录状态失败:', error);
+        showNotLoggedInState();
+    });
+}
+
+// 显示已登录状态
+function showLoggedInState(data) {
+    document.getElementById('openapi-not-logged-in').style.display = 'none';
+    document.getElementById('openapi-logged-in').style.display = 'block';
+    document.getElementById('openapi-main-content').style.display = 'block';
+    
+    if (data.uin) {
+        document.getElementById('openapi-uin').textContent = data.uin;
+    }
+    if (data.app_type) {
+        document.getElementById('openapi-app-type').textContent = data.app_type;
+    }
+}
+
+// 显示未登录状态
+function showNotLoggedInState() {
+    document.getElementById('openapi-not-logged-in').style.display = 'block';
+    document.getElementById('openapi-logged-in').style.display = 'none';
+    document.getElementById('openapi-main-content').style.display = 'none';
+    document.getElementById('openapi-data-section').style.display = 'none';
+}
+
+// 开始登录
+function startOpenAPILogin() {
+    const progressDiv = document.getElementById('openapi-login-progress');
+    const loadingDiv = document.getElementById('openapi-login-loading');
+    const qrContainer = document.getElementById('openapi-qr-container');
+    
+    progressDiv.style.display = 'block';
+    loadingDiv.style.display = 'block';
+    qrContainer.style.display = 'none';
+    
+    fetch('/web/openapi/start_login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            user_id: 'web_user'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // 生成二维码（使用老版本的方式）
+            generateQRCode(data.login_url);
+            document.getElementById('openapi-login-url').onclick = () => window.open(data.login_url, '_blank');
+            
+            // 开始检查登录状态
+            startLoginStatusCheck();
+        } else {
+            alert('获取登录二维码失败：' + data.message);
+            progressDiv.style.display = 'none';
+        }
+    })
+    .catch(error => {
+        console.error('开始登录失败:', error);
+        alert('开始登录失败');
+        progressDiv.style.display = 'none';
+    });
+}
+
+// 生成二维码（照抄老版本实现）
+function generateQRCode(loginUrl) {
+    const qrApiUrl = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(loginUrl)}`;
+    const qrImage = document.getElementById('openapi-qr-image');
+    const loadingDiv = document.getElementById('openapi-login-loading');
+    const qrContainer = document.getElementById('openapi-qr-container');
+    
+    // 设置二维码图片
+    qrImage.onload = function() {
+        // 图片加载成功，显示二维码容器，隐藏加载提示
+        loadingDiv.style.display = 'none';
+        qrContainer.style.display = 'block';
+    };
+    
+    qrImage.onerror = function() {
+        console.warn('二维码生成失败，使用备用方案');
+        
+        // 图片加载失败，显示错误提示和备用方案
+        loadingDiv.innerHTML = `
+            <div class="alert alert-warning text-center">
+                <i class="bi bi-exclamation-triangle"></i> 二维码生成失败<br>
+                <small class="text-muted">请使用下方按钮打开登录页面</small>
+            </div>
+        `;
+        
+        // 显示容器
+        qrContainer.style.display = 'block';
+    };
+    
+    // 设置二维码图片源
+    qrImage.src = qrApiUrl;
+}
+
+// 开始检查登录状态
+function startLoginStatusCheck() {
+    if (openApiLoginCheckInterval) {
+        clearInterval(openApiLoginCheckInterval);
+    }
+    
+    openApiLoginCheckInterval = setInterval(() => {
+        fetch('/web/openapi/check_login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                user_id: 'web_user'
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('登录状态检查结果:', data);
+            if (data.success && data.status === 'logged_in') {
+                clearInterval(openApiLoginCheckInterval);
+                document.getElementById('openapi-login-progress').style.display = 'none';
+                showLoggedInState(data);
+                loadBotList();
+            } else if (data.status === 'not_started') {
+                console.log('登录任务未开始，停止检查');
+                clearInterval(openApiLoginCheckInterval);
+                document.getElementById('openapi-login-progress').style.display = 'none';
+            }
+        })
+        .catch(error => {
+            console.error('检查登录状态失败:', error);
+        });
+    }, 2000); // 每2秒检查一次
+}
+
+// 退出登录
+function logoutOpenAPI() {
+    if (confirm('确定要重新登录吗？')) {
+        fetch('/web/openapi/logout', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                user_id: 'web_user'
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showNotLoggedInState();
+            if (openApiLoginCheckInterval) {
+                clearInterval(openApiLoginCheckInterval);
+            }
+        })
+        .catch(error => {
+            console.error('退出登录失败:', error);
+        });
+    }
+}
+
+// 加载机器人列表（照抄老版本实现）
+function loadBotList() {
+    const loading = document.getElementById('openapi-botlist-loading');
+    const container = document.getElementById('openapi-botlist-container');
+    
+    loading.style.display = 'block';
+    container.style.display = 'none';
+    
+    fetch('/web/openapi/get_botlist', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            user_id: 'web_user'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        loading.style.display = 'none';
+        if (data.success) {
+            displayBotList(data.data);
+            container.style.display = 'block';
+        } else {
+            alert('获取机器人列表失败: ' + data.message);
+            if (data.message && data.message.includes('登录状态失效')) {
+                showNotLoggedInState();
+            }
+        }
+    })
+    .catch(error => {
+        console.error('获取机器人列表失败:', error);
+        loading.style.display = 'none';
+        alert('获取机器人列表失败');
+    });
+}
+
+// 显示机器人列表（完全照抄老版本实现）
+function displayBotList(data) {
+    const tbody = document.getElementById('openapi-botlist-table');
+    tbody.innerHTML = '';
+    
+    if (!data || !data.apps || data.apps.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">暂无机器人</td></tr>';
+        return;
+    }
+    
+    data.apps.forEach(app => {
+        const row = document.createElement('tr');
+        
+        row.innerHTML = `
+            <td>
+                <strong>${app.app_name || '未命名'}</strong>
+                <br><small class="text-muted">${app.app_desc || '无描述'}</small>
+            </td>
+            <td><code>${app.app_id}</code></td>
+            <td>
+                <div class="d-flex gap-1 flex-wrap">
+                    <button class="btn btn-outline-primary btn-sm" onclick="getBotData('${app.app_id}')">
+                        <i class="bi bi-graph-up"></i> 数据
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" onclick="getBotTemplates('${app.app_id}', '${app.app_name}')">
+                        <i class="bi bi-layout-text-sidebar-reverse"></i> 模板
+                    </button>
+                   <button class="btn btn-outline-warning btn-sm" onclick="importBotTemplates('${app.app_id}', '${app.app_name}')">
+                       <i class="bi bi-download"></i> 导入
+                   </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+    
+    document.getElementById('openapi-botlist-container').style.display = 'block';
+}
+
+// 刷新机器人列表
+function refreshBotList() {
+    loadBotList();
+}
+
+// 获取机器人数据（完全照抄老版本实现）
+function getBotData(appid) {
+    // 固定查询30天
+    const days = 30;
+    
+    document.getElementById('openapi-data-section').style.display = 'block';
+    document.getElementById('openapi-data-loading').style.display = 'block';
+    document.getElementById('openapi-data-table-container').style.display = 'none';
+    document.getElementById('openapi-notifications-container').style.display = 'none';
+    
+    document.getElementById('openapi-data-title').innerHTML = `<i class="bi bi-table"></i> 机器人数据 - ${appid}`;
+    
+    fetch('/web/openapi/get_botdata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            user_id: 'web_user',
+            appid: appid,
+            days: days
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            displayBotData(data);
+        } else {
+            alert('获取机器人数据失败: ' + data.message);
+            if (data.message && data.message.includes('登录状态失效')) {
+                showNotLoggedInState();
+            }
+        }
+    })
+    .catch(error => {
+        console.error('获取机器人数据失败:', error);
+        alert('获取机器人数据失败，请重试');
+    })
+    .finally(() => {
+        document.getElementById('openapi-data-loading').style.display = 'none';
+    });
+}
+
+// 显示机器人数据（完全照抄老版本实现）
+function displayBotData(data) {
+    // 存储数据到隐藏元素
+    document.getElementById('openapi-data-appid').textContent = data.appid;
+    document.getElementById('openapi-data-avg-dau').textContent = data.avg_dau;
+    
+    // 更新表格中的平均DAU显示
+    document.getElementById('openapi-avg-dau-display').textContent = Number(data.avg_dau).toLocaleString('zh-CN');
+   
+   // 更新数据表格
+   const tbody = document.getElementById('openapi-data-table');
+   tbody.innerHTML = '';
+   
+   data.days_data.forEach(dayData => {
+       const row = document.createElement('tr');
+       row.innerHTML = `
+           <td><strong>${dayData.date}</strong></td>
+           <td>${Number(dayData.up_messages).toLocaleString('zh-CN')}</td>
+           <td><span class="badge bg-primary">${Number(dayData.up_users).toLocaleString('zh-CN')}</span></td>
+           <td>${Number(dayData.down_messages).toLocaleString('zh-CN')}</td>
+           <td><strong>${Number(dayData.total_messages).toLocaleString('zh-CN')}</strong></td>
+           <td>
+               <span class="text-success">+${Number(dayData.new_groups).toLocaleString('zh-CN')}</span> / 
+               <span class="text-info">${Number(dayData.current_groups).toLocaleString('zh-CN')}</span>
+           </td>
+           <td>
+               <span class="text-success">+${Number(dayData.new_friends).toLocaleString('zh-CN')}</span> / 
+               <span class="text-info">${Number(dayData.current_friends).toLocaleString('zh-CN')}</span>
+           </td>
+       `;
+       tbody.appendChild(row);
+   });
+   
+   document.getElementById('openapi-data-table-container').style.display = 'block';
+}
+
+// 获取指定机器人的模板列表（完全照抄老版本实现）
+function getBotTemplates(appid, appName) {
+    getTemplates(appid, appName);
+}
+
+// 获取模板列表（完全照抄老版本实现）
+function getTemplates(appid = null, appName = null) {
+    // 隐藏其他区域
+    document.getElementById('openapi-data-table-container').style.display = 'none';
+    document.getElementById('openapi-notifications-container').style.display = 'none';
+    const templateDetail = document.getElementById('openapi-template-detail');
+    if (templateDetail) templateDetail.style.display = 'none';
+    
+    // 更新标题 - 只更新区域标题，不改变顶栏
+    document.getElementById('openapi-data-title').innerHTML = '<i class="bi bi-layout-text-sidebar-reverse"></i> 模板管理';
+    
+    // 显示数据区域和加载状态
+    document.getElementById('openapi-data-section').style.display = 'block';
+    document.getElementById('openapi-data-loading').style.display = 'block';
+    
+    // 构建请求数据
+    const requestData = { user_id: 'web_user' };
+    if (appid) {
+        requestData.appid = appid;
+    }
+    
+    fetch('/web/openapi/get_templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('openapi-data-loading').style.display = 'none';
+        
+        if (data.success) {
+            currentTemplates = data.data.templates;
+            displayTemplates(data.data.templates, appName);
+        } else {
+            alert('获取模板列表失败: ' + data.message);
+            if (data.message && data.message.includes('登录状态失效')) {
+                showNotLoggedInState();
+            }
+        }
+    })
+    .catch(error => {
+        document.getElementById('openapi-data-loading').style.display = 'none';
+        alert('获取模板列表失败: ' + error.message);
+    });
+}
+
+// 显示模板列表（完全照抄老版本实现）
+function displayTemplates(templates, appName = null) {
+    // 更新模板列表标题
+    const titleElement = document.getElementById('template-list-title');
+    const titleText = appName ? `${appName} - 模板列表` : '模板列表';
+    if (titleElement) titleElement.innerHTML = `<i class="bi bi-layout-text-sidebar-reverse"></i> ${titleText}`;
+    
+    const tbody = document.getElementById('openapi-templates-table');
+    tbody.innerHTML = '';
+    
+    if (templates.length === 0) {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td colspan="4" class="text-center text-muted">暂无模板</td>
+        `;
+        tbody.appendChild(row);
+    } else {
+        templates.forEach((template, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="max-width: 200px; word-break: break-word;">
+                    <strong>${template.name}</strong>
+                    <br><small class="text-muted">ID: ${template.id}</small>
+                </td>
+                <td><span class="badge ${template.type === '按钮模板' ? 'bg-info' : 'bg-secondary'}">${template.type}</span></td>
+                <td><span class="badge ${getStatusBadgeClass(template.status)}">${template.status}</span></td>
+                <td>
+                    <button class="btn btn-outline-primary btn-sm" onclick="viewTemplateDetail(${index})">
+                        <i class="bi bi-eye"></i> 查看
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+    
+    document.getElementById('openapi-templates-container').style.display = 'block';
+}
+
+// 获取状态徽章样式（完全照抄老版本实现）
+function getStatusBadgeClass(status) {
+    switch (status) {
+        case '审核通过': return 'bg-success';
+        case '未通过': return 'bg-danger';
+        case '审核中': return 'bg-primary';
+        case '未提审': return 'bg-warning';
+        default: return 'bg-secondary';
+    }
+}
+
+// 查看模板详情（完全照抄老版本实现）
+function viewTemplateDetail(index) {
+    if (index < 0 || index >= currentTemplates.length) return;
+    
+    currentTemplateIndex = index;
+    const template = currentTemplates[index];
+    
+    // 更新模板详情
+    document.getElementById('template-detail-index').textContent = `${index + 1}/${currentTemplates.length}`;
+    document.getElementById('template-detail-id').textContent = template.id;
+    document.getElementById('template-detail-name').textContent = template.name;
+    document.getElementById('template-detail-type').innerHTML = `<span class="badge ${template.type === '按钮模板' ? 'bg-info' : 'bg-secondary'}">${template.type}</span>`;
+    document.getElementById('template-detail-status').innerHTML = `<span class="badge ${getStatusBadgeClass(template.status)}">${template.status}</span>`;
+    document.getElementById('template-detail-create-time').textContent = template.create_time || '-';
+    document.getElementById('template-detail-content').textContent = template.content;
+    
+    // 更新导航按钮
+    const prevBtn = document.getElementById('template-prev-btn');
+    const nextBtn = document.getElementById('template-next-btn');
+    
+    if (prevBtn) {
+        if (index > 0) {
+            prevBtn.style.display = 'inline-block';
+        } else {
+            prevBtn.style.display = 'none';
+        }
+    }
+    
+    if (nextBtn) {
+        if (index < currentTemplates.length - 1) {
+            nextBtn.style.display = 'inline-block';
+        } else {
+            nextBtn.style.display = 'none';
+        }
+    }
+    
+    // 如果是按钮模板，尝试渲染按钮预览
+    if (template.type === '按钮模板') {
+        renderButtonPreview(template);
+    } else {
+        const buttonPreview = document.getElementById('template-button-preview');
+        if (buttonPreview) buttonPreview.style.display = 'none';
+    }
+    
+    // 隐藏模板列表，显示模板详情
+    document.getElementById('openapi-templates-container').style.display = 'none';
+    const templateDetail = document.getElementById('openapi-template-detail');
+    if (templateDetail) templateDetail.style.display = 'block';
+}
+
+// 导入指定机器人的模板到文件（完全照抄老版本实现）
+function importBotTemplates(appid, appName) {
+    if (!confirm(`确定要将机器人 "${appName}" 的模板导入到markdown_templates.py文件中吗？\n\nAppID: ${appid}\n\n注意：\n- 模板将从1开始命名\n- 按钮ID将以注释形式添加`)) {
+        return;
+    }
+    
+    // 通过事件找到对应的按钮
+    const button = event.target.closest('button');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="bi bi-hourglass-split"></i> 导入中...';
+    button.disabled = true;
+    
+    fetch('/web/openapi/import_templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            user_id: 'web_user',
+            appid: appid
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const result = data.data;
+            let message = `✅ 模板导入完成！\n\n`;
+            message += `🤖 机器人: ${appName}\n`;
+            message += `📱 AppID: ${appid}\n\n`;
+            message += `📊 统计信息：\n`;
+            message += `• 新导入模板：${result.imported_count} 个\n`;
+            message += `• 跳过重复模板：${result.skipped_count} 个\n`;
+            if (result.button_count > 0) {
+                message += `• 按钮模板注释：${result.button_count} 个\n`;
+            }
+            message += `\n💡 ${result.message}`;
+            message += `\n\n⚠️ 重要提示：你需要重启框架来重载模板文件！`;
+            
+            alert(message);
+            
+            // 显示成功状态
+            button.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> 导入成功';
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }, 3000);
+        } else {
+            alert('❌ 导入模板失败: ' + data.message);
+            if (data.message && data.message.includes('登录状态失效')) {
+                showNotLoggedInState();
+            }
+        }
+    })
+    .catch(error => {
+        console.error('导入模板失败:', error);
+        alert('❌ 导入模板失败，请重试\n\n错误信息: ' + error.message);
+    })
+    .finally(() => {
+        if (button.innerHTML.includes('导入中')) {
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }
+    });
+}
+
+// 渲染按钮预览（完全照抄老版本实现）
+function renderButtonPreview(template) {
+    try {
+        let buttonData;
+        
+        // 尝试解析按钮数据
+        try {
+            buttonData = JSON.parse(template.content);
+        } catch (e) {
+            // 如果是@开头的格式
+            if (template.content.startsWith('@')) {
+                buttonData = JSON.parse(template.content.substring(1));
+            } else {
+                throw e;
+            }
+        }
+        
+        const rows = buttonData.rows || [];
+        const buttonRowsContainer = document.getElementById('template-button-rows');
+        if (!buttonRowsContainer) return;
+        
+        buttonRowsContainer.innerHTML = '';
+        
+        rows.slice(0, 5).forEach((row, rowIndex) => {
+            const buttons = row.buttons || [];
+            if (buttons.length === 0) return;
+            
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'mb-2 d-flex gap-2 flex-wrap';
+            
+            buttons.slice(0, 5).forEach(button => {
+                const renderData = button.render_data || {};
+                const action = button.action || {};
+                
+                const btnElement = document.createElement('button');
+                btnElement.className = `btn btn-sm ${getButtonStyleClass(renderData.style || 0)}`;
+                btnElement.textContent = renderData.label || 'Button';
+                btnElement.disabled = true;
+                btnElement.style.minWidth = '80px';
+                
+                // 添加类型图标
+                const actionType = action.type || 2;
+                let icon = '';
+                if (actionType === 0) {
+                    icon = '<i class="bi bi-box-arrow-up-right"></i> ';
+                } else if (actionType === 1) {
+                    icon = '<i class="bi bi-arrow-clockwise"></i> ';
+                }
+                
+                btnElement.innerHTML = icon + btnElement.textContent;
+                rowDiv.appendChild(btnElement);
+            });
+            
+            buttonRowsContainer.appendChild(rowDiv);
+        });
+        
+        const buttonPreview = document.getElementById('template-button-preview');
+        if (buttonPreview) buttonPreview.style.display = 'block';
+        
+    } catch (error) {
+        console.error('按钮预览渲染失败:', error);
+        const buttonPreview = document.getElementById('template-button-preview');
+        if (buttonPreview) buttonPreview.style.display = 'none';
+    }
+}
+
+// 获取按钮样式类（完全照抄老版本实现）
+function getButtonStyleClass(style) {
+    switch (style) {
+        case 0: return 'btn-outline-dark';
+        case 1: return 'btn-outline-primary';
+        case 2: return 'btn-outline-secondary';
+        case 3: return 'btn-outline-danger';
+        case 4: return 'btn-primary';
+        default: return 'btn-outline-dark';
+    }
+}
+
+// 显示上一个模板（完全照抄老版本实现）
+function showPreviousTemplate() {
+    if (currentTemplateIndex > 0) {
+        viewTemplateDetail(currentTemplateIndex - 1);
+    }
+}
+
+// 显示下一个模板（完全照抄老版本实现）
+function showNextTemplate() {
+    if (currentTemplateIndex < currentTemplates.length - 1) {
+        viewTemplateDetail(currentTemplateIndex + 1);
+    }
+}
+
+// 查看通知消息
+function getNotifications() {
+    const dataSection = document.getElementById('openapi-data-section');
+    const dataTitle = document.getElementById('openapi-data-title');
+    const dataLoading = document.getElementById('openapi-data-loading');
+    const dataContainer = document.getElementById('openapi-data-table-container');
+    const notificationsContainer = document.getElementById('openapi-notifications-container');
+    const templatesContainer = document.getElementById('openapi-templates-container');
+    
+    // 显示数据区域
+    dataSection.style.display = 'block';
+    dataTitle.innerHTML = `<i class="bi bi-bell"></i> 通知消息`;
+    
+    // 隐藏其他容器
+    dataContainer.style.display = 'none';
+    templatesContainer.style.display = 'none';
+    
+    // 显示加载状态
+    dataLoading.style.display = 'block';
+    notificationsContainer.style.display = 'none';
+    
+    // 获取通知
+    fetch('/web/openapi/get_notifications', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            user_id: 'web_user'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        dataLoading.style.display = 'none';
+        if (data.success) {
+            displayNotifications(data.notifications || []);
+            notificationsContainer.style.display = 'block';
+        } else {
+            alert('获取通知消息失败：' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('获取通知消息失败:', error);
+        dataLoading.style.display = 'none';
+        alert('获取通知消息失败');
+    });
+}
+
+// 显示通知消息
+function displayNotifications(notifications) {
+    const table = document.getElementById('openapi-notifications-table');
+    
+    if (!notifications || notifications.length === 0) {
+        table.innerHTML = '<tr><td colspan="4" class="text-center text-muted">暂无通知消息</td></tr>';
+        return;
+    }
+    
+    table.innerHTML = notifications.map(notification => `
+        <tr>
+            <td>${notification.time || '-'}</td>
+            <td>${notification.title || '-'}</td>
+            <td style="max-width: 300px; word-break: break-word;">${notification.content || '-'}</td>
+            <td><span class="badge bg-secondary">${notification.type || '-'}</span></td>
+        </tr>
+    `).join('');
+}
+
+// 查看机器人模板
+function viewBotTemplates(appId, botName) {
+    const dataSection = document.getElementById('openapi-data-section');
+    const dataTitle = document.getElementById('openapi-data-title');
+    const dataLoading = document.getElementById('openapi-data-loading');
+    const dataContainer = document.getElementById('openapi-data-table-container');
+    const notificationsContainer = document.getElementById('openapi-notifications-container');
+    const templatesContainer = document.getElementById('openapi-templates-container');
+    
+    // 显示数据区域
+    dataSection.style.display = 'block';
+    dataTitle.innerHTML = `<i class="bi bi-layout-text-sidebar-reverse"></i> ${botName} - 模板管理`;
+    
+    // 隐藏其他容器
+    dataContainer.style.display = 'none';
+    notificationsContainer.style.display = 'none';
+    
+    // 显示加载状态
+    dataLoading.style.display = 'block';
+    templatesContainer.style.display = 'none';
+    
+    // 获取模板列表
+    fetch('/web/openapi/get_templates', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            user_id: 'web_user',
+            appid: appId 
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        dataLoading.style.display = 'none';
+        if (data.success) {
+            currentTemplates = data.templates || [];
+            displayTemplates(currentTemplates);
+            templatesContainer.style.display = 'block';
+        } else {
+            alert('获取模板列表失败：' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('获取模板列表失败:', error);
+        dataLoading.style.display = 'none';
+        alert('获取模板列表失败');
+    });
+}
+
+
+
+// 查看模板详情
+function viewTemplateDetail(index) {
+    if (!currentTemplates || index >= currentTemplates.length) return;
+    
+    currentTemplateIndex = index;
+    const template = currentTemplates[index];
+    const detailDiv = document.getElementById('openapi-template-detail');
+    
+    // 更新模板详情
+    document.getElementById('template-detail-index').textContent = `${index + 1}/${currentTemplates.length}`;
+    document.getElementById('template-detail-id').textContent = template.id || '-';
+    document.getElementById('template-detail-name').textContent = template.name || '-';
+            document.getElementById('template-detail-type').innerHTML = `<span class="badge ${template.type === '按钮模板' ? 'bg-info' : 'bg-secondary'}">${template.type}</span>`;
+    document.getElementById('template-detail-status').textContent = template.status || '-';
+    document.getElementById('template-detail-create-time').textContent = template.create_time || '-';
+    document.getElementById('template-detail-content').textContent = JSON.stringify(template.content, null, 2) || '-';
+    
+    // 显示按钮预览（如果是按钮模板）
+    const buttonPreview = document.getElementById('template-button-preview');
+    if (template.type === 'button' && template.content && template.content.buttons) {
+        displayButtonPreview(template.content.buttons);
+        buttonPreview.style.display = 'block';
+    } else {
+        buttonPreview.style.display = 'none';
+    }
+    
+    // 更新导航按钮
+    const prevBtn = document.getElementById('template-prev-btn');
+    const nextBtn = document.getElementById('template-next-btn');
+    
+    if (currentTemplates.length > 1) {
+        prevBtn.style.display = index > 0 ? 'inline-block' : 'none';
+        nextBtn.style.display = index < currentTemplates.length - 1 ? 'inline-block' : 'none';
+        
+        prevBtn.onclick = () => viewTemplateDetail(index - 1);
+        nextBtn.onclick = () => viewTemplateDetail(index + 1);
+    } else {
+        prevBtn.style.display = 'none';
+        nextBtn.style.display = 'none';
+    }
+    
+    // 显示详情区域
+    detailDiv.style.display = 'block';
+}
+
+// 显示按钮预览
+function displayButtonPreview(buttons) {
+    const container = document.getElementById('template-button-rows');
+    
+    if (!buttons || !Array.isArray(buttons)) {
+        container.innerHTML = '<p class="text-muted">无按钮数据</p>';
+        return;
+    }
+    
+    let html = '';
+    buttons.forEach(row => {
+        if (Array.isArray(row)) {
+            html += '<div class="mb-2">';
+            row.forEach(button => {
+                const typeText = button.type === 0 ? '链接' : (button.type === 1 ? '回调' : '命令');
+                html += `
+                    <button class="btn btn-outline-secondary btn-sm me-1" disabled>
+                        ${button.label || '按钮'} <small>(${typeText})</small>
+                    </button>
+                `;
+            });
+            html += '</div>';
+        }
+    });
+    
+    container.innerHTML = html || '<p class="text-muted">无有效按钮</p>';
+}
+
+// 关闭数据区域
+function closeDataSection() {
+    document.getElementById('openapi-data-section').style.display = 'none';
+}
+
+// 数字格式化
+function formatNumber(num) {
+    if (num >= 10000) {
+        return (num / 10000).toFixed(2).replace(/\.?0+$/, '') + 'w';
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(2).replace(/\.?0+$/, '') + 'k';
+    } else {
+        return num.toString();
+    }
+}
+
+// 页面初始化
+document.addEventListener('DOMContentLoaded', function() {
+    initOpenAPI();
+    
+    // 开放平台页面不需要实时WebSocket连接
+    // initSocket('openapi');
+});
+</script>
+{% endblock %}

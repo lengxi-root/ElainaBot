@@ -14,6 +14,7 @@ from function.Access import BOTAPI, Json
 # 消息类型常量
 MSG_TYPE_WELCOME = 'welcome'                # 群欢迎消息
 MSG_TYPE_USER_WELCOME = 'user_welcome'      # 新用户欢迎消息
+MSG_TYPE_FRIEND_ADD = 'friend_add'          # 添加好友欢迎消息
 MSG_TYPE_GROUP_ONLY = 'group_only'          # 群聊专用命令提示
 MSG_TYPE_DEFAULT = 'default'                # 默认回复
 MSG_TYPE_OWNER_ONLY = 'owner_only'          # 主人专属命令提示
@@ -110,6 +111,59 @@ def _handle_user_welcome(event, **kwargs):
         event.rows([
             {
                 'text': '🎆 邀伊蕾娜进群',
+                'data': 'https://qun.qq.com/qunpro/robot/qunshare?robot_appid=102134274&robot_uin=3889045760',
+                'type': 0,
+                'style': 1
+            }
+        ])
+    ])
+    
+    result = event.reply(welcome_msg, btn)
+    return result is not None
+
+def _handle_friend_add(event, **kwargs):
+    """好友添加欢迎消息处理"""
+    user_id = event.user_id if hasattr(event, 'user_id') else None
+    
+    welcome_msg = (
+        f"![伊蕾娜 #360px #360px](https://q.qlogo.cn/qqapp/102134274/{user_id}/640)\n"
+        f"欢迎<@{user_id}>！感谢您添加伊蕾娜为好友！  \n"
+        f"\n> 您可以直接在这里与我对话，也可以邀请我到您的群聊中使用更多功能！\n"
+        f"> 私聊支持的功能相对较少，更多精彩功能请在群聊中体验~"
+    )
+    
+    btn = event.button([
+        event.rows([
+            {
+                'text': '📋 菜单',
+                'data': '菜单',
+                'enter': True,
+                'style': 1
+            },
+            {
+                'text': '🎮 娱乐菜单',
+                'data': '/娱乐菜单',
+                'enter': True,
+                'style': 1
+            }
+        ]),
+        event.rows([
+            {
+                'text': '💖 今日老婆',
+                'data': '/今日老婆',
+                'enter': True,
+                'style': 1
+            },
+            {
+                'text': '🎲 今日运势',
+                'data': '/今日运势',
+                'enter': True,
+                'style': 1
+            }
+        ]),
+        event.rows([
+            {
+                'text': '🎆 邀请我进群',
                 'data': 'https://qun.qq.com/qunpro/robot/qunshare?robot_appid=102134274&robot_uin=3889045760',
                 'type': 0,
                 'style': 1
@@ -272,9 +326,9 @@ def _handle_api_error(event, **kwargs):
         if event.message_type == GROUP_MESSAGE or event.message_type == DIRECT_MESSAGE:
             error_payload["msg_id"] = event.message_id
         elif event.message_type == INTERACTION or event.message_type == GROUP_ADD_ROBOT:
-            error_payload["event_id"] = event.get('id') or event.get('d/id') or ""
+            error_payload["event_id"] = event.get('id') or ""
         elif event.message_type == CHANNEL_MESSAGE:
-            error_payload["msg_id"] = event.get('d/id')
+            error_payload["msg_id"] = event.get('id')
             
         # 发送API错误提示
         BOTAPI(endpoint, "POST", Json(error_payload))
@@ -315,6 +369,7 @@ def _handle_blacklist(event, **kwargs):
 MESSAGE_HANDLERS = {
     MSG_TYPE_WELCOME: _handle_welcome,
     MSG_TYPE_USER_WELCOME: _handle_user_welcome,
+    MSG_TYPE_FRIEND_ADD: _handle_friend_add,
     MSG_TYPE_GROUP_ONLY: _handle_group_only,
     MSG_TYPE_DEFAULT: _handle_default,
     MSG_TYPE_OWNER_ONLY: _handle_owner_only,

@@ -139,7 +139,7 @@ def Json取(json_str, path):
             try:
                 data = json.loads(json_str)
             except:
-                return "null"
+                return None
     else:
         data = json_str
     
@@ -148,6 +148,6 @@ def Json取(json_str, path):
         if isinstance(data, dict) and key in data:
             data = data[key]
         else:
-            return "null"
+            return None
     
     return data 

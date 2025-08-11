@@ -224,8 +224,6 @@ def _make_sync_request(method: str, url: str, max_retries: int = 3, retry_delay:
             pool = get_pool_manager()
             with pool.sync_request_context(url=url) as client:
                 response = getattr(client, method.lower())(url, **kwargs)
-                if method.upper() == 'GET':
-                    response.raise_for_status()
                 return response
                 
         except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
@@ -256,7 +254,9 @@ async def _make_async_request(method: str, url: str, **kwargs) -> httpx.Response
     
     pool = get_pool_manager()
     async with pool.async_request_context(url=url) as client:
-        return await getattr(client, method.lower())(url, **kwargs)
+        # 不自动抛出状态码异常，保持与aiohttp一致的行为
+        response = await getattr(client, method.lower())(url, **kwargs)
+        return response
 
 def sync_get(url: str, max_retries: int = 3, retry_delay: float = 1.0, **kwargs) -> httpx.Response:
     """发送同步GET请求"""

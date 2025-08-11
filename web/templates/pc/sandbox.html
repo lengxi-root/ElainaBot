@@ -1,0 +1,479 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h5 class="mb-0">沙盒测试</h5>
+    <small class="text-muted">在此测试插件功能，无需真实消息</small>
+</div>
+
+<!-- 测试配置 -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">测试配置</h6>
+                <form id="sandbox-form">
+                    <div class="mb-3">
+                        <label for="sandbox-message" class="form-label">消息内容 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="sandbox-message" rows="3" placeholder="输入要测试的消息内容，如：菜单、签到、今日运势等"></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="sandbox-group" class="form-label">群组ID <small class="text-muted">(私聊可留空)</small></label>
+                                <input type="text" class="form-control" id="sandbox-group" placeholder="群聊时填写，如：123456789" value="">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="sandbox-user" class="form-label">用户ID <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="sandbox-user" placeholder="如：987654321" value="987654321">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-play-circle"></i> 开始测试
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="sandbox-clear">
+                            <i class="bi bi-arrow-clockwise"></i> 清空结果
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">使用说明</h6>
+                <div class="small text-muted">
+                    <p><strong>消息类型：</strong></p>
+                    <ul class="mb-0">
+                        <li><strong>群聊消息：</strong> 需要输入群组ID和用户ID</li>
+                        <li><strong>私聊消息：</strong> 只需要输入用户ID，群组ID可留空</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 测试结果 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">测试结果</h6>
+                <div id="sandbox-results">
+                    <div class="empty-results text-center text-muted py-4">
+                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                        <p>尚未进行测试，请配置参数后点击"开始测试"</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =====================
+// 沙盒测试功能（完全照抄老版本实现）
+// =====================
+
+// HTML转义函数（照抄老版本）
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 获取消息类型显示文本（完全照抄老版本逻辑）
+function getMessageTypeDisplay(messageInfo) {
+    if (!messageInfo) return '未知';
+    
+    // 如果有明确的消息类型，直接使用
+    if (messageInfo.message_type) {
+        return messageInfo.message_type;
+    }
+    
+    // 根据群组ID判断消息类型
+    if (messageInfo.group_id && messageInfo.group_id.trim() !== '') {
+        return '群聊消息';
+    } else {
+        return '私聊消息';
+    }
+}
+
+// Markdown渲染函数（照抄老版本）
+function renderMarkdown(text) {
+    if (!text) return '';
+    
+    // 简单的Markdown渲染，避免性能问题
+    let html = escapeHtml(text);
+    
+    // 图片标签（避免阻塞）
+    html = html.replace(/\[image:([^\]]+)\]/g, '<span class="image-placeholder-small">[图片: $1]</span>');
+    
+    // 加粗
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    // 斜体
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    
+    // 代码块
+    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    
+    // 行内代码
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // 换行
+    html = html.replace(/\n/g, '<br>');
+    
+    return html;
+}
+
+// 初始化沙盒测试功能（完全照抄老版本实现）
+function initSandbox() {
+    const sandboxForm = document.getElementById('sandbox-form');
+    const sandboxMessage = document.getElementById('sandbox-message');
+    const sandboxGroup = document.getElementById('sandbox-group');
+    const sandboxUser = document.getElementById('sandbox-user');
+    const sandboxResults = document.getElementById('sandbox-results');
+    const sandboxClear = document.getElementById('sandbox-clear');
+    
+    // 清空结果
+    sandboxClear.addEventListener('click', function() {
+        sandboxResults.innerHTML = `
+            <div class="empty-results text-center text-muted py-4">
+                <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                <p>尚未进行测试，请配置参数后点击"开始测试"</p>
+            </div>
+        `;
+    });
+    
+    // 表单提交
+    sandboxForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const message = sandboxMessage.value.trim();
+        const groupId = sandboxGroup.value.trim();
+        const userId = sandboxUser.value.trim();
+        
+        if (!message) {
+            alert('请输入消息内容');
+            return;
+        }
+        if (!userId) {
+            alert('请输入用户ID');
+            return;
+        }
+        // 群组ID可以为空（私聊模式）
+        
+        // 显示加载状态
+        sandboxResults.innerHTML = `
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">测试中...</span>
+                </div>
+                <p class="mt-2 text-muted">正在处理消息，请稍候...</p>
+            </div>
+        `;
+        
+        // 获取token
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        
+        if (!token) {
+            sandboxResults.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> 未找到访问token
+                </div>
+            `;
+            return;
+        }
+        
+        // 发送测试请求（照抄老版本API调用）
+        fetch(`/web/api/sandbox/test?token=${encodeURIComponent(token)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: message,
+                group_id: groupId,
+                user_id: userId
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            displaySandboxResults(data);
+        })
+        .catch(error => {
+            console.error('沙盒测试错误:', error);
+            sandboxResults.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> 测试请求失败: ${error.message}
+                </div>
+            `;
+        });
+    });
+}
+
+// 显示沙盒测试结果（完全照抄老版本实现）
+function displaySandboxResults(data) {
+    const sandboxResults = document.getElementById('sandbox-results');
+    let html; // 在函数开头声明html变量
+    
+    if (data.success) {
+        html = `
+            <div class="alert alert-success">
+                <i class="bi bi-check-circle"></i> 测试完成！插件正常响应
+            </div>
+        `;
+        
+        // 显示消息信息
+        if (data.message_info) {
+            html += `
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0">测试信息</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3"><strong>消息内容:</strong> ${escapeHtml(data.message_info.content)}</div>
+                            <div class="col-md-2"><strong>类型:</strong> ${escapeHtml(getMessageTypeDisplay(data.message_info))}</div>
+                            <div class="col-md-3"><strong>群组ID:</strong> ${escapeHtml(data.message_info.group_id)}</div>
+                            <div class="col-md-2"><strong>用户ID:</strong> ${escapeHtml(data.message_info.user_id)}</div>
+                            <div class="col-md-2"><strong>时间:</strong> ${escapeHtml(data.message_info.timestamp)}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 显示回复结果
+        if (data.replies && data.replies.length > 0) {
+            html += `
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">插件回复 (共${data.replies.length}条)</h6>
+                    </div>
+                    <div class="card-body">
+            `;
+            
+            data.replies.forEach((reply, index) => {
+                html += `
+                    <div class="border rounded p-3 mb-3 bg-light">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="badge bg-secondary">回复消息</span>
+                            <small class="text-muted">#${index + 1}</small>
+                        </div>
+                        <div class="content sandbox-markdown">
+                            ${reply.content ? renderMarkdown(reply.content) : '<em>(无内容)</em>'}
+                            
+                            ${reply.buttons && reply.buttons.content && Array.isArray(reply.buttons.content.rows) ? `
+                                <div class="mt-3">
+                                    <small class="text-muted d-block mb-2">交互按钮:</small>
+                                    ${reply.buttons.content.rows.map(row => {
+                                        if (row && row.buttons && Array.isArray(row.buttons)) {
+                                            return `<div class="d-flex flex-wrap gap-2 mb-2">
+                                                ${row.buttons.map(btn => {
+                                                    const buttonText = btn.render_data?.label || btn.action?.data || '';
+                                                    const buttonStyle = btn.render_data?.style || 0;
+                                                    const actionType = btn.action?.type || 2;
+                                                    
+                                                    // 根据样式设置按钮类
+                                                    let btnClass = 'btn btn-sm ';
+                                                    let iconClass = '';
+                                                    
+                                                    switch(buttonStyle) {
+                                                        case 0: btnClass += 'btn-outline-secondary'; break;
+                                                        case 1: btnClass += 'btn-outline-primary'; break;
+                                                        case 2: btnClass += 'btn-outline-secondary'; break;
+                                                        case 3: btnClass += 'btn-outline-danger'; break;
+                                                        case 4: btnClass += 'btn-primary'; break;
+                                                        default: btnClass += 'btn-outline-secondary'; break;
+                                                    }
+                                                    
+                                                    // 根据动作类型设置图标
+                                                    switch(actionType) {
+                                                        case 0: iconClass = 'bi bi-box-arrow-up-right'; break; // 跳转
+                                                        case 1: iconClass = 'bi bi-arrow-clockwise'; break; // 回调
+                                                        case 2: iconClass = 'bi bi-cursor-text'; break; // 回车
+                                                        default: iconClass = 'bi bi-gear'; break;
+                                                    }
+                                                    
+                                                    return `<button class="${btnClass}" disabled style="cursor: default;">
+                                                        <i class="${iconClass}"></i> ${escapeHtml(buttonText)}
+                                                    </button>`;
+                                                }).join('')}
+                                            </div>`;
+                                        }
+                                        return '';
+                                    }).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                `;
+                
+                // 显示媒体信息
+                if (reply.media) {
+                    html += `
+                        <div class="mt-2">
+                            <small class="text-muted d-block mb-1">媒体附件:</small>
+                            <span class="badge bg-info">包含媒体文件</span>
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+            });
+            
+            html += `</div></div>`;
+        } else {
+            html += `
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> 插件已处理消息，但没有返回任何回复内容
+                </div>
+            `;
+        }
+    } else {
+        // 显示错误信息
+        html = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i> 测试失败: ${escapeHtml(data.error || '未知错误')}
+            </div>
+        `;
+        
+        // 显示消息信息（如果有）
+        if (data.message_info) {
+            html += `
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0">测试信息</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3"><strong>消息内容:</strong> ${escapeHtml(data.message_info.content)}</div>
+                            <div class="col-md-2"><strong>类型:</strong> ${escapeHtml(getMessageTypeDisplay(data.message_info))}</div>
+                            <div class="col-md-3"><strong>群组ID:</strong> ${escapeHtml(data.message_info.group_id)}</div>
+                            <div class="col-md-2"><strong>用户ID:</strong> ${escapeHtml(data.message_info.user_id)}</div>
+                            <div class="col-md-2"><strong>时间:</strong> ${escapeHtml(data.message_info.timestamp)}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 显示详细错误信息
+        if (data.traceback) {
+            html += `
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">错误详情</h6>
+                    </div>
+                    <div class="card-body">
+                        <pre class="text-danger small" style="max-height: 300px; overflow-y: auto;">${escapeHtml(data.traceback)}</pre>
+                    </div>
+                </div>
+            `;
+        }
+    }
+    
+    sandboxResults.innerHTML = html;
+}
+
+// 页面初始化（优化性能，避免阻塞）
+document.addEventListener('DOMContentLoaded', function() {
+    // 使用requestIdleCallback来优化性能
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(function() {
+            initSandbox();
+        });
+    } else {
+        // 降级到setTimeout
+        setTimeout(function() {
+            initSandbox();
+        }, 100);
+    }
+    
+    // 沙盒页面不需要WebSocket连接，避免性能影响
+    // 不调用 initSocket('sandbox');
+});
+</script>
+
+<style>
+/* 沙盒测试专用样式（完全照抄老版本） */
+.sandbox-markdown {
+    line-height: 1.6;
+}
+
+.sandbox-markdown pre {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    overflow-x: auto;
+    font-size: 13px;
+}
+
+.sandbox-markdown code {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 13px;
+    color: #e83e8c;
+}
+
+.sandbox-markdown pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #333;
+}
+
+.sandbox-markdown h1, .sandbox-markdown h2, .sandbox-markdown h3 {
+    margin: 16px 0 8px 0;
+    font-weight: 600;
+    color: #333;
+}
+
+.sandbox-markdown h1 { font-size: 20px; }
+.sandbox-markdown h2 { font-size: 18px; }
+.sandbox-markdown h3 { font-size: 16px; }
+
+.sandbox-markdown ul {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.sandbox-markdown li {
+    margin: 4px 0;
+}
+
+.sandbox-markdown .image-placeholder-small {
+    display: inline-block;
+    border: 1px dashed #dee2e6;
+    border-radius: 3px;
+    padding: 3px 6px;
+    margin: 2px 0;
+    background: #f8f9fa;
+    vertical-align: middle;
+}
+
+.sandbox-markdown a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.sandbox-markdown a:hover {
+    text-decoration: underline;
+}
+</style>
+{% endblock %}

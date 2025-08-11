@@ -9,7 +9,6 @@ import logging
 import threading
 import schedule
 import re
-import traceback
 from typing import Dict, List, Any, Optional
 from function.log_db import LogDatabasePool
 from function.db_pool import DatabaseService
@@ -23,59 +22,38 @@ except ImportError:
 logger = logging.getLogger('dau_analytics')
 
 class DAUAnalytics:
-    """DAU数据分析和持久化组件"""
-    
     def __init__(self):
         self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'dau')
         os.makedirs(self.data_dir, exist_ok=True)
         self.is_running = False
         self.scheduler_thread = None
 
-    def _safe_execute(self, func, *args, **kwargs):
-        """统一的安全执行和错误处理"""
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            logger.error(f"操作失败: {e}")
-            return None
-
     def _with_log_db_cursor(self, operation):
-        """数据库连接和游标管理的上下文管理器"""
         log_db_pool = LogDatabasePool()
         connection = log_db_pool.get_connection()
-        
         if not connection:
-            logger.error("无法连接到日志数据库")
             return None
             
-        cursor = None
         try:
             from pymysql.cursors import DictCursor
             cursor = connection.cursor(DictCursor)
             return operation(cursor)
-        except Exception as e:
-            logger.error(f"数据库操作失败: {e}")
-            return None
         finally:
-            if cursor:
+            if 'cursor' in locals():
                 cursor.close()
-            if connection:
-                log_db_pool.release_connection(connection)
+            log_db_pool.release_connection(connection)
 
     def _table_exists(self, cursor, table_name):
-        """检查表是否存在"""
-        check_query = """
+        cursor.execute("""
             SELECT COUNT(*) as count 
             FROM information_schema.tables 
             WHERE table_schema = DATABASE() 
             AND table_name = %s
-        """
-        cursor.execute(check_query, (table_name,))
+        """, (table_name,))
         result = cursor.fetchone()
         return result and result['count'] > 0
 
     def _format_date(self, date_obj, format_type='display'):
-        """统一的日期格式化"""
         formats = {
             'display': '%Y-%m-%d',
             'table': '%Y%m%d',
@@ -85,23 +63,17 @@ class DAUAnalytics:
         return fmt(date_obj) if callable(fmt) else date_obj.strftime(fmt)
 
     def _file_operation(self, filepath, mode, operation, data=None):
-        """统一的文件操作"""
-        try:
-            if mode == 'read':
-                if not os.path.exists(filepath):
-                    return None
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            elif mode == 'write':
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                return True
-        except Exception as e:
-            logger.error(f"文件操作失败: {e}")
-            return None
+        if mode == 'read':
+            if not os.path.exists(filepath):
+                return None
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        elif mode == 'write':
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            return True
 
     def start_scheduler(self):
-        """启动定时任务调度器"""
         if self.is_running:
             return
             
@@ -114,57 +86,39 @@ class DAUAnalytics:
         self.scheduler_thread.start()
 
     def stop_scheduler(self):
-        """停止定时任务调度器"""
         self.is_running = False
         schedule.clear()
 
     def _run_scheduler(self):
-        """运行调度器"""
         while self.is_running:
-            try:
-                if schedule.jobs:
-                    schedule.run_pending()
-            except Exception as e:
-                logger.error(f"调度器运行异常: {e}")
+            if schedule.jobs:
+                schedule.run_pending()
             time.sleep(60)
 
     def _daily_dau_task(self):
-        """每日DAU统计任务"""
-        try:
-            yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
-            
-            # 检查数据库中是否已有昨天的DAU数据
-            existing_data = self.load_dau_data(yesterday)
-            if existing_data:
-                logger.info(f"DAU数据已存在: {self._format_date(yesterday)}")
-                return
-            
-            dau_data = self.collect_dau_data(yesterday)
-            if dau_data:
-                self.save_dau_data(dau_data, yesterday)
-                logger.info(f"DAU数据已生成: {self._format_date(yesterday)}")
-                
-        except Exception as e:
-            logger.error(f"每日DAU统计任务失败: {e}")
+        yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+        
+        existing_data = self.load_dau_data(yesterday)
+        if existing_data:
+            logger.info(f"DAU数据已存在: {self._format_date(yesterday)}")
+            return
+        
+        dau_data = self.collect_dau_data(yesterday)
+        if dau_data:
+            self.save_dau_data(dau_data, yesterday)
+            logger.info(f"DAU数据已生成: {self._format_date(yesterday)}")
 
     def _daily_id_cleanup_task(self):
-        """每日ID清理任务 - 每天1点执行"""
-        try:
-            # 调用log_db中的清理功能
-            from function.log_db import cleanup_yesterday_ids
-            success = cleanup_yesterday_ids()
-            
-            if success:
-                yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                logger.info(f"ID清理任务完成: {yesterday}")
-            else:
-                logger.warning("ID清理任务执行失败")
-                
-        except Exception as e:
-            logger.error(f"每日ID清理任务失败: {e}")
+        from function.log_db import cleanup_yesterday_ids
+        success = cleanup_yesterday_ids()
+        
+        if success:
+            yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+            logger.info(f"ID清理任务完成: {yesterday}")
+        else:
+            logger.warning("ID清理任务执行失败")
 
     def collect_dau_data(self, target_date: datetime.datetime) -> Optional[Dict[str, Any]]:
-        """收集指定日期的DAU数据"""
         date_str = self._format_date(target_date, 'table')
         display_date = self._format_date(target_date)
         
@@ -186,14 +140,12 @@ class DAUAnalytics:
         }
 
     def _get_message_stats(self, date_str: str) -> Optional[Dict[str, Any]]:
-        """获取消息统计数据"""
         def get_stats(cursor):
             table_name = f"Mlog_{date_str}_message"
             
             if not self._table_exists(cursor, table_name):
                 return None
             
-            # 执行多个统计查询
             queries = {
                 'total_messages': f"SELECT COUNT(*) as count FROM {table_name}",
                 'active_users': f"""SELECT COUNT(DISTINCT user_id) as count 
@@ -237,7 +189,6 @@ class DAUAnalytics:
                     else:
                         results[key] = result['count'] if result else 0
             
-            # 处理top数据格式
             results['top_groups'] = [
                 {'group_id': g['group_id'], 'message_count': g['msg_count']} 
                 for g in results['top_groups']
@@ -252,40 +203,33 @@ class DAUAnalytics:
         return self._with_log_db_cursor(get_stats)
 
     def _get_user_stats(self) -> Dict[str, Any]:
-        """获取用户统计数据"""
-        try:
-            queries = [
-                ("SELECT COUNT(*) as count FROM M_users", None, False),
-                ("SELECT COUNT(*) as count FROM M_groups", None, False),
-                ("SELECT COUNT(*) as count FROM M_members", None, False),
-                ("""SELECT group_id, JSON_LENGTH(users) as member_count
-                    FROM M_groups_users
-                    ORDER BY member_count DESC
-                    LIMIT 3""", None, True)
+        queries = [
+            ("SELECT COUNT(*) as count FROM M_users", None, False),
+            ("SELECT COUNT(*) as count FROM M_groups", None, False),
+            ("SELECT COUNT(*) as count FROM M_members", None, False),
+            ("""SELECT group_id, JSON_LENGTH(users) as member_count
+                FROM M_groups_users
+                ORDER BY member_count DESC
+                LIMIT 3""", None, True)
+        ]
+        
+        results = DatabaseService.execute_concurrent_queries(queries)
+        
+        top_large_groups = []
+        if results[3] and isinstance(results[3], list):
+            top_large_groups = [
+                {'group_id': g.get('group_id', ''), 'member_count': g.get('member_count', 0)}
+                for g in results[3]
             ]
-            
-            results = DatabaseService.execute_concurrent_queries(queries)
-            
-            top_large_groups = []
-            if results[3] and isinstance(results[3], list):
-                top_large_groups = [
-                    {'group_id': g.get('group_id', ''), 'member_count': g.get('member_count', 0)}
-                    for g in results[3]
-                ]
-                    
-            return {
-                'total_users': results[0]['count'] if results[0] else 0,
-                'total_groups': results[1]['count'] if results[1] else 0,
-                'total_friends': results[2]['count'] if results[2] else 0,
-                'top_large_groups': top_large_groups
-            }
-            
-        except Exception as e:
-            logger.error(f"获取用户统计数据失败: {e}")
-            return {'total_users': 0, 'total_groups': 0, 'total_friends': 0, 'top_large_groups': []}
+                
+        return {
+            'total_users': results[0]['count'] if results[0] else 0,
+            'total_groups': results[1]['count'] if results[1] else 0,
+            'total_friends': results[2]['count'] if results[2] else 0,
+            'top_large_groups': top_large_groups
+        }
 
     def _get_command_stats(self, date_str: str) -> List[Dict[str, Any]]:
-        """获取指令使用统计"""
         def get_stats(cursor):
             table_name = f"Mlog_{date_str}_message"
             
@@ -320,30 +264,29 @@ class DAUAnalytics:
         return self._with_log_db_cursor(get_stats) or []
 
     def save_dau_data(self, dau_data: Dict[str, Any], target_date: datetime.datetime):
-        """保存DAU数据到数据库"""
         from function.log_db import save_complete_dau_data
         
         date_str = self._format_date(target_date)
-        
-        # 使用新的完整数据保存函数
         success = save_complete_dau_data(dau_data)
         
         if success:
             logger.info(f"DAU数据已保存到数据库: {date_str}")
-            logger.info(f"  活跃用户: {dau_data.get('message_stats', {}).get('active_users', 0)}")
-            logger.info(f"  活跃群聊: {dau_data.get('message_stats', {}).get('active_groups', 0)}")
-            logger.info(f"  总消息数: {dau_data.get('message_stats', {}).get('total_messages', 0)}")
-            logger.info(f"  命令统计: {len(dau_data.get('command_stats', []))}条")
         else:
             logger.error(f"DAU数据保存失败: {date_str}")
-            # 失败时回退到JSON文件存储
             filename = f"{date_str}.json"
             filepath = os.path.join(self.data_dir, filename)
             self._file_operation(filepath, 'write', None, dau_data)
 
     def load_dau_data(self, target_date: datetime.datetime) -> Optional[Dict[str, Any]]:
-        """从数据库加载指定日期的DAU数据"""
         date_str = self._format_date(target_date)
+        
+        def parse_json_field(field, default):
+            if field and isinstance(field, str):
+                try:
+                    return json.loads(field)
+                except:
+                    return default
+            return field or default
         
         def get_dau_data(cursor):
             table_name = "Mlog_dau"
@@ -360,38 +303,11 @@ class DAUAnalytics:
             if not result:
                 return None
             
-            # 解析JSON字段
-            message_stats_detail = result.get('message_stats_detail')
-            user_stats_detail = result.get('user_stats_detail')
-            command_stats_detail = result.get('command_stats_detail')
-            
-            # 如果有详细数据，则解析JSON
-            if message_stats_detail and isinstance(message_stats_detail, str):
-                try:
-                    message_stats_detail = json.loads(message_stats_detail)
-                except:
-                    message_stats_detail = {}
-            elif not message_stats_detail:
-                message_stats_detail = {}
-                
-            if user_stats_detail and isinstance(user_stats_detail, str):
-                try:
-                    user_stats_detail = json.loads(user_stats_detail)
-                except:
-                    user_stats_detail = {}
-            elif not user_stats_detail:
-                user_stats_detail = {}
-                
-            if command_stats_detail and isinstance(command_stats_detail, str):
-                try:
-                    command_stats_detail = json.loads(command_stats_detail)
-                except:
-                    command_stats_detail = []
-            elif not command_stats_detail:
-                command_stats_detail = []
-            
-            # 转换数据库记录为完整的JSON格式
-            data = {
+            message_stats_detail = parse_json_field(result.get('message_stats_detail'), {})
+            user_stats_detail = parse_json_field(result.get('user_stats_detail'), {})
+            command_stats_detail = parse_json_field(result.get('command_stats_detail'), [])
+
+            return {
                 'date': date_str,
                 'generated_at': result.get('updated_at', '').isoformat() if result.get('updated_at') else '',
                 'message_stats': message_stats_detail if message_stats_detail else {
@@ -412,20 +328,24 @@ class DAUAnalytics:
                 },
                 'version': '2.0'
             }
-            
-            return data
         
         dau_data = self._with_log_db_cursor(get_dau_data)
         if dau_data:
             return dau_data
         
-        # 如果数据库中没有数据，尝试从JSON文件读取（向后兼容）
         filename = f"{date_str}.json"
         filepath = os.path.join(self.data_dir, filename)
         return self._file_operation(filepath, 'read', None)
 
     def get_recent_dau_data(self, days: int = 7) -> List[Dict[str, Any]]:
-        """从数据库获取最近几天的DAU数据"""
+        def parse_json_field(field, default):
+            if field and isinstance(field, str):
+                try:
+                    return json.loads(field)
+                except:
+                    return default
+            return field or default
+        
         def get_recent_data(cursor):
             table_name = "Mlog_dau"
             
@@ -440,35 +360,9 @@ class DAUAnalytics:
             
             results = []
             for row in cursor.fetchall():
-                # 解析JSON字段
-                message_stats_detail = row.get('message_stats_detail')
-                user_stats_detail = row.get('user_stats_detail')
-                command_stats_detail = row.get('command_stats_detail')
-                
-                # 安全解析JSON
-                if message_stats_detail and isinstance(message_stats_detail, str):
-                    try:
-                        message_stats_detail = json.loads(message_stats_detail)
-                    except:
-                        message_stats_detail = {}
-                elif not message_stats_detail:
-                    message_stats_detail = {}
-                    
-                if user_stats_detail and isinstance(user_stats_detail, str):
-                    try:
-                        user_stats_detail = json.loads(user_stats_detail)
-                    except:
-                        user_stats_detail = {}
-                elif not user_stats_detail:
-                    user_stats_detail = {}
-                    
-                if command_stats_detail and isinstance(command_stats_detail, str):
-                    try:
-                        command_stats_detail = json.loads(command_stats_detail)
-                    except:
-                        command_stats_detail = []
-                elif not command_stats_detail:
-                    command_stats_detail = []
+                message_stats_detail = parse_json_field(row.get('message_stats_detail'), {})
+                user_stats_detail = parse_json_field(row.get('user_stats_detail'), {})
+                command_stats_detail = parse_json_field(row.get('command_stats_detail'), [])
                 
                 results.append({
                     'date': row['date'].strftime('%Y-%m-%d'),
@@ -497,7 +391,6 @@ class DAUAnalytics:
         if db_results:
             return db_results
         
-        # 如果数据库中没有数据，回退到文件系统查询（向后兼容）
         results = []
         today = datetime.datetime.now()
         
@@ -510,7 +403,6 @@ class DAUAnalytics:
         return results
 
     def manual_generate_dau(self, target_date: datetime.datetime) -> bool:
-        """手动生成指定日期的DAU数据"""
         dau_data = self.collect_dau_data(target_date)
         if dau_data:
             self.save_dau_data(dau_data, target_date)
@@ -518,7 +410,6 @@ class DAUAnalytics:
         return False
 
     def generate_all_dau_data(self, start_date: datetime.datetime = None, end_date: datetime.datetime = None) -> Dict[str, Any]:
-        """生成所有历史DAU数据"""
         if not start_date:
             start_date = datetime.datetime.now() - datetime.timedelta(days=30)
         if not end_date:
@@ -540,28 +431,21 @@ class DAUAnalytics:
             total_days += 1
             date_str = self._format_date(current_date)
             
-            try:
-                # 检查数据库中是否已有数据
-                existing_data = self.load_dau_data(current_date)
-                if existing_data:
-                    skipped_days += 1
-                    skipped_dates.append(date_str)
-                else:
-                    dau_data = self.collect_dau_data(current_date)
-                    
-                    if dau_data:
-                        self.save_dau_data(dau_data, current_date)
-                        generated_days += 1
-                        generated_dates.append(date_str)
-                    else:
-                        failed_days += 1
-                        failed_dates.append(date_str)
-                        
-            except Exception as e:
-                failed_days += 1
-                failed_dates.append(date_str)
-                logger.error(f"生成DAU数据时出错 {date_str}: {e}")
+            existing_data = self.load_dau_data(current_date)
+            if existing_data:
+                skipped_days += 1
+                skipped_dates.append(date_str)
+            else:
+                dau_data = self.collect_dau_data(current_date)
                 
+                if dau_data:
+                    self.save_dau_data(dau_data, current_date)
+                    generated_days += 1
+                    generated_dates.append(date_str)
+                else:
+                    failed_days += 1
+                    failed_dates.append(date_str)
+                    
             current_date += datetime.timedelta(days=1)
             
         return {
@@ -577,7 +461,6 @@ class DAUAnalytics:
         }
 
     def _get_loaded_plugin_commands(self) -> Dict[str, str]:
-        """获取已加载插件的命令模式映射"""
         if not _plugin_manager_available:
             return {}
             
@@ -595,76 +478,57 @@ class DAUAnalytics:
                                 loaded_commands[simplified_pattern] = plugin_name
             
             return loaded_commands
-            
-        except Exception as e:
-            logger.error(f"获取已加载插件命令失败: {e}")
+        except:
             return {}
 
     def _simplify_regex_pattern(self, pattern: str) -> str:
-        """简化正则表达式模式"""
         try:
-            # 移除开头结尾符号
             pattern = pattern.lstrip('^').rstrip('$')
             
-            # 处理或运算符，取第一个选项
             if '|' in pattern:
                 pattern = pattern.split('|')[0]
             
-            # 清理正则符号
             pattern = re.sub(r'\\[swn][\*\+\?]?', '', pattern)
             pattern = re.sub(r'[\(\)\[\]\{\}\*\+\?\.\$\^]', '', pattern)
             pattern = pattern.replace('\\', '')
             
-            # 只保留中文、英文和数字
             pattern = re.sub(r'[^\u4e00-\u9fff\w]', '', pattern)
             
-            # 限制长度
             if len(pattern) > 20:
                 pattern = pattern[:20]
             
             return pattern.strip() if pattern.strip() and len(pattern.strip()) > 0 else None
-            
-        except Exception:
+        except:
             return None
 
     def _match_content_to_plugin(self, content: str, loaded_commands: Dict[str, str]) -> str:
-        """检查消息内容是否匹配任何已加载的插件"""
         if not content or not loaded_commands:
             return None
             
-        try:
-            clean_content = content.strip()
-            if clean_content.startswith('/'):
-                clean_content = clean_content[1:].strip()
-            
-            for command_pattern, plugin_name in loaded_commands.items():
-                if not command_pattern:
-                    continue
-                    
-                # 完全匹配或开头匹配（不区分大小写）
-                if (clean_content.lower() == command_pattern.lower() or
-                    clean_content.lower().startswith(command_pattern.lower() + ' ') or
-                    clean_content.lower().startswith(command_pattern.lower())):
-                    return command_pattern
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"匹配内容到插件时出错: {e}")
-            return None
+        clean_content = content.strip()
+        if clean_content.startswith('/'):
+            clean_content = clean_content[1:].strip()
+        
+        for command_pattern, plugin_name in loaded_commands.items():
+            if not command_pattern:
+                continue
+                
+            if (clean_content.lower() == command_pattern.lower() or
+                clean_content.lower().startswith(command_pattern.lower() + ' ') or
+                clean_content.lower().startswith(command_pattern.lower())):
+                return command_pattern
+        
+        return None
 
 
 # 全局DAU分析器实例
 dau_analytics = DAUAnalytics()
 
 def start_dau_analytics():
-    """启动DAU分析服务"""
     dau_analytics.start_scheduler()
     
 def stop_dau_analytics():
-    """停止DAU分析服务"""
     dau_analytics.stop_scheduler()
     
 def get_dau_analytics() -> DAUAnalytics:
-    """获取DAU分析器实例"""
-    return dau_analytics 
+    return dau_analytics

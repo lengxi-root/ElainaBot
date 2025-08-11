@@ -24,7 +24,6 @@ import psutil
 import requests
 from config import LOG_DB_CONFIG, WEB_SECURITY, WEB_INTERFACE, ROBOT_QQ, appid, WEBSOCKET_CONFIG
 
-# 导入日志数据库函数
 try:
     from function.log_db import add_log_to_db
 except ImportError:
@@ -32,7 +31,6 @@ except ImportError:
         return False
 
 def get_websocket_status():
-    """获取WebSocket连接状态"""
     try:
         from function.ws_client import get_client
         client = get_client("qq_bot")
@@ -62,22 +60,16 @@ IP_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 ip_access_data = {}
 _last_ip_cleanup = 0
 
-# 性能优化缓存配置
-historical_data_cache = None  # 历史数据永久缓存（框架重启时清空）
-historical_cache_loaded = False  # 标记历史数据是否已加载
-
+historical_data_cache = None
+historical_cache_loaded = False
 today_data_cache = None
 today_cache_time = 0
-TODAY_CACHE_DURATION = 600  # 今日数据10分钟缓存
-
-# 向后兼容的统一缓存（已废弃，保留以防出错）
+TODAY_CACHE_DURATION = 600
 statistics_cache = None
 statistics_cache_time = 0
 STATISTICS_CACHE_DURATION = 300
 
-# ===== 通用工具函数 =====
 def format_datetime(dt_str):
-    """格式化日期时间字符串"""
     try:
         if isinstance(dt_str, str):
             dt = datetime.fromisoformat(dt_str)
@@ -88,7 +80,6 @@ def format_datetime(dt_str):
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 def cleanup_expired_records(data_dict, time_field, expiry_seconds, cleanup_interval=3600):
-    """通用的过期记录清理函数"""
     current_time = datetime.now()
     cleaned_count = 0
     
@@ -107,7 +98,6 @@ def cleanup_expired_records(data_dict, time_field, expiry_seconds, cleanup_inter
     return cleaned_count
 
 def safe_file_operation(operation, file_path, data=None, default_return=None):
-    """安全的文件操作函数"""
     try:
         if operation == 'read':
             if os.path.exists(file_path):
@@ -123,7 +113,6 @@ def safe_file_operation(operation, file_path, data=None, default_return=None):
         return default_return
 
 def extract_device_info(request):
-    """提取设备信息"""
     user_agent = request.headers.get('User-Agent', '')
     device_info = {
         'user_agent': user_agent[:500],
@@ -154,16 +143,13 @@ def extract_device_info(request):
     return device_info
 
 def load_ip_data():
-    """加载IP访问数据"""
     global ip_access_data
     ip_access_data = safe_file_operation('read', IP_DATA_FILE, default_return={})
 
 def save_ip_data():
-    """保存IP数据到文件"""
     safe_file_operation('write', IP_DATA_FILE, ip_access_data)
 
 def record_ip_access(ip_address, access_type='token_success', device_info=None):
-    """记录IP访问"""
     global ip_access_data
     current_time = datetime.now()
     
@@ -335,7 +321,6 @@ def check_openapi_login(user_id):
     return openapi_user_data.get(user_id)
 
 def catch_error(func):
-    """统一错误捕获装饰器"""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
@@ -355,11 +340,9 @@ def catch_error(func):
     return wrapper
 
 def generate_session_token():
-    """生成安全的会话令牌"""
     return base64.urlsafe_b64encode(uuid.uuid4().bytes).decode('utf-8').rstrip('=')
 
 def sign_cookie_value(value, secret):
-    """对cookie值进行签名"""
     signature = hmac.new(
         secret.encode('utf-8'),
         value.encode('utf-8'),
@@ -368,7 +351,6 @@ def sign_cookie_value(value, secret):
     return f"{value}.{signature}"
 
 def verify_cookie_value(signed_value, secret):
-    """验证cookie值的签名"""
     try:
         value, signature = signed_value.rsplit('.', 1)
         expected_signature = hmac.new(
@@ -380,9 +362,7 @@ def verify_cookie_value(signed_value, secret):
     except:
         return False, None
 
-# ===== 装饰器 =====
 def require_token(f):
-    """要求访问令牌的装饰器"""
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         token = request.args.get('token') or request.form.get('token')
@@ -396,7 +376,6 @@ def require_token(f):
     return decorated_function
 
 def require_auth(f):
-    """要求身份验证的装饰器"""
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         cleanup_expired_sessions()
@@ -422,7 +401,6 @@ def require_auth(f):
     return decorated_function
 
 def require_socketio_token(f):
-    """SocketIO事件要求token和cookie双重验证的装饰器"""
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         cleanup_expired_ip_bans()
@@ -2731,9 +2709,8 @@ def get_chats():
     try:
         data = request.get_json()
         chat_type = data.get('type', 'user')  # 'user' 或 'group'
-        page = data.get('page', 1)
-        per_page = 20
         search = data.get('search', '').strip()
+        limit = 30  # 直接加载30个聊天记录
         
         # 导入数据库连接
         from function.log_db import LogDatabasePool
@@ -2759,8 +2736,6 @@ def get_chats():
                 return jsonify({'success': False, 'message': 'ID表不存在'})
             
             # 构建查询
-            offset = (page - 1) * per_page
-            
             if search:
                 # 搜索功能 - 使用参数化查询避免SQL注入
                 search_condition = "AND chat_id LIKE %s"
@@ -2769,31 +2744,19 @@ def get_chats():
                 search_condition = ""
                 search_param = None
             
-            # 获取总数
-            count_sql = f"""
-                SELECT COUNT(DISTINCT chat_id) as total 
-                FROM Mlog_id 
-                WHERE chat_type = %s {search_condition}
-            """
-            if search_param:
-                cursor.execute(count_sql, (chat_type, search_param))
-            else:
-                cursor.execute(count_sql, (chat_type,))
-            total = cursor.fetchone()['total']
-            
-            # 获取分页数据
+            # 获取聊天数据（最多30个）
             data_sql = f"""
                 SELECT chat_id, last_message_id, MAX(timestamp) as last_time
                 FROM Mlog_id 
                 WHERE chat_type = %s {search_condition}
                 GROUP BY chat_id, last_message_id
                 ORDER BY last_time DESC
-                LIMIT %s OFFSET %s
+                LIMIT %s
             """
             if search_param:
-                cursor.execute(data_sql, (chat_type, search_param, per_page, offset))
+                cursor.execute(data_sql, (chat_type, search_param, limit))
             else:
-                cursor.execute(data_sql, (chat_type, per_page, offset))
+                cursor.execute(data_sql, (chat_type, limit))
             chats = cursor.fetchall()
             
             # 处理数据
@@ -2811,11 +2774,7 @@ def get_chats():
             return jsonify({
                 'success': True,
                 'data': {
-                    'chats': chat_list,
-                    'total': total,
-                    'page': page,
-                    'per_page': per_page,
-                    'total_pages': (total + per_page - 1) // per_page
+                    'chats': chat_list
                 }
             })
             
@@ -2933,9 +2892,9 @@ def send_message():
         data = request.get_json()
         chat_type = data.get('chat_type')
         chat_id = data.get('chat_id')
-        content = data.get('content', '').strip()
+        send_method = data.get('send_method', 'text')
         
-        if not chat_type or not chat_id or not content:
+        if not chat_type or not chat_id:
             return jsonify({'success': False, 'message': '缺少必要参数'})
         
         # 检查ID是否过期
@@ -2975,36 +2934,121 @@ def send_message():
             elif chat_type == 'user' and time_diff > 60:
                 return jsonify({'success': False, 'message': 'ID已过期无法发送（私聊超过1小时）'})
             
-            # 发送消息
-            from core.event.MessageEvent import MessageEvent
-            from function.Access import BOTAPI, Json
-            
-            # 构建发送payload
-            payload = {
-                "msg_type": 0,
-                "msg_seq": random.randint(10000, 999999),
-                "content": content,
-                "msg_id": last_message_id
+            # 创建模拟消息事件来发送消息
+            mock_raw_data = {
+                'd': {
+                    'id': last_message_id,
+                    'author': {'id': '2218872014'},
+                    'content': '',
+                    'timestamp': last_time.isoformat()
+                },
+                'id': last_message_id,
+                't': 'C2C_MESSAGE_CREATE' if chat_type == 'user' else 'GROUP_AT_MESSAGE_CREATE'
             }
             
-            # 确定API端点
             if chat_type == 'group':
-                endpoint = f'/v2/groups/{chat_id}/messages'
-            else:  # user
-                endpoint = f'/v2/users/{chat_id}/messages'
+                mock_raw_data['d']['group_id'] = chat_id
+            else:
+                mock_raw_data['d']['author']['id'] = chat_id
+                
+            from core.event.MessageEvent import MessageEvent
+            event = MessageEvent(mock_raw_data, skip_recording=True)
             
-            # 发送请求
-            response = BOTAPI(endpoint, "POST", Json(payload))
+            # 根据发送方法调用相应的发送函数
+            message_id = None
+            display_content = ''
             
-            return jsonify({
-                'success': True,
-                'message': '消息发送成功',
-                'data': {
-                    'response': response,
-                    'content': content,
-                    'timestamp': now.strftime('%H:%M:%S')
-                }
-            })
+            if send_method == 'text':
+                content = data.get('content', '').strip()
+                if not content:
+                    return jsonify({'success': False, 'message': '请输入消息内容'})
+                message_id = event.reply(content)
+                display_content = content
+                
+            elif send_method == 'markdown':
+                content = data.get('content', '').strip()
+                if not content:
+                    return jsonify({'success': False, 'message': '请输入Markdown内容'})
+                # 使用原生markdown（通过设置USE_MARKDOWN=True）
+                from config import USE_MARKDOWN
+                original_use_md = USE_MARKDOWN
+                import config
+                config.USE_MARKDOWN = True
+                try:
+                    message_id = event.reply(content)
+                finally:
+                    config.USE_MARKDOWN = original_use_md
+                display_content = content
+                
+            elif send_method == 'template_markdown':
+                template = data.get('template')
+                params = data.get('params', [])
+                keyboard_id = data.get('keyboard_id')
+                
+                if not template:
+                    return jsonify({'success': False, 'message': '请选择模板'})
+                if not params:
+                    return jsonify({'success': False, 'message': '请输入模板参数'})
+                    
+                message_id = event.reply_markdown(template, tuple(params), keyboard_id)
+                display_content = f'[模板消息: {template}]'
+                
+            elif send_method == 'image':
+                image_url = data.get('image_url', '').strip()
+                image_text = data.get('image_text', '').strip()
+                
+                if not image_url:
+                    return jsonify({'success': False, 'message': '请输入图片URL'})
+                    
+                message_id = event.reply_image(image_url, image_text)
+                display_content = f'[图片消息: {image_text or "图片"}]'
+                
+            elif send_method == 'voice':
+                voice_url = data.get('voice_url', '').strip()
+                
+                if not voice_url:
+                    return jsonify({'success': False, 'message': '请输入语音文件URL'})
+                    
+                message_id = event.reply_voice(voice_url)
+                display_content = '[语音消息]'
+                
+            elif send_method == 'video':
+                video_url = data.get('video_url', '').strip()
+                
+                if not video_url:
+                    return jsonify({'success': False, 'message': '请输入视频文件URL'})
+                    
+                message_id = event.reply_video(video_url)
+                display_content = '[视频消息]'
+                
+            elif send_method == 'ark':
+                ark_type = data.get('ark_type')
+                ark_params = data.get('ark_params', [])
+                
+                if not ark_type:
+                    return jsonify({'success': False, 'message': '请选择ARK卡片类型'})
+                if not ark_params:
+                    return jsonify({'success': False, 'message': '请输入卡片参数'})
+                    
+                message_id = event.reply_ark(ark_type, tuple(ark_params))
+                display_content = f'[ARK卡片: 类型{ark_type}]'
+                
+            else:
+                return jsonify({'success': False, 'message': '不支持的发送方法'})
+            
+            if message_id:
+                return jsonify({
+                    'success': True,
+                    'message': '消息发送成功',
+                    'data': {
+                        'message_id': message_id,
+                        'content': display_content,
+                        'timestamp': now.strftime('%H:%M:%S'),
+                        'send_method': send_method
+                    }
+                })
+            else:
+                return jsonify({'success': False, 'message': '消息发送失败'})
             
         finally:
             cursor.close()

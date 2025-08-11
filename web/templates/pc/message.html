@@ -35,7 +35,7 @@
                     </div>
                     
                     <!-- 聊天列表 -->
-                    <div id="chat-list" class="list-group list-group-flush" style="max-height: 500px; overflow-y: auto;">
+                    <div id="chat-list" class="list-group list-group-flush" style="height: 500px; overflow-y: auto;">
                         <div class="text-center p-3">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">加载中...</span>
@@ -43,14 +43,7 @@
                         </div>
                     </div>
                     
-                    <!-- 分页 -->
-                    <div class="p-3 border-top">
-                        <nav>
-                            <ul class="pagination pagination-sm justify-content-center mb-0" id="pagination">
-                                <!-- 分页将通过JS动态生成 -->
-                            </ul>
-                        </nav>
-                    </div>
+
                 </div>
             </div>
         </div>
@@ -81,16 +74,157 @@
                     
                     <!-- 发送消息区域 -->
                     <div class="border-top p-3" id="send-area" style="display: none;">
-                        <div class="row g-2">
-                            <div class="col">
-                                <textarea class="form-control" id="message-input" rows="2" placeholder="输入消息内容..." style="resize: none;"></textarea>
+                        <!-- 发送方法选择 -->
+                        <div class="row g-2 mb-2 align-items-center">
+                            <div class="col-auto">
+                                <label for="send-method" class="form-label mb-0">发送方式:</label>
                             </div>
-                            <div class="col-auto d-flex flex-column justify-content-end">
-                                <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
-                                    <i class="bi bi-send"></i> 发送
-                                </button>
+                            <div class="col-auto">
+                                <select class="form-select form-select-sm" id="send-method" onchange="changeSendMethod()">
+                                    <option value="text">普通消息</option>
+                                    <option value="markdown">原生Markdown</option>
+                                    <option value="template_markdown">模板Markdown</option>
+                                    <option value="image">图片</option>
+                                    <option value="voice">语音</option>
+                                    <option value="video">视频</option>
+                                    <option value="ark">ARK卡片</option>
+                                </select>
+                            </div>
+                            <div class="col">
+                                <!-- 帮助信息区域 - 移动到这里 -->
+                                <div id="send-help" style="display: none;">
+                                    <small class="text-info">
+                                        <i class="bi bi-info-circle"></i> 
+                                        <span id="help-content"></span>
+                                    </small>
+                                </div>
                             </div>
                         </div>
+                        
+                        <!-- 普通消息/原生markdown输入 -->
+                        <div id="text-input-area" class="send-input-area">
+                            <div class="row g-2">
+                                <div class="col">
+                                    <textarea class="form-control" id="message-input" rows="3" placeholder="输入消息内容..." style="resize: none;"></textarea>
+                                </div>
+                                <div class="col-auto d-flex flex-column justify-content-end">
+                                    <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
+                                        <i class="bi bi-send"></i> 发送
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 模板markdown输入 -->
+                        <div id="template-markdown-input-area" class="send-input-area" style="display: none;">
+                            <div class="row g-2 mb-2">
+                                <div class="col-4">
+                                    <label class="form-label">模板选择:</label>
+                                    <select class="form-select" id="markdown-template" onchange="updateTemplateHelp()">
+                                        <option value="">请选择模板</option>
+                                        <option value="1">模板1 - 多图文本</option>
+                                        <option value="2">模板2 - 图片按钮</option>
+                                        <option value="3">模板3 - 代码块</option>
+                                        <option value="4">模板4 - 纯文本</option>
+                                        <option value="5">模板5 - 单图文本</option>
+                                    </select>
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label">按钮ID (可选):</label>
+                                    <input type="text" class="form-control" id="markdown-keyboard" placeholder="如: 102321943_1752737844">
+                                </div>
+                                <div class="col-4 d-flex align-items-end">
+                                    <button class="btn btn-primary w-100" onclick="sendMessage()">
+                                        <i class="bi bi-send"></i> 发送模板
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col">
+                                    <label class="form-label">模板参数 (用逗号分隔):</label>
+                                    <textarea class="form-control" id="markdown-params" rows="2" placeholder="参数1,参数2,参数3..." style="resize: none;"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 图片输入 -->
+                        <div id="image-input-area" class="send-input-area" style="display: none;">
+                            <div class="row g-2">
+                                <div class="col-8">
+                                    <label class="form-label">图片URL:</label>
+                                    <input type="url" class="form-control" id="image-url" placeholder="https://example.com/image.jpg">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label">描述文本:</label>
+                                    <input type="text" class="form-control" id="image-text" placeholder="图片描述">
+                                </div>
+                            </div>
+                            <div class="row g-2 mt-2">
+                                <div class="col d-flex justify-content-end">
+                                    <button class="btn btn-primary" onclick="sendMessage()">
+                                        <i class="bi bi-image"></i> 发送图片
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 语音输入 -->
+                        <div id="voice-input-area" class="send-input-area" style="display: none;">
+                            <div class="row g-2">
+                                <div class="col">
+                                    <label class="form-label">语音文件URL:</label>
+                                    <input type="url" class="form-control" id="voice-url" placeholder="https://example.com/voice.mp3">
+                                </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <button class="btn btn-primary" onclick="sendMessage()">
+                                        <i class="bi bi-mic"></i> 发送语音
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 视频输入 -->
+                        <div id="video-input-area" class="send-input-area" style="display: none;">
+                            <div class="row g-2">
+                                <div class="col">
+                                    <label class="form-label">视频文件URL:</label>
+                                    <input type="url" class="form-control" id="video-url" placeholder="https://example.com/video.mp4">
+                                </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <button class="btn btn-primary" onclick="sendMessage()">
+                                        <i class="bi bi-camera-video"></i> 发送视频
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- ARK卡片输入 -->
+                        <div id="ark-input-area" class="send-input-area" style="display: none;">
+                            <div class="row g-2 mb-2">
+                                <div class="col-4">
+                                    <label class="form-label">ARK类型:</label>
+                                    <select class="form-select" id="ark-type" onchange="updateArkHelp()">
+                                        <option value="">请选择类型</option>
+                                        <option value="23">列表卡片 (23)</option>
+                                        <option value="24">信息卡片 (24)</option>
+                                        <option value="37">通知卡片 (37)</option>
+                                    </select>
+                                </div>
+                                <div class="col-8 d-flex align-items-end">
+                                    <button class="btn btn-primary w-100" onclick="sendMessage()">
+                                        <i class="bi bi-card-text"></i> 发送卡片
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col">
+                                    <label class="form-label">卡片参数 (用逗号分隔):</label>
+                                    <textarea class="form-control" id="ark-params" rows="3" placeholder="参数1,参数2,参数3..." style="resize: none;"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        
                         <div class="mt-2">
                             <small class="text-muted" id="id-status">
                                 <i class="bi bi-info-circle"></i> 
@@ -161,6 +295,20 @@
     justify-content: center;
     font-weight: bold;
 }
+
+
+
+/* 发送方法样式 */
+.send-input-area {
+    padding: 10px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    background-color: #f8f9fa;
+}
+
+#send-method {
+    min-width: 150px;
+}
 </style>
 {% endblock %}
 
@@ -169,13 +317,16 @@
 // 全局变量
 let currentChatType = 'user';
 let currentChatId = null;
-let messagePage = 1;
-let totalPages = 1;
 let searchQuery = '';
+let currentSendMethod = 'text';
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
     loadChatList();
+    
+    // 确保发送方法选择器与全局变量同步
+    document.getElementById('send-method').value = currentSendMethod;
+    changeSendMethod();
     
     // 回车发送消息
     document.getElementById('message-input').addEventListener('keypress', function(e) {
@@ -184,12 +335,25 @@ document.addEventListener('DOMContentLoaded', function() {
             sendMessage();
         }
     });
+    
+    // 搜索框实时搜索
+    document.getElementById('search-input').addEventListener('input', function() {
+        const value = this.value.trim();
+        if (value !== searchQuery) {
+            searchQuery = value;
+            
+            // 延迟搜索，避免频繁请求
+            clearTimeout(window.searchTimeout);
+            window.searchTimeout = setTimeout(() => {
+                loadChatList();
+            }, 300);
+        }
+    });
 });
 
 // 切换聊天类型（好友/群聊）
 function switchChatType(type) {
     currentChatType = type;
-    messagePage = 1;
     searchQuery = '';
     document.getElementById('search-input').value = '';
     
@@ -203,10 +367,126 @@ function switchChatType(type) {
     loadChatList();
 }
 
+// 切换发送方法
+function changeSendMethod() {
+    currentSendMethod = document.getElementById('send-method').value;
+    
+    // 隐藏所有输入区域
+    const inputAreas = document.querySelectorAll('.send-input-area');
+    inputAreas.forEach(area => area.style.display = 'none');
+    
+    // 显示当前选中的输入区域
+    const areaMap = {
+        'text': 'text-input-area',
+        'markdown': 'text-input-area',
+        'template_markdown': 'template-markdown-input-area',
+        'image': 'image-input-area',
+        'voice': 'voice-input-area',
+        'video': 'video-input-area',
+        'ark': 'ark-input-area'
+    };
+    
+    const targetArea = document.getElementById(areaMap[currentSendMethod]);
+    if (targetArea) {
+        targetArea.style.display = 'block';
+    }
+    
+    // 更新占位符
+    const messageInput = document.getElementById('message-input');
+    if (messageInput && (currentSendMethod === 'text' || currentSendMethod === 'markdown')) {
+        messageInput.placeholder = currentSendMethod === 'markdown' ? 
+            '输入Markdown格式消息...\n例如: **粗体** *斜体* `代码`' : 
+            '输入消息内容...';
+    }
+    
+    // 更新帮助信息
+    updateHelpInfo();
+}
+
+// 更新帮助信息
+function updateHelpInfo() {
+    const helpArea = document.getElementById('send-help');
+    const helpContent = document.getElementById('help-content');
+    
+    let helpText = '';
+    
+    switch (currentSendMethod) {
+        case 'text':
+            helpArea.style.display = 'none';
+            break;
+        case 'markdown':
+            helpText = 'Markdown格式: **粗体** *斜体* `代码` [链接](url)';
+            break;
+        case 'template_markdown':
+            helpText = '选择模板并填入对应参数，参数用逗号分隔';
+            break;
+        case 'image':
+            helpText = '请输入图片URL和可选的描述文本';
+            break;
+        case 'voice':
+            helpText = '请输入语音文件URL，支持mp3、wav等格式';
+            break;
+        case 'video':
+            helpText = '请输入视频文件URL，支持mp4等格式';
+            break;
+        case 'ark':
+            helpText = '选择ARK卡片类型并填入对应参数';
+            break;
+    }
+    
+    if (helpText) {
+        helpContent.textContent = helpText;
+        helpArea.style.display = 'block';
+    } else {
+        helpArea.style.display = 'none';
+    }
+}
+
+// 更新模板帮助信息
+function updateTemplateHelp() {
+    const template = document.getElementById('markdown-template').value;
+    const helpArea = document.getElementById('send-help');
+    const helpContent = document.getElementById('help-content');
+    
+    const templateHelp = {
+        '1': '参数: text,size,url,size2,url2,size3,url3,size4,url4,text2 (多图文本)',
+        '2': '参数: img,url,text,text1,text2 (图片按钮)',
+        '3': '参数: text,text2,text3 (代码块)',
+        '4': '参数: text (纯文本)',
+        '5': '参数: px,url,text (单图文本)'
+    };
+    
+    if (template && templateHelp[template]) {
+        helpContent.textContent = templateHelp[template];
+        helpArea.style.display = 'block';
+    } else {
+        updateHelpInfo();
+    }
+}
+
+// 更新ARK帮助信息
+function updateArkHelp() {
+    const arkType = document.getElementById('ark-type').value;
+    const helpArea = document.getElementById('send-help');
+    const helpContent = document.getElementById('help-content');
+    
+    const arkHelp = {
+        '23': '列表卡片示例: 这是列表卡片,卡片测试,功能1,,功能2,,功能3,https://example.com',
+        '24': '信息卡片示例: 描述文本,提示文本,卡片标题,元描述,https://image.jpg,https://link.com,子标题',
+        '37': '通知卡片示例: 系统通知,更新标题,子标题,https://cover.jpg,https://link.com'
+    };
+    
+    if (arkType && arkHelp[arkType]) {
+        helpContent.textContent = arkHelp[arkType];
+        helpArea.style.display = 'block';
+    } else {
+        updateHelpInfo();
+    }
+}
+
 // 搜索聊天
 function searchChats() {
     searchQuery = document.getElementById('search-input').value.trim();
-    messagePage = 1;
     loadChatList();
 }
 
@@ -231,7 +511,6 @@ function loadChatList() {
         },
         body: JSON.stringify({
             type: currentChatType,
-            page: messagePage,
             search: searchQuery
         })
     })
@@ -239,7 +518,6 @@ function loadChatList() {
     .then(data => {
         if (data.success) {
             renderChatList(data.data.chats);
-            renderPagination(data.data.page, data.data.total_pages);
         } else {
             chatList.innerHTML = '<div class="text-center p-3 text-danger">加载失败: ' + data.message + '</div>';
         }
@@ -412,43 +690,7 @@ function loadNicknameForMessage(userId) {
     });
 }
 
-// 渲染分页
-function renderPagination(page, totalPages) {
-    const pagination = document.getElementById('pagination');
-    
-    if (totalPages <= 1) {
-        pagination.innerHTML = '';
-        return;
-    }
-    
-    let html = '';
-    
-    // 上一页
-    html += `<li class="page-item ${page <= 1 ? 'disabled' : ''}">
-        <a class="page-link" href="#" onclick="changePage(${page - 1})">上一页</a>
-    </li>`;
-    
-    // 页码
-    for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) {
-        html += `<li class="page-item ${i === page ? 'active' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${i})">${i}</a>
-        </li>`;
-    }
-    
-    // 下一页
-    html += `<li class="page-item ${page >= totalPages ? 'disabled' : ''}">
-        <a class="page-link" href="#" onclick="changePage(${page + 1})">下一页</a>
-    </li>`;
-    
-    pagination.innerHTML = html;
-}
 
-// 切换页面
-function changePage(page) {
-    if (page < 1 || page > totalPages) return;
-    messagePage = page;
-    loadChatList();
-}
 
 // 选择聊天
 function selectChat(chatId, chatType) {
@@ -587,17 +829,20 @@ function sendMessage() {
         return;
     }
     
-    const messageInput = document.getElementById('message-input');
-    const content = messageInput.value.trim();
-    
-    if (!content) {
-        alert('请输入消息内容');
+    // 根据发送方法收集数据
+    const sendData = collectSendData();
+    if (!sendData) {
         return;
     }
     
-    const sendBtn = document.getElementById('send-btn');
-    sendBtn.disabled = true;
-    sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>发送中...';
+    // 保存当前发送方法，防止意外重置
+    const originalSendMethod = currentSendMethod;
+    
+    const sendBtns = document.querySelectorAll('button[onclick="sendMessage()"]');
+    sendBtns.forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>发送中...';
+    });
     
     // 获取token
     const urlParams = new URLSearchParams(window.location.search);
@@ -605,8 +850,7 @@ function sendMessage() {
     
     if (!token) {
         showAlert('未找到访问token', 'danger');
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = '<i class="bi bi-send"></i> 发送';
+        resetSendButtons();
         return;
     }
     
@@ -618,15 +862,16 @@ function sendMessage() {
         body: JSON.stringify({
             chat_type: currentChatType,
             chat_id: currentChatId,
-            content: content
+            send_method: currentSendMethod,
+            ...sendData
         })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            messageInput.value = '';
+            clearCurrentInputs();
             // 添加消息到聊天记录
-            appendMessage(content, true, data.data.timestamp);
+            appendMessage(getDisplayContent(sendData), true, data.data.timestamp);
             showAlert('消息发送成功', 'success');
         } else {
             showAlert('发送失败: ' + data.message, 'danger');
@@ -637,8 +882,179 @@ function sendMessage() {
         console.error('Error:', error);
     })
     .finally(() => {
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = '<i class="bi bi-send"></i> 发送';
+        // 确保发送方法选择器保持原来的选择
+        currentSendMethod = originalSendMethod;
+        document.getElementById('send-method').value = originalSendMethod;
+        
+        // 重新应用当前选择的输入区域显示
+        changeSendMethod();
+        
+        resetSendButtons();
+    });
+}
+
+// 收集发送数据
+function collectSendData() {
+    switch (currentSendMethod) {
+        case 'text':
+        case 'markdown':
+            const content = document.getElementById('message-input').value.trim();
+            if (!content) {
+                alert('请输入消息内容');
+                return null;
+            }
+            return { content: content };
+            
+        case 'template_markdown':
+            const template = document.getElementById('markdown-template').value;
+            const params = document.getElementById('markdown-params').value.trim();
+            const keyboard = document.getElementById('markdown-keyboard').value.trim();
+            
+            if (!template) {
+                alert('请选择模板');
+                return null;
+            }
+            if (!params) {
+                alert('请输入模板参数');
+                return null;
+            }
+            
+            return {
+                template: template,
+                params: params.split(',').map(p => p.trim()),
+                keyboard_id: keyboard || null
+            };
+            
+        case 'image':
+            const imageUrl = document.getElementById('image-url').value.trim();
+            const imageText = document.getElementById('image-text').value.trim();
+            
+            if (!imageUrl) {
+                alert('请输入图片URL');
+                return null;
+            }
+            
+            return {
+                image_url: imageUrl,
+                image_text: imageText || ''
+            };
+            
+        case 'voice':
+            const voiceUrl = document.getElementById('voice-url').value.trim();
+            
+            if (!voiceUrl) {
+                alert('请输入语音文件URL');
+                return null;
+            }
+            
+            return { voice_url: voiceUrl };
+            
+        case 'video':
+            const videoUrl = document.getElementById('video-url').value.trim();
+            
+            if (!videoUrl) {
+                alert('请输入视频文件URL');
+                return null;
+            }
+            
+            return { video_url: videoUrl };
+            
+        case 'ark':
+            const arkType = document.getElementById('ark-type').value;
+            const arkParams = document.getElementById('ark-params').value.trim();
+            
+            if (!arkType) {
+                alert('请选择ARK卡片类型');
+                return null;
+            }
+            if (!arkParams) {
+                alert('请输入卡片参数');
+                return null;
+            }
+            
+            return {
+                ark_type: parseInt(arkType),
+                ark_params: arkParams.split(',').map(p => p.trim())
+            };
+            
+        default:
+            alert('未知的发送方法');
+            return null;
+    }
+}
+
+// 清空当前输入 - 只清空输入内容，保持选择的发送方法
+function clearCurrentInputs() {
+    switch (currentSendMethod) {
+        case 'text':
+        case 'markdown':
+            document.getElementById('message-input').value = '';
+            break;
+        case 'template_markdown':
+            // 保持模板选择，只清空参数
+            document.getElementById('markdown-params').value = '';
+            document.getElementById('markdown-keyboard').value = '';
+            break;
+        case 'image':
+            document.getElementById('image-url').value = '';
+            document.getElementById('image-text').value = '';
+            break;
+        case 'voice':
+            document.getElementById('voice-url').value = '';
+            break;
+        case 'video':
+            document.getElementById('video-url').value = '';
+            break;
+        case 'ark':
+            // 保持ARK类型选择，只清空参数
+            document.getElementById('ark-params').value = '';
+            break;
+    }
+}
+
+// 获取显示内容
+function getDisplayContent(sendData) {
+    switch (currentSendMethod) {
+        case 'text':
+        case 'markdown':
+            return sendData.content;
+        case 'template_markdown':
+            return `[模板消息: ${sendData.template}]`;
+        case 'image':
+            return `[图片消息: ${sendData.image_text || '图片'}]`;
+        case 'voice':
+            return '[语音消息]';
+        case 'video':
+            return '[视频消息]';
+        case 'ark':
+            return `[ARK卡片: 类型${sendData.ark_type}]`;
+        default:
+            return '[消息]';
+    }
+}
+
+// 重置发送按钮
+function resetSendButtons() {
+    const sendBtns = document.querySelectorAll('button[onclick="sendMessage()"]');
+    sendBtns.forEach(btn => {
+        btn.disabled = false;
+        
+        // 根据按钮所在的区域确定正确的文本和图标
+        if (btn.closest('#text-input-area')) {
+            btn.innerHTML = '<i class="bi bi-send"></i> 发送';
+        } else if (btn.closest('#template-markdown-input-area')) {
+            btn.innerHTML = '<i class="bi bi-send"></i> 发送模板';
+        } else if (btn.closest('#image-input-area')) {
+            btn.innerHTML = '<i class="bi bi-image"></i> 发送图片';
+        } else if (btn.closest('#voice-input-area')) {
+            btn.innerHTML = '<i class="bi bi-mic"></i> 发送语音';
+        } else if (btn.closest('#video-input-area')) {
+            btn.innerHTML = '<i class="bi bi-camera-video"></i> 发送视频';
+        } else if (btn.closest('#ark-input-area')) {
+            btn.innerHTML = '<i class="bi bi-card-text"></i> 发送卡片';
+        } else {
+            btn.innerHTML = '<i class="bi bi-send"></i> 发送';
+        }
     });
 }
 

@@ -17,6 +17,27 @@ from contextlib import asynccontextmanager
 
 from function.Access import BOT凭证
 
+# 动态获取支持的事件类型
+def _get_supported_event_types():
+    """动态获取MessageEvent中定义的所有事件类型"""
+    from core.event.MessageEvent import MessageEvent
+    supported_types = set()
+    
+    # 获取MessageEvent类中所有的事件类型常量
+    for attr_name in dir(MessageEvent):
+        # 跳过私有属性、方法和UNKNOWN_MESSAGE
+        if (not attr_name.startswith('_') and 
+            not callable(getattr(MessageEvent, attr_name)) and
+            attr_name != 'UNKNOWN_MESSAGE' and
+            isinstance(getattr(MessageEvent, attr_name), str)):
+            
+            attr_value = getattr(MessageEvent, attr_name)
+            # 确保是有效的事件类型字符串
+            if attr_value and attr_value != 'UNKNOWN':
+                supported_types.add(attr_value)
+    
+    return supported_types
+
 def setup_asyncio_policy():
     """设置asyncio策略以兼容Windows和Linux"""
     if sys.platform == 'win32':
@@ -354,13 +375,8 @@ class WebSocketClient:
 
     async def _handle_message_event(self, event_type, event_data, raw_data=None):
         """处理消息事件 - 仅作为连接器，传递原始数据"""
-        supported_types = {
-            'GROUP_AT_MESSAGE_CREATE',
-            'C2C_MESSAGE_CREATE', 
-            'INTERACTION_CREATE',
-            'AT_MESSAGE_CREATE',
-            'GROUP_ADD_ROBOT'
-        }
+        # 动态获取支持的事件类型，与MessageEvent保持同步
+        supported_types = _get_supported_event_types()
         
         if event_type in supported_types:
             try:
@@ -369,6 +385,9 @@ class WebSocketClient:
                     
             except Exception as e:
                 logger.error(f"处理消息事件失败: {e}")
+        else:
+            # 记录未支持的事件类型，便于调试
+            logger.debug(f"未支持的事件类型: {event_type}, 当前支持的类型: {supported_types}")
     
     async def _handle_ready(self, data):
         """处理Ready事件"""

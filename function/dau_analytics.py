@@ -23,8 +23,6 @@ logger = logging.getLogger('dau_analytics')
 
 class DAUAnalytics:
     def __init__(self):
-        self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'dau')
-        os.makedirs(self.data_dir, exist_ok=True)
         self.is_running = False
         self.scheduler_thread = None
 
@@ -62,16 +60,7 @@ class DAUAnalytics:
         fmt = formats.get(format_type, formats['display'])
         return fmt(date_obj) if callable(fmt) else date_obj.strftime(fmt)
 
-    def _file_operation(self, filepath, mode, operation, data=None):
-        if mode == 'read':
-            if not os.path.exists(filepath):
-                return None
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        elif mode == 'write':
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            return True
+
 
     def start_scheduler(self):
         if self.is_running:
@@ -273,9 +262,6 @@ class DAUAnalytics:
             logger.info(f"DAU数据已保存到数据库: {date_str}")
         else:
             logger.error(f"DAU数据保存失败: {date_str}")
-            filename = f"{date_str}.json"
-            filepath = os.path.join(self.data_dir, filename)
-            self._file_operation(filepath, 'write', None, dau_data)
 
     def load_dau_data(self, target_date: datetime.datetime) -> Optional[Dict[str, Any]]:
         date_str = self._format_date(target_date)
@@ -333,9 +319,7 @@ class DAUAnalytics:
         if dau_data:
             return dau_data
         
-        filename = f"{date_str}.json"
-        filepath = os.path.join(self.data_dir, filename)
-        return self._file_operation(filepath, 'read', None)
+        return None
 
     def get_recent_dau_data(self, days: int = 7) -> List[Dict[str, Any]]:
         def parse_json_field(field, default):

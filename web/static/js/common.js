@@ -241,125 +241,122 @@ window.addEventListener('beforeunload', function() {
 // WebSocket连接功能（优化版本）
 // =====================
 function initSocket(pageType = 'dashboard') {
-    try {
-        // 先断开已有连接
-        if (socket) {
-            socket.disconnect();
-            socket = null;
-        }
-        
-        // 检查是否有Socket.IO库
-        if (typeof io === 'undefined') {
-            console.log('Socket.IO library not loaded');
-            return;
-        }
-
-        // 自动适配协议和端口
-        const currentUrl = new URL(window.location.href);
-        const host = currentUrl.hostname;
-        const port = currentUrl.port || (currentUrl.protocol === 'https:' ? '443' : '80');
-        const protocol = currentUrl.protocol === 'https:' ? 'https' : 'http';
-        
-        // 获取token参数
-        const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get('token');
-        
-        socket = io(`${protocol}://${host}:${port}${URL_PREFIX}`, {
-            path: "/socket.io",
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-            timeout: 20000,
-            forceNew: true,
-            transports: ['polling', 'websocket'],
-            query: {
-                token: token
-            }
-        });
-
-        socket.on('connect_error', (error) => {
-            setConnectionStatus(false);
-            stopAutoRefresh();
-            updateConnectionText(`未连接 (${error.message})`);
-        });
-
-        socket.on('connect', () => {
-            console.log(`[WebSocket] ${pageType}页面连接成功`);
-            setConnectionStatus(true);
-            startAutoRefresh();
-        });
-
-        socket.on('disconnect', () => {
-            setConnectionStatus(false);
-            stopAutoRefresh();
-        });
-
-
-
-        // 初始数据处理（完全照抄老版本）
-        socket.on('initial_data', function(data) {
-            console.log('收到初始数据:', data);
-            
-            if (data.system_info) {
-                updateSystemInfo(data.system_info);
-            }
-            
-            if (data.logs) {
-                if (window.updateLogDisplay && typeof window.updateLogDisplay === 'function') {
-                    window.updateLogDisplay('received', data.logs.received_messages);
-                    window.updateLogDisplay('plugin', data.logs.plugin_logs);
-                    window.updateLogDisplay('framework', data.logs.framework_logs);
-                    window.updateLogDisplay('error', data.logs.error_logs);
-                }
-            }
-            
-            if (data.plugins_info) {
-                if (window.updatePluginsInfo && typeof window.updatePluginsInfo === 'function') {
-                    window.updatePluginsInfo(data.plugins_info);
-                }
-            }
-        });
-
-        // 新消息处理（照抄老版本）
-        socket.on('new_message', function(data) {
-            if (window.handleNewLog && typeof window.handleNewLog === 'function') {
-                window.handleNewLog(data);
-            }
-        });
-
-        // 系统信息更新（照抄老版本）
-        socket.on('system_info_update', function(data) {
-            updateSystemInfo(data);
-        });
-
-        // 系统信息处理（照抄老版本）
-        socket.on('system_info', function(data) {
-            updateSystemInfo(data);
-        });
-
-        // 插件信息更新（照抄老版本）
-        socket.on('plugins_update', function(data) {
-            if (window.updatePluginsInfo && typeof window.updatePluginsInfo === 'function') {
-                window.updatePluginsInfo(data);
-            }
-        });
-
-        // 日志更新（照抄老版本）
-        socket.on('logs_update', function(data) {
-            if (window.updateLogDisplay && typeof window.updateLogDisplay === 'function') {
-                window.updateLogDisplay(data.type, data.logs);
-                if (window.logContainers && window.logContainers[data.type]) {
-                    window.logContainers[data.type].totalLogs = data.total;
-                    window.logContainers[data.type].totalPages = Math.ceil(data.total / (window.PAGE_SIZE || 20));
-                    if (window.updatePaginationInfo && typeof window.updatePaginationInfo === 'function') {
-                        window.updatePaginationInfo(data.type);
-                    }
-                }
-            }
-        });
-
-    } catch (error) {
-        console.error('Error initializing socket:', error);
+    // 先断开已有连接
+    if (socket) {
+        socket.disconnect();
+        socket = null;
     }
+    
+    // 检查是否有Socket.IO库
+    if (typeof io === 'undefined') {
+        console.log('Socket.IO library not loaded');
+        return;
+    }
+
+    // 自动适配协议和端口
+    const currentUrl = new URL(window.location.href);
+    const host = currentUrl.hostname;
+    const port = currentUrl.port || (currentUrl.protocol === 'https:' ? '443' : '80');
+    const protocol = currentUrl.protocol === 'https:' ? 'https' : 'http';
+    
+    // 获取token参数
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    socket = io(`${protocol}://${host}:${port}${URL_PREFIX}`, {
+        path: "/socket.io",
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000,
+        timeout: 20000,
+        forceNew: true,
+        transports: ['polling', 'websocket'],
+        query: {
+            token: token
+        }
+    });
+
+    socket.on('connect_error', (error) => {
+        setConnectionStatus(false);
+        stopAutoRefresh();
+        updateConnectionText(`未连接 (${error.message})`);
+    });
+
+    socket.on('connect', () => {
+        console.log(`[WebSocket] ${pageType}页面连接成功`);
+        setConnectionStatus(true);
+        startAutoRefresh();
+    });
+
+    socket.on('disconnect', () => {
+        setConnectionStatus(false);
+        stopAutoRefresh();
+    });
+
+
+
+    // 初始数据处理（完全照抄老版本）
+    socket.on('initial_data', function(data) {
+        console.log('收到初始数据:', data);
+        
+        if (data.system_info) {
+            updateSystemInfo(data.system_info);
+        }
+        
+        if (data.logs) {
+            if (window.updateLogDisplay && typeof window.updateLogDisplay === 'function') {
+                window.updateLogDisplay('received', data.logs.received_messages);
+                window.updateLogDisplay('plugin', data.logs.plugin_logs);
+                window.updateLogDisplay('framework', data.logs.framework_logs);
+                window.updateLogDisplay('error', data.logs.error_logs);
+            }
+        }
+        
+        if (data.plugins_info) {
+            if (window.updatePluginsInfo && typeof window.updatePluginsInfo === 'function') {
+                window.updatePluginsInfo(data.plugins_info);
+            }
+        }
+    });
+
+    // 新消息处理（照抄老版本）
+    socket.on('new_message', function(data) {
+        if (window.handleNewLog && typeof window.handleNewLog === 'function') {
+            window.handleNewLog(data);
+        }
+    });
+
+    // 系统信息更新（照抄老版本）
+    socket.on('system_info_update', function(data) {
+        updateSystemInfo(data);
+    });
+
+    // 系统信息处理（照抄老版本）
+    socket.on('system_info', function(data) {
+        updateSystemInfo(data);
+    });
+
+    // 插件信息更新（照抄老版本）
+    socket.on('plugins_update', function(data) {
+        if (window.updatePluginsInfo && typeof window.updatePluginsInfo === 'function') {
+            window.updatePluginsInfo(data);
+        }
+    });
+
+    // 日志更新（照抄老版本）
+    socket.on('logs_update', function(data) {
+        if (window.updateLogDisplay && typeof window.updateLogDisplay === 'function') {
+            window.updateLogDisplay(data.type, data.logs);
+            if (window.logContainers && window.logContainers[data.type]) {
+                window.logContainers[data.type].totalLogs = data.total;
+                window.logContainers[data.type].totalPages = Math.ceil(data.total / (window.PAGE_SIZE || 20));
+                if (window.updatePaginationInfo && typeof window.updatePaginationInfo === 'function') {
+                    window.updatePaginationInfo(data.type);
+                }
+            }
+        }
+    });
+
+
 }
 
 // 自动刷新功能（完全照抄老版本）
@@ -591,9 +588,9 @@ const updateSystemInfo = throttle(function(data) {
         if (days > 0) uptimeText += days + '天 ';
         uptimeText += hours + '小时 ' + minutes + '分钟';
         
-        // 只更新顶栏的运行时间，因为卡片已删除
-        const topbarUptimeElement = document.getElementById('topbar-uptime-text') || document.getElementById('uptime-text');
-        if (topbarUptimeElement) topbarUptimeElement.textContent = uptimeText;
+        // 只更新服务数据框内的框架运行时间
+        const frameworkUptimeElement = document.getElementById('framework-uptime');
+        if (frameworkUptimeElement) frameworkUptimeElement.textContent = uptimeText;
     }
     
     // 服务器运行时间
@@ -613,54 +610,38 @@ const updateSystemInfo = throttle(function(data) {
     
     // 应用启动时间
     if (data.start_time) {
-        try {
-            // 尝试解析日期，如果是有效格式
-            const startDate = new Date(data.start_time);
-            if (!isNaN(startDate.getTime())) {
-                const formattedDate = startDate.toLocaleString('zh-CN', {
-                    year: 'numeric', 
+        const startDate = new Date(data.start_time);
+        if (!isNaN(startDate.getTime())) {
+            const frameworkBootTimeElement = document.getElementById('framework-boot-time');
+            if (frameworkBootTimeElement) {
+                const shortFormat = startDate.toLocaleString('zh-CN', {
                     month: '2-digit', 
                     day: '2-digit',
                     hour: '2-digit', 
                     minute: '2-digit'
                 });
-                // 只更新顶栏的开机时间，因为卡片已删除
-                const topbarStartTimeElement = document.getElementById('topbar-start-time') || document.getElementById('start-time');
-                if (topbarStartTimeElement) topbarStartTimeElement.textContent = formattedDate;
-            } else {
-                // 如果无法解析，直接显示原始字符串
-                const topbarStartTimeElement = document.getElementById('topbar-start-time') || document.getElementById('start-time');
-                if (topbarStartTimeElement) topbarStartTimeElement.textContent = data.start_time;
+                frameworkBootTimeElement.textContent = shortFormat;
             }
-        } catch(e) {
-            // 出错则显示原始字符串
-            const topbarStartTimeElement = document.getElementById('topbar-start-time') || document.getElementById('start-time');
-            if (topbarStartTimeElement) topbarStartTimeElement.textContent = data.start_time;
+        } else {
+            const frameworkBootTimeElement = document.getElementById('framework-boot-time');
+            if (frameworkBootTimeElement) frameworkBootTimeElement.textContent = data.start_time;
         }
     }
     
     // 服务器开机时间
     if (data.boot_time) {
-        try {
-            // 尝试解析日期，如果是有效格式
-            const bootDate = new Date(data.boot_time);
-            if (!isNaN(bootDate.getTime())) {
-                const formattedDate = bootDate.toLocaleString('zh-CN', {
-                    year: 'numeric', 
-                    month: '2-digit', 
-                    day: '2-digit',
-                    hour: '2-digit', 
-                    minute: '2-digit'
-                });
-                const bootTimeElement = document.getElementById('boot-time');
-                if (bootTimeElement) bootTimeElement.textContent = formattedDate;
-            } else {
-                // 如果无法解析，直接显示原始字符串
-                const bootTimeElement = document.getElementById('boot-time');
-                if (bootTimeElement) bootTimeElement.textContent = data.boot_time;
-            }
-        } catch(e) {
-            // 出错则显示原始字符串
+        const bootDate = new Date(data.boot_time);
+        if (!isNaN(bootDate.getTime())) {
+            const formattedDate = bootDate.toLocaleString('zh-CN', {
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit', 
+                minute: '2-digit'
+            });
+            const bootTimeElement = document.getElementById('boot-time');
+            if (bootTimeElement) bootTimeElement.textContent = formattedDate;
+        } else {
             const bootTimeElement = document.getElementById('boot-time');
             if (bootTimeElement) bootTimeElement.textContent = data.boot_time;
         }
@@ -698,12 +679,6 @@ function loadRobotInfo() {
             }
             
             return data;
-        })
-        .catch(error => {
-            console.error('无法获取机器人信息:', error);
-            updateTextContent('robot-name', '获取信息失败');
-            updateTextContent('robot-desc', '无法连接到API');
-            throw error;
         });
 }
 
@@ -768,8 +743,6 @@ function showRobotQRCode() {
         // 如果没有机器人信息，先加载
         loadRobotInfo().then(() => {
             showRobotQRCode();
-        }).catch(() => {
-            alert('无法获取机器人信息');
         });
         return;
     }
@@ -788,9 +761,6 @@ function showRobotQRCode() {
                 </div>
                 <div class="modal-body text-center">
                     <img id="qr-image" style="max-width: 100%; height: auto;" />
-                    <div id="qr-error" style="display: none;" class="alert alert-danger">
-                        二维码生成失败，请稍后重试
-                    </div>
                     <div class="mt-3">
                         <small class="text-muted">扫描二维码添加机器人</small>
                         <br>
@@ -812,12 +782,6 @@ function showRobotQRCode() {
     
     // 加载二维码
     const qrImage = modal.querySelector('#qr-image');
-    const qrError = modal.querySelector('#qr-error');
-    
-    qrImage.onerror = function() {
-        qrImage.style.display = 'none';
-        qrError.style.display = 'block';
-    };
     
     // 构建二维码URL
     let qrUrl = '';
@@ -829,9 +793,6 @@ function showRobotQRCode() {
     
     if (qrUrl) {
         qrImage.src = qrUrl;
-    } else {
-        qrError.style.display = 'block';
-        qrImage.style.display = 'none';
     }
     
     // 模态框关闭时清理DOM

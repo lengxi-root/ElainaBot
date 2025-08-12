@@ -4,23 +4,14 @@
 import json
 import os
 import time
-import requests
 import re
 import io
 from PIL import Image, ImageDraw, ImageFont
 from core.plugin.PluginManager import Plugin
 import config
+from function.bot_api import get_bot_api
 
-import warnings
-warnings.filterwarnings('ignore', message='Unverified HTTPS request')
-
-BASE = 'https://api.elaina.vin/api/bot'
-LOGIN_URL = f"{BASE}/get_login.php"
-GET_LOGIN = f"{BASE}/robot.php"
-MESSAGE = f"{BASE}/message.php"
-BOTLIST = f"{BASE}/bot_list.php"
-BOTDATA = f"{BASE}/bot_data.php"
-MSGTPL = f"{BASE}/md.php"
+# 使用框架的bot_api模块
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'bot')
 FILE = os.path.join(DATA_DIR, 'robot.json')
 OPENAPI_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data', 'openapi.json')
@@ -92,8 +83,8 @@ def save_user_data(user_id, data):
         with open(FILE, 'w', encoding='utf-8') as f:
             json.dump(_user_data, f, indent=2)
 
-def create_ssl_session():
-    return requests.Session()
+# bot_api实例
+api = get_bot_api()
 
 def get_font_path(font_name="msyh.ttc"):
     chinese_fonts = ["msyh.ttc", "msyhbd.ttc", "simhei.ttf", "simsun.ttc", "simkai.ttf", "simfang.ttf", "STHeiti-Light.ttc", "STHeiti-Medium.ttc", "STFangsong.ttf"]
@@ -486,11 +477,7 @@ class robot_data_plugin(Plugin):
             if not all([uin, ticket, developer_id]):
                 return False
                 
-            session = create_ssl_session()
-            url = f"{BOTLIST}?uin={uin}&ticket={ticket}&developerId={developer_id}"
-            response = session.get(url, verify=False, timeout=10)
-            res = response.json()
-            
+            res = api.get_bot_list(uin=uin, quid=developer_id, ticket=ticket)
             return res.get('code') == 0
         except:
             return False
@@ -547,9 +534,9 @@ class robot_data_plugin(Plugin):
         global _user_data, _last_login_success
         ensure_user_data_loaded()
         _user_data[user_id] = {'type': 'login'}
-        session = create_ssl_session()
-        response = session.get(LOGIN_URL, verify=False)
-        data = response.json()
+        
+        # 使用bot_api创建登录二维码
+        data = api.create_login_qr()
         url = data.get('url')
         qr = data.get('qr')
         if not url or not qr:
@@ -563,8 +550,8 @@ class robot_data_plugin(Plugin):
         max_time = time.time() + 60
         while time.time() < max_time:
             time.sleep(3)
-            response = session.get(f"{GET_LOGIN}?qrcode={qr}", verify=False)
-            res = response.json()
+            # 使用bot_api获取登录信息
+            res = api.get_qr_login_info(qrcode=qr)
             if res.get('code') == 0:
                 login_data = res.get('data', {}).get('data', {})
                 ensure_user_data_loaded()
@@ -608,24 +595,21 @@ class robot_data_plugin(Plugin):
         user = event.user_id
         data = _user_data.get(user, {})
         
-        session = create_ssl_session()
-        url = f"{MESSAGE}?uin={data.get('uin')}&ticket={data.get('ticket')}&developerId={data.get('developerId')}"
+        # 使用bot_api获取私信消息
+        res = api.get_private_messages(
+            uin=data.get('uin'), 
+            quid=data.get('developerId'), 
+            ticket=data.get('ticket')
+        )
         
-        try:
-            response = session.get(url, verify=False, timeout=10)
-            res = response.json()
-            
-            if res.get('code') != 0:
-                content = f'<@{user}>登录状态失效'
-                buttons = event.button([
-                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-                ])
-                event.reply(content, buttons)
-                return
-        except:
-            content = f'<@{user}>请求失败，请稍后重试'
-            event.reply(content)
+        if res.get('code') != 0:
+            content = f'<@{user}>登录状态失效'
+            buttons = event.button([
+                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+            ])
+            event.reply(content, buttons)
             return
+        
         msglist = [f"Uin:{data.get('uin')}\nAppid:{data.get('appId')}\n\n```python"]
         messages = res.get('messages', [])
         for j in range(min(len(messages), 8)):
@@ -665,10 +649,14 @@ class robot_data_plugin(Plugin):
         global _user_data
         user = event.user_id
         data = _user_data.get(user, {})
-        session = create_ssl_session()
-        url = f"{BOTLIST}?uin={data.get('uin')}&ticket={data.get('ticket')}&developerId={data.get('developerId')}"
-        response = session.get(url, verify=False)
-        res = response.json()
+        
+        # 使用bot_api获取机器人列表
+        res = api.get_bot_list(
+            uin=data.get('uin'), 
+            quid=data.get('developerId'), 
+            ticket=data.get('ticket')
+        )
+        
         if res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
             buttons = event.button([
@@ -676,6 +664,7 @@ class robot_data_plugin(Plugin):
             ])
             event.reply(content, buttons)
             return
+        
         msglist = [f"Uin:{data.get('uin')}\n\n```python"]
         apps = res.get('data', {}).get('apps', [])
         for j in range(len(apps)):
@@ -720,18 +709,31 @@ class robot_data_plugin(Plugin):
         days = match.group(1) if match else '4'
         user = event.user_id
         data = _user_data.get(user, {})
-        base_url = f"{BOTDATA}?appid={data.get('appId')}&uin={data.get('uin')}&ticket={data.get('ticket')}&developerId={data.get('developerId')}"
-        session = create_ssl_session()
         
-        # 同步方式获取三种数据
-        response1 = session.get(f"{base_url}&type=1", verify=False)
-        data1_json = response1.json()
+        # 使用bot_api获取三种数据
+        data1_json = api.get_bot_data(
+            uin=data.get('uin'),
+            quid=data.get('developerId'),
+            ticket=data.get('ticket'),
+            appid=data.get('appId'),
+            data_type=1
+        )
         
-        response2 = session.get(f"{base_url}&type=2", verify=False)
-        data2_json = response2.json()
+        data2_json = api.get_bot_data(
+            uin=data.get('uin'),
+            quid=data.get('developerId'),
+            ticket=data.get('ticket'),
+            appid=data.get('appId'),
+            data_type=2
+        )
         
-        response3 = session.get(f"{base_url}&type=3", verify=False)
-        data3_json = response3.json()
+        data3_json = api.get_bot_data(
+            uin=data.get('uin'),
+            quid=data.get('developerId'),
+            ticket=data.get('ticket'),
+            appid=data.get('appId'),
+            data_type=3
+        )
         
         if any(x.get('retcode', -1) != 0 for x in [data1_json, data2_json, data3_json]):
             content = f'<@{user}>登录状态失效'
@@ -812,10 +814,15 @@ class robot_data_plugin(Plugin):
         global _user_data
         user = event.user_id
         data = _user_data.get(user, {})
-        session = create_ssl_session()
-        url = f"{MSGTPL}?uin={data.get('uin')}&ticket={data.get('ticket')}&developerId={data.get('developerId')}&appid={data.get('appId')}"
-        response = session.get(url, verify=False)
-        res = response.json()
+        
+        # 使用bot_api获取消息模板
+        res = api.get_message_templates(
+            uin=data.get('uin'),
+            quid=data.get('developerId'),
+            ticket=data.get('ticket'),
+            appid=data.get('appId')
+        )
+        
         if res.get('retcode') != 0 and res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
             buttons = event.button([
@@ -884,12 +891,13 @@ class robot_data_plugin(Plugin):
         global _user_data
         user = event.user_id
         data = _user_data.get(user, {})
-        session = create_ssl_session()
-        
-        # 首先获取模板列表
-        url = f"{MSGTPL}?uin={data.get('uin')}&ticket={data.get('ticket')}&developerId={data.get('developerId')}&appid={data.get('appId')}"
-        response = session.get(url, verify=False)
-        res = response.json()
+        # 使用bot_api获取模板列表
+        res = api.get_message_templates(
+            uin=data.get('uin'),
+            quid=data.get('developerId'),
+            ticket=data.get('ticket'),
+            appid=data.get('appId')
+        )
         if res.get('retcode') != 0 and res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
             buttons = event.button([
@@ -994,11 +1002,12 @@ class robot_data_plugin(Plugin):
             event.reply(f"当前已经是使用AppID: {current_appid}")
             return
             
-        session = create_ssl_session()
-        # 先获取机器人列表，验证AppID是否有效
-        url = f"{BOTLIST}?uin={data.get('uin')}&ticket={data.get('ticket')}&developerId={data.get('developerId')}"
-        response = session.get(url, verify=False)
-        res = response.json()
+        # 使用bot_api获取机器人列表，验证AppID是否有效
+        res = api.get_bot_list(
+            uin=data.get('uin'),
+            quid=data.get('developerId'),
+            ticket=data.get('ticket')
+        )
         if res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
             buttons = event.button([

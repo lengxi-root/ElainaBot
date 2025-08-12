@@ -379,9 +379,9 @@ def require_auth(f):
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         cleanup_expired_sessions()
-        cookie_value = request.cookies.get(WEB_SECURITY['cookie_name'])
+        cookie_value = request.cookies.get('elaina_admin_session')  # 固定Cookie名称
         if cookie_value:
-            is_valid, session_token = verify_cookie_value(cookie_value, WEB_SECURITY['cookie_secret'])
+            is_valid, session_token = verify_cookie_value(cookie_value, 'elaina_cookie_secret_key_2024_v1')  # 固定Cookie密钥
             if is_valid and session_token in valid_sessions:
                 session_info = valid_sessions[session_token]
 
@@ -414,11 +414,11 @@ def require_socketio_token(f):
         if not token or token != WEB_SECURITY['access_token']:
             return False
         
-        cookie_value = request.cookies.get(WEB_SECURITY['cookie_name'])
+        cookie_value = request.cookies.get('elaina_admin_session')  # 固定Cookie名称
         if not cookie_value:
             return False
         
-        is_valid, session_token = verify_cookie_value(cookie_value, WEB_SECURITY['cookie_secret'])
+        is_valid, session_token = verify_cookie_value(cookie_value, 'elaina_cookie_secret_key_2024_v1')  # 固定Cookie密钥
         if not is_valid or session_token not in valid_sessions:
             return False
         
@@ -600,7 +600,7 @@ def login():
         record_ip_access(request.remote_addr, access_type='password_success', device_info=device_info)
         
         session_token = generate_session_token()
-        expires = datetime.now() + timedelta(days=WEB_SECURITY['cookie_expires_days'])
+        expires = datetime.now() + timedelta(days=7)  # 固定7天过期
         
         valid_sessions[session_token] = {
             'created': datetime.now(),
@@ -609,7 +609,7 @@ def login():
             'user_agent': request.headers.get('User-Agent', '')[:200]
         }
         
-        signed_token = sign_cookie_value(session_token, WEB_SECURITY['cookie_secret'])
+        signed_token = sign_cookie_value(session_token, 'elaina_cookie_secret_key_2024_v1')  # 固定Cookie密钥
         
         response = make_response(f'''
         <script>
@@ -617,9 +617,9 @@ def login():
         </script>
         ''')
         response.set_cookie(
-            WEB_SECURITY['cookie_name'],
+            'elaina_admin_session',  # 固定Cookie名称
             signed_token,
-            max_age=WEB_SECURITY['cookie_expires_days'] * 24 * 60 * 60,
+            max_age=7 * 24 * 60 * 60,  # 固定7天过期(秒)
             httponly=True,
             secure=False,
             samesite='Lax'
@@ -654,7 +654,8 @@ def index():
                                            WEBSOCKET_CONFIG=WEBSOCKET_CONFIG,
                                            web_interface=WEB_INTERFACE))
     
-    if WEB_SECURITY.get('secure_headers', True):
+    # 固定启用安全响应头防护
+    if True:
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['X-XSS-Protection'] = '1; mode=block'
@@ -2009,19 +2010,19 @@ openapi_login_tasks = {}
 
 OPENAPI_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'openapi.json')
 
-OPENAPI_BASE = 'https://i.elaina.vin/api/bot'
-OPENAPI_LOGIN_URL = f"{OPENAPI_BASE}/get_login.php"
-OPENAPI_GET_LOGIN = f"{OPENAPI_BASE}/robot.php"
-OPENAPI_MESSAGE = f"{OPENAPI_BASE}/message.php"
-OPENAPI_BOTLIST = f"{OPENAPI_BASE}/bot_list.php"
-OPENAPI_BOTDATA = f"{OPENAPI_BASE}/bot_data.php"
-OPENAPI_MSGTPL = f"{OPENAPI_BASE}/md.php"
-OPENAPI_MSGTPL_DETAIL = f"{OPENAPI_BASE}/md_detail.php"
+# 导入本地bot_api模块
+try:
+    from function.bot_api import get_bot_api
+    _bot_api = get_bot_api()
+except ImportError:
+    import sys
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from function.bot_api import get_bot_api
+    _bot_api = get_bot_api()
 
-def create_openapi_session():
-    session = requests.Session()
-    session.verify = False
-    return session
+# 注意：所有API调用现在都是同步的，无需异步处理
 
 def save_openapi_data():
     try:
@@ -2048,24 +2049,18 @@ def verify_openapi_login(user_data):
         if not user_data or user_data.get('type') != 'ok':
             return False
         
-        session = create_openapi_session()
-        url = f"{OPENAPI_BOTLIST}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}"
-        response = session.get(url, verify=False, timeout=10)
-        res = response.json()
+        # 使用本地bot_api模块验证登录状态
+        res = _bot_api.get_bot_list(
+            uin=user_data.get('uin'),
+            quid=user_data.get('developerId'),
+            ticket=user_data.get('ticket')
+        )
         
         return res.get('code') == 0
     except Exception:
         return False
 
-def get_app_type_name(app_type):
-    if app_type == '0' or app_type == 0:
-        return '小程序'
-    elif app_type == '1' or app_type == 1:
-        return 'QQ小程序' 
-    elif app_type == '2' or app_type == 2:
-        return 'QQ机器人'
-    else:
-        return '未知类型'
+
 
 @web.route('/openapi/start_login', methods=['POST'])
 @require_auth
@@ -2076,9 +2071,14 @@ def openapi_start_login():
         
         current_time = time.time()
         
-        session = create_openapi_session()
-        response = session.get(OPENAPI_LOGIN_URL, verify=False)
-        login_data = response.json()
+        # 使用本地bot_api模块创建登录二维码
+        login_data = _bot_api.create_login_qr()
+        
+        if login_data.get('status') != 'success':
+            return jsonify({
+                'success': False,
+                'message': '获取登录二维码失败，请稍后重试'
+            })
         
         url = login_data.get('url')
         qr = login_data.get('qr')
@@ -2089,7 +2089,7 @@ def openapi_start_login():
                 'message': '获取登录二维码失败，请稍后重试'
             })
         
-        openapi_login_tasks[user_id] = (time.time(), {'qr': qr, 'session': session})
+        openapi_login_tasks[user_id] = (time.time(), {'qr': qr})
         
         return jsonify({
             'success': True,
@@ -2120,10 +2120,9 @@ def openapi_check_login():
         
         task_data = openapi_login_tasks[user_id][1]
         qr = task_data['qr']
-        session = task_data['session']
         
-        response = session.get(f"{OPENAPI_GET_LOGIN}?qrcode={qr}", verify=False)
-        res = response.json()
+        # 使用本地bot_api模块检查登录状态
+        res = _bot_api.get_qr_login_info(qrcode=qr)
         
         if res.get('code') == 0:
             login_data = res.get('data', {}).get('data', {})
@@ -2132,8 +2131,7 @@ def openapi_check_login():
             if user_id in openapi_login_tasks:
                 del openapi_login_tasks[user_id]
             
-            app_type = login_data.get('appType')
-            app_type_str = get_app_type_name(app_type)
+
             
             save_openapi_data()
             
@@ -2143,7 +2141,6 @@ def openapi_check_login():
                 'data': {
                     'uin': login_data.get('uin'),
                     'appId': login_data.get('appId'),
-                    'appType': app_type_str,
                     'developerId': login_data.get('developerId')
                 },
                 'message': '登录成功'
@@ -2176,11 +2173,13 @@ def openapi_get_botlist():
             })
         
         user_data = openapi_user_data[user_id]
-        session = create_openapi_session()
         
-        url = f"{OPENAPI_BOTLIST}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}"
-        response = session.get(url, verify=False)
-        res = response.json()
+        # 使用本地bot_api模块获取机器人列表
+        res = _bot_api.get_bot_list(
+            uin=user_data.get('uin'),
+            quid=user_data.get('developerId'),
+            ticket=user_data.get('ticket')
+        )
         
         if res.get('code') != 0:
             return jsonify({
@@ -2217,65 +2216,103 @@ def openapi_get_botdata():
     if not user_data:
         return openapi_error_response('未登录，请先登录开放平台')
     
-    session = create_openapi_session()
-    
     appid_to_use = target_appid if target_appid else user_data.get('appId')
     
-    base_url = f"{OPENAPI_BOTDATA}?appid={appid_to_use}&uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}"
-    
-    response1 = session.get(f"{base_url}&type=1", verify=False)
-    data1_json = response1.json()
-    
-    response2 = session.get(f"{base_url}&type=2", verify=False)
-    data2_json = response2.json()
-    
-    response3 = session.get(f"{base_url}&type=3", verify=False)
-    data3_json = response3.json()
-    
-    if any(x.get('retcode', -1) != 0 for x in [data1_json, data2_json, data3_json]):
-        return openapi_error_response('登录状态失效，请重新登录')
-    
-    msg_data = data1_json.get('data', {}).get('msg_data', [])
-    group_data = data2_json.get('data', {}).get('group_data', [])
-    friend_data = data3_json.get('data', {}).get('friend_data', [])
-    
-    max_days = min(len(msg_data), len(group_data), len(friend_data))
-    actual_days = min(days, max_days)
-    
-    processed_data = []
-    total_up_msg_people = 0
-    
-    for i in range(actual_days):
-        msg_item = msg_data[i] if i < len(msg_data) else {}
-        group_item = group_data[i] if i < len(group_data) else {}
-        friend_item = friend_data[i] if i < len(friend_data) else {}
+    # 使用本地bot_api模块获取三种类型的数据
+    try:
+        data1_json = _bot_api.get_bot_data(
+            uin=user_data.get('uin'),
+            quid=user_data.get('developerId'),
+            ticket=user_data.get('ticket'),
+            appid=appid_to_use,
+            data_type=1
+        )
         
-        day_data = {
-            "date": msg_item.get('报告日期', '0'),
-            "up_messages": msg_item.get('上行消息量', '0'),
-            "up_users": msg_item.get('上行消息人数', '0'),
-            "down_messages": msg_item.get('下行消息量', '0'),
-            "total_messages": msg_item.get('总消息量', '0'),
-            "current_groups": group_item.get('现有群组', '0'),
-            "used_groups": group_item.get('已使用群组', '0'),
-            "new_groups": group_item.get('新增群组', '0'),
-            "removed_groups": group_item.get('移除群组', '0'),
-            "current_friends": friend_item.get('现有好友数', '0'),
-            "used_friends": friend_item.get('已使用好友数', '0'),
-            "new_friends": friend_item.get('新增好友数', '0'),
-            "removed_friends": friend_item.get('移除好友数', '0')
-        }
-        processed_data.append(day_data)
-        total_up_msg_people += int(day_data['up_users'])
-    
-    avg_dau = round(total_up_msg_people / 30, 2) if len(msg_data) > 0 else 0
-    
-    return openapi_success_response({
-        'uin': user_data.get('uin'),
-        'appid': appid_to_use,
-        'avg_dau': avg_dau,
-        'days_data': processed_data
-    })
+        data2_json = _bot_api.get_bot_data(
+            uin=user_data.get('uin'),
+            quid=user_data.get('developerId'),
+            ticket=user_data.get('ticket'),
+            appid=appid_to_use,
+            data_type=2
+        )
+        
+        data3_json = _bot_api.get_bot_data(
+            uin=user_data.get('uin'),
+            quid=user_data.get('developerId'),
+            ticket=user_data.get('ticket'),
+            appid=appid_to_use,
+            data_type=3
+        )
+        
+        # 检查API返回状态，兼容不同的错误字段
+        def is_api_error(result):
+            # 检查多种可能的错误状态
+            return (result.get('retcode', 0) != 0 or 
+                   result.get('code', 0) not in [0, 200] or
+                   result.get('error') is not None)
+        
+        if any(is_api_error(x) for x in [data1_json, data2_json, data3_json]):
+            # 提取具体的错误信息
+            error_msgs = []
+            for result in [data1_json, data2_json, data3_json]:
+                if is_api_error(result):
+                    error_msg = (result.get('msg') or 
+                               result.get('message') or 
+                               result.get('error') or 
+                               f"API错误，code: {result.get('code', 'unknown')}")
+                    error_msgs.append(error_msg)
+            
+            # 如果错误信息包含请求失败或者是认证相关错误，提示重新登录
+            combined_error = ', '.join(set(error_msgs[:3]))  # 只显示前3个不同的错误
+            if any(keyword in combined_error.lower() for keyword in ['登录', 'login', 'auth', '认证', '权限']):
+                return openapi_error_response('登录状态失效，请重新登录')
+            else:
+                return openapi_error_response(f'获取数据失败: {combined_error}')
+        
+        msg_data = data1_json.get('data', {}).get('msg_data', [])
+        group_data = data2_json.get('data', {}).get('group_data', [])
+        friend_data = data3_json.get('data', {}).get('friend_data', [])
+        
+        max_days = min(len(msg_data), len(group_data), len(friend_data))
+        actual_days = min(days, max_days)
+        
+        processed_data = []
+        total_up_msg_people = 0
+        
+        for i in range(actual_days):
+            msg_item = msg_data[i] if i < len(msg_data) else {}
+            group_item = group_data[i] if i < len(group_data) else {}
+            friend_item = friend_data[i] if i < len(friend_data) else {}
+            
+            day_data = {
+                "date": msg_item.get('报告日期', '0'),
+                "up_messages": msg_item.get('上行消息量', '0'),
+                "up_users": msg_item.get('上行消息人数', '0'),
+                "down_messages": msg_item.get('下行消息量', '0'),
+                "total_messages": msg_item.get('总消息量', '0'),
+                "current_groups": group_item.get('现有群组', '0'),
+                "used_groups": group_item.get('已使用群组', '0'),
+                "new_groups": group_item.get('新增群组', '0'),
+                "removed_groups": group_item.get('移除群组', '0'),
+                "current_friends": friend_item.get('现有好友数', '0'),
+                "used_friends": friend_item.get('已使用好友数', '0'),
+                "new_friends": friend_item.get('新增好友数', '0'),
+                "removed_friends": friend_item.get('移除好友数', '0')
+            }
+            processed_data.append(day_data)
+            total_up_msg_people += int(day_data['up_users'])
+        
+        avg_dau = round(total_up_msg_people / 30, 2) if len(msg_data) > 0 else 0
+        
+        return openapi_success_response({
+            'uin': user_data.get('uin'),
+            'appid': appid_to_use,
+            'avg_dau': avg_dau,
+            'days_data': processed_data
+        })
+        
+    except Exception as e:
+        return openapi_error_response(f'获取机器人数据失败: {str(e)}')
 
 @web.route('/openapi/get_notifications', methods=['POST'])
 @require_auth
@@ -2288,14 +2325,17 @@ def openapi_get_notifications():
     if not user_data:
         return openapi_error_response('未登录，请先登录开放平台')
     
-    session = create_openapi_session()
+    # 使用本地bot_api模块获取私信消息
+    res = _bot_api.get_private_messages(
+        uin=user_data.get('uin'),
+        quid=user_data.get('developerId'),
+        ticket=user_data.get('ticket')
+    )
     
-    url = f"{OPENAPI_MESSAGE}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}"
-    response = session.get(url, verify=False)
-    res = response.json()
-    
-    if res.get('code') != 0:
-        return openapi_error_response('登录状态失效，请重新登录')
+    # 检查API返回的错误状态，兼容不同的错误字段
+    if res.get('code', 0) != 0 or res.get('error'):
+        error_msg = res.get('error', '获取通知消息失败，请检查登录状态')
+        return openapi_error_response(error_msg)
     
     messages = res.get('messages', [])
     
@@ -2384,20 +2424,22 @@ def openapi_import_templates():
     if not user_data:
         return openapi_error_response('未登录，请先登录开放平台')
     
-    session = create_openapi_session()
-    
     appid_to_use = target_appid if target_appid else user_data.get('appId')
     
-    url = f"{OPENAPI_MSGTPL}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}&appid={appid_to_use}"
-    response = session.get(url, verify=False)
-    res = response.json()
-    
-    if res.get('retcode') != 0 and res.get('code') != 0:
+    # 使用本地bot_api模块获取消息模板
+    res = _bot_api.get_message_templates(
+        uin=user_data.get('uin'),
+        quid=user_data.get('developerId'),
+        ticket=user_data.get('ticket'),
+        appid=appid_to_use
+    )
+
+    # 修正判断条件，retcode和code只要有一个不为0就提示登录失效
+    if res.get('retcode', 0) != 0 or res.get('code', 0) != 0:
         return openapi_error_response('登录状态失效，请重新登录')
-    
-    raw_templates = res.get('data', {}).get('list', [])
-    
-    templates = []
+    else:
+        raw_templates = res.get('data', {}).get('list', [])
+        templates = []
     for template in raw_templates:
         processed_template = {
             'id': template.get('模板id', ''),
@@ -2564,8 +2606,7 @@ def openapi_verify_saved_login():
         user_data = openapi_user_data[user_id]
         
         if verify_openapi_login(user_data):
-            app_type = user_data.get('appType')
-            app_type_str = get_app_type_name(app_type)
+            
             
             return jsonify({
                 'success': True,
@@ -2573,7 +2614,6 @@ def openapi_verify_saved_login():
                 'data': {
                     'uin': user_data.get('uin'),
                     'appId': user_data.get('appId'),
-                    'appType': app_type_str,
                     'developerId': user_data.get('developerId')
                 },
                 'message': '登录状态有效'
@@ -2612,16 +2652,20 @@ def openapi_get_templates():
     if not user_data:
         return openapi_error_response('未登录，请先登录开放平台')
     
-    session = create_openapi_session()
-    
     appid_to_use = target_appid if target_appid else user_data.get('appId')
     
-    url = f"{OPENAPI_MSGTPL}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}&appid={appid_to_use}"
-    response = session.get(url, verify=False)
-    res = response.json()
+    # 使用本地bot_api模块获取消息模板
+    res = _bot_api.get_message_templates(
+        uin=user_data.get('uin'),
+        quid=user_data.get('developerId'),
+        ticket=user_data.get('ticket'),
+        appid=appid_to_use
+    )
     
-    if res.get('retcode') != 0 and res.get('code') != 0:
-        return openapi_error_response('登录状态失效，请重新登录')
+    # 检查API返回状态，兼容不同的错误字段
+    if res.get('retcode', 0) != 0 or res.get('code', 0) not in [0, 200]:
+        error_msg = res.get('msg') or res.get('message') or '获取模板失败，请重新登录'
+        return openapi_error_response(error_msg)
     
     templates = res.get('data', {}).get('list', [])
     
@@ -2664,18 +2708,30 @@ def openapi_get_template_detail():
     if not user_data:
         return openapi_error_response('未登录，请先登录开放平台')
     
-    session = create_openapi_session()
-    
     appid_to_use = target_appid if target_appid else user_data.get('appId')
     
-    url = f"{OPENAPI_MSGTPL_DETAIL}?uin={user_data.get('uin')}&ticket={user_data.get('ticket')}&developerId={user_data.get('developerId')}&appid={appid_to_use}&id={template_id}"
-    response = session.get(url, verify=False)
-    res = response.json()
+    # 使用本地bot_api模块获取消息模板列表，然后过滤指定的模板ID
+    res = _bot_api.get_message_templates(
+        uin=user_data.get('uin'),
+        quid=user_data.get('developerId'),
+        ticket=user_data.get('ticket'),
+        appid=appid_to_use
+    )
     
     if res.get('retcode') != 0 and res.get('code') != 0:
         return openapi_error_response('登录状态失效，请重新登录')
     
-    template_detail = res.get('data', {})
+    templates = res.get('data', {}).get('list', [])
+    template_detail = None
+    
+    # 找到指定ID的模板
+    for template in templates:
+        if template.get('模板id') == template_id:
+            template_detail = template
+            break
+    
+    if not template_detail:
+        return openapi_error_response('未找到指定的模板')
     
     processed_detail = {
         'id': template_detail.get('模板id', ''),
@@ -2759,6 +2815,575 @@ def openapi_render_button_template():
             'success': False,
             'message': f'渲染按钮模板失败: {str(e)}'
         })
+
+@web.route('/openapi/get_whitelist', methods=['POST'])
+@require_auth
+@catch_error
+def openapi_get_whitelist():
+    """获取指定AppID的IP白名单列表"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    if not appid_to_use:
+        return openapi_error_response('缺少AppID参数')
+    
+    # 使用本地bot_api模块获取白名单列表
+    res = _bot_api.get_white_list(
+        appid=appid_to_use,
+        uin=user_data.get('uin'),
+        uid=user_data.get('developerId'),  # 使用developerId作为uid
+        ticket=user_data.get('ticket')
+    )
+    
+    # 检查API返回状态
+    if res.get('code', 0) != 0:
+        error_msg = res.get('msg') or '获取白名单失败，请检查登录状态'
+        return openapi_error_response(error_msg)
+    
+    ip_list = res.get('data', [])
+    
+    # 格式化IP列表数据
+    formatted_ips = []
+    for ip_info in ip_list:
+        if isinstance(ip_info, dict):
+            formatted_ips.append({
+                'ip': ip_info.get('ip', ''),
+                'description': ip_info.get('desc', ''),
+                'create_time': ip_info.get('create_time', ''),
+                'status': ip_info.get('status', 'active')
+            })
+        elif isinstance(ip_info, str):
+            # 如果直接是IP字符串
+            formatted_ips.append({
+                'ip': ip_info,
+                'description': '',
+                'create_time': '',
+                'status': 'active'
+            })
+    
+    return jsonify({
+        'success': True,
+        'data': {
+            'uin': user_data.get('uin'),
+            'appid': appid_to_use,
+            'ip_list': formatted_ips,
+            'total': len(formatted_ips)
+        }
+    })
+
+@web.route('/openapi/update_whitelist', methods=['POST'])
+@require_auth
+@catch_error
+def openapi_update_whitelist():
+    """更新IP白名单（添加或删除IP）"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    ip_address = data.get('ip', '').strip()
+    action = data.get('action', '').lower()  # 'add' 或 'del'
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    if not appid_to_use:
+        return openapi_error_response('缺少AppID参数')
+    
+    if not ip_address:
+        return openapi_error_response('缺少IP地址参数')
+    
+    if action not in ['add', 'del']:
+        return openapi_error_response('无效的操作类型，只支持add或del')
+    
+    # IP格式验证
+    import re
+    ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+    if not re.match(ip_pattern, ip_address):
+        return openapi_error_response('IP地址格式无效')
+    
+    # 检查IP地址范围
+    try:
+        parts = ip_address.split('.')
+        for part in parts:
+            if not (0 <= int(part) <= 255):
+                return openapi_error_response('IP地址范围无效')
+    except ValueError:
+        return openapi_error_response('IP地址格式错误')
+    
+    # 这里需要先创建白名单登录二维码
+    try:
+        # 创建白名单登录二维码
+        qr_result = _bot_api.create_white_login_qr(
+            appid=appid_to_use,
+            uin=user_data.get('uin'),
+            uid=user_data.get('developerId'),
+            ticket=user_data.get('ticket')
+        )
+        
+        if qr_result.get('code', 0) != 0:
+            return openapi_error_response('创建白名单授权失败，请检查登录状态')
+        
+        qrcode = qr_result.get('qrcode', '')
+        if not qrcode:
+            return openapi_error_response('获取白名单授权码失败')
+        
+        # 使用本地bot_api模块更新白名单
+        res = _bot_api.update_white_list(
+            appid=appid_to_use,
+            uin=user_data.get('uin'),
+            uid=user_data.get('developerId'),
+            ticket=user_data.get('ticket'),
+            qrcode=qrcode,
+            ip=ip_address,
+            action=action
+        )
+        
+        # 检查API返回状态
+        if res.get('code', 0) != 0:
+            error_msg = res.get('msg') or f'{"添加" if action == "add" else "删除"}IP失败'
+            return openapi_error_response(error_msg)
+        
+        return jsonify({
+            'success': True,
+            'message': f'IP{"添加" if action == "add" else "删除"}成功',
+            'data': {
+                'ip': ip_address,
+                'action': action,
+                'appid': appid_to_use
+            }
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] 更新白名单失败: {e}")
+        return openapi_error_response(f'操作失败: {str(e)}')
+
+@web.route('/openapi/get_delete_qr', methods=['POST'])
+@require_auth
+@catch_error
+def openapi_get_delete_qr():
+    """获取删除IP的授权二维码"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    if not appid_to_use:
+        return openapi_error_response('缺少AppID参数')
+    
+    try:
+        # 创建白名单登录二维码
+        qr_result = _bot_api.create_white_login_qr(
+            appid=appid_to_use,
+            uin=user_data.get('uin'),
+            uid=user_data.get('developerId'),
+            ticket=user_data.get('ticket')
+        )
+        
+        if qr_result.get('code', 0) != 0:
+            return openapi_error_response('创建授权二维码失败，请检查登录状态')
+        
+        qrcode = qr_result.get('qrcode', '')
+        qr_url = qr_result.get('url', '')
+        
+        if not qrcode or not qr_url:
+            return openapi_error_response('获取授权二维码失败')
+        
+        return jsonify({
+            'success': True,
+            'qrcode': qrcode,
+            'url': qr_url,
+            'message': '获取授权二维码成功'
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] 获取删除授权二维码失败: {e}")
+        return openapi_error_response(f'获取授权二维码失败: {str(e)}')
+
+@web.route('/openapi/check_delete_auth', methods=['POST'])
+@require_auth
+@catch_error
+def openapi_check_delete_auth():
+    """检查删除授权状态"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    qrcode = data.get('qrcode', '')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    if not appid_to_use or not qrcode:
+        return openapi_error_response('缺少必要参数')
+    
+    try:
+        # 验证二维码授权状态
+        auth_result = _bot_api.verify_qr_auth(
+            appid=appid_to_use,
+            uin=user_data.get('uin'),
+            uid=user_data.get('developerId'),
+            ticket=user_data.get('ticket'),
+            qrcode=qrcode
+        )
+        
+        if auth_result.get('code', 0) == 0:
+            return jsonify({
+                'success': True,
+                'authorized': True,
+                'message': '授权成功'
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'authorized': False,
+                'message': '等待授权中'
+            })
+        
+    except Exception as e:
+        print(f"[ERROR] 检查删除授权状态失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': True,
+            'message': f'检查授权状态失败: {str(e)}'
+        })
+
+@web.route('/openapi/execute_delete_ip', methods=['POST'])
+@require_auth
+@catch_error
+def openapi_execute_delete_ip():
+    """执行删除IP操作（已授权）"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    ip_address = data.get('ip', '').strip()
+    qrcode = data.get('qrcode', '')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    if not all([appid_to_use, ip_address, qrcode]):
+        return openapi_error_response('缺少必要参数')
+    
+    try:
+        # 使用已授权的二维码执行删除操作
+        res = _bot_api.update_white_list(
+            appid=appid_to_use,
+            uin=user_data.get('uin'),
+            uid=user_data.get('developerId'),
+            ticket=user_data.get('ticket'),
+            qrcode=qrcode,
+            ip=ip_address,
+            action='del'
+        )
+        
+        # 检查API返回状态
+        if res.get('code', 0) != 0:
+            error_msg = res.get('msg') or '删除IP失败'
+            return openapi_error_response(error_msg)
+        
+        return jsonify({
+            'success': True,
+            'message': 'IP删除成功',
+            'data': {
+                'ip': ip_address,
+                'appid': appid_to_use
+            }
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] 执行删除IP失败: {e}")
+        return openapi_error_response(f'删除IP失败: {str(e)}')
+
+@web.route('/openapi/batch_add_whitelist', methods=['POST'])
+@require_auth
+@catch_error
+def openapi_batch_add_whitelist():
+    """批量添加IP到白名单（包含现有IP）"""
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    ip_list = data.get('ip_list', [])
+    qrcode = data.get('qrcode', '')
+    
+    user_data = check_openapi_login(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+    
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+    
+    if not all([appid_to_use, ip_list, qrcode]):
+        return openapi_error_response('缺少必要参数')
+    
+    if not isinstance(ip_list, list) or len(ip_list) == 0:
+        return openapi_error_response('IP列表不能为空')
+    
+    try:
+        print(f"[INFO] 开始批量添加IP到白名单, AppID: {appid_to_use}, IP数量: {len(ip_list)}")
+        print(f"[DEBUG] IP列表: {ip_list}")
+        
+        # 将IP列表转换为逗号分隔的字符串（QQ开放平台的格式要求）
+        ip_string = ','.join(ip_list)
+        
+        # 调用更新白名单的API，使用add操作但包含所有IP
+        res = _bot_api.update_white_list(
+            appid=appid_to_use,
+            uin=user_data.get('uin'),
+            uid=user_data.get('developerId'),
+            ticket=user_data.get('ticket'),
+            qrcode=qrcode,
+            ip=ip_string,  # 包含所有IP的字符串
+            action='add'
+        )
+        
+        # 检查API返回状态
+        if res.get('code', 0) != 0:
+            error_msg = res.get('msg') or '批量添加IP失败'
+            return openapi_error_response(error_msg)
+        
+        print(f"[INFO] 批量添加IP成功，总计: {len(ip_list)} 个IP")
+        return jsonify({
+            'success': True,
+            'message': f'成功批量添加 {len(ip_list)} 个IP地址',
+            'data': {
+                'total_ips': len(ip_list),
+                'ip_list': ip_list,
+                'appid': appid_to_use
+            }
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] 批量添加IP失败: {e}")
+        return openapi_error_response(f'批量添加IP失败: {str(e)}')
+
+# ===== 系统状态相关API =====
+
+@web.route('/api/system/status', methods=['GET'])
+def get_system_status():
+    """获取系统状态信息"""
+    try:
+        # 导入配置文件
+        import sys
+        import os
+        
+        # 将项目根目录添加到路径中以便导入config
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        
+        try:
+            import config
+            # 直接从配置文件读取是否为单独进程模式
+            server_config = getattr(config, 'SERVER_CONFIG', {})
+            websocket_config = getattr(config, 'WEBSOCKET_CONFIG', {})
+            
+            web_dual_process = server_config.get('web_dual_process', False)
+            websocket_enabled = websocket_config.get('enabled', False)
+            
+        except (ImportError, AttributeError) as e:
+            print(f"[WARNING] 无法读取配置文件: {e}")
+            # 如果无法导入配置文件，使用默认值
+            web_dual_process = False
+            websocket_enabled = False
+        
+        current_pid = os.getpid()
+        
+        # WebSocket可用性判断
+        websocket_available = False
+        if not web_dual_process:
+            # 非单独进程模式
+            if websocket_enabled:
+                # 启用了WebSocket，则WebSocket可用
+                websocket_available = True
+            else:
+                # 未启用WebSocket，但可能有主进程运行，检查主进程
+                try:
+                    import psutil
+                    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                        try:
+                            if proc.info['pid'] != current_pid and proc.info['cmdline']:
+                                cmdline = ' '.join(proc.info['cmdline'])
+                                if 'main.py' in cmdline and 'ElainaBot' in cmdline:
+                                    websocket_available = True
+                                    break
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            continue
+                except ImportError:
+                    # 如果psutil不可用，保守判断
+                    websocket_available = False
+        
+        return jsonify({
+            'success': True,
+            'standalone_web': web_dual_process,          # 直接使用配置文件中的值
+            'websocket_available': websocket_available,
+            'websocket_enabled': websocket_enabled,
+            'process_id': current_pid,
+            'config_source': 'config.py'
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] 获取系统状态失败: {e}")
+        return jsonify({
+            'success': False,
+            'standalone_web': True,  # 出错时保守判断为单独进程
+            'websocket_available': False,
+            'error': str(e),
+            'config_source': 'fallback'
+        })
+
+@web.route('/api/restart', methods=['POST'])
+@require_auth
+def restart_bot():
+    """重启机器人"""
+    try:
+        import os
+        import sys
+        import datetime
+        import json
+        import platform
+        import subprocess
+        
+        current_pid = os.getpid()
+        current_dir = os.getcwd()
+        main_py_path = os.path.join(current_dir, 'main.py')
+        
+        # 检查main.py文件是否存在
+        if not os.path.exists(main_py_path):
+            return jsonify({
+                'success': False,
+                'error': 'main.py文件不存在！'
+            })
+        
+        # 创建重启脚本内容
+        def _create_restart_python_script(current_pid, main_py_path):
+            script_content = f'''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+import time
+import signal
+import platform
+import subprocess
+
+def main():
+    current_pid = {current_pid}
+    main_py_path = r"{main_py_path}"
+    try:
+        if platform.system().lower() == 'windows':
+            subprocess.run(['taskkill', '/PID', str(current_pid), '/F'], 
+                         check=False, capture_output=True)
+        else:
+            try:
+                os.kill(current_pid, signal.SIGTERM)
+                time.sleep(0.1)
+                try:
+                    os.kill(current_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            except ProcessLookupError:
+                pass
+    except Exception as e:
+        pass
+    
+    time.sleep(0.1)
+    try:
+        os.chdir(os.path.dirname(main_py_path))
+        
+        if platform.system().lower() == 'windows':
+            subprocess.Popen(
+                [sys.executable, main_py_path],
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                cwd=os.path.dirname(main_py_path)
+            )
+        else:
+            try:
+                script_path = __file__
+                if os.path.exists(script_path):
+                    os.remove(script_path)
+            except:
+                pass
+            os.execv(sys.executable, [sys.executable, main_py_path])
+        
+    except Exception as e:
+        sys.exit(1)
+    
+    if platform.system().lower() == 'windows':
+        time.sleep(0.1)
+        try:
+            script_path = __file__
+            if os.path.exists(script_path):
+                os.remove(script_path)
+        except:
+            pass
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
+'''
+            return script_content
+        
+        # 创建重启脚本
+        restart_script_content = _create_restart_python_script(current_pid, main_py_path)
+        restart_script_path = os.path.join(current_dir, 'bot_restarter.py')
+        
+        with open(restart_script_path, 'w', encoding='utf-8') as f:
+            f.write(restart_script_content)
+        
+        # 执行重启脚本
+        is_windows = platform.system().lower() == 'windows'
+        
+        if is_windows:
+            subprocess.Popen(['python', restart_script_path], cwd=current_dir,
+                           creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            subprocess.Popen([sys.executable, restart_script_path], cwd=current_dir,
+                           start_new_session=True)
+        
+        return jsonify({
+            'success': True,
+            'message': '重启命令已发送'
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] 重启失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+@web.route('/api/status', methods=['GET'])
+def get_simple_status():
+    """获取简单状态信息，用于重启后的状态检测"""
+    try:
+        import datetime
+        return jsonify({
+            'status': 'ok',
+            'timestamp': datetime.datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
 
 # ===== 消息发送界面相关API =====
 
@@ -3259,4 +3884,3 @@ def get_user_nicknames_batch(user_ids):
                 result[user_id] = f"用户{user_id[-6:]}"
     
     return result
-

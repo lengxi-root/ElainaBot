@@ -25,8 +25,6 @@ SAVE_RAW_MESSAGE_TO_DB = False                   # 是否将消息的原始内�
 SERVER_CONFIG = {
     'host': '0.0.0.0',                          # HTTP服务监听地址，0.0.0.0表示监听所有接口
     'port': 5001,                               # HTTP服务监听端口号
-    'socket_timeout': 30,                       # Socket连接超时时间(秒)
-    'keepalive': True,                          # 是否启用HTTP Keep-Alive连接复用
     'web_dual_process': False,                  # 是否将Web面板作为独立进程启动，开启后日志无法推送，但不会阻塞程序
     'web_port': 5002,                          # Web面板独立进程端口号（仅在dual_process=True时有效）
 }
@@ -49,10 +47,8 @@ LOG_CONFIG = {
 # WebSocket配置 - 实时通信连接设置
 WEBSOCKET_CONFIG = {
     'enabled': True,                           # 是否启用WebSocket连接功能
-    'auto_connect': True,                       # 启动时是否自动建立连接
-    'client_name': 'elaina_main',               # WebSocket客户端标识名称
-    'reconnect_interval': 1,                    # 断线重连间隔时间(秒)
-    'max_reconnects': -1,                       # 最大重连次数，-1表示无限重连
+    'custom_url': None,                         # 自定义WebSocket连接地址，如果设置则直接连接，不获取网关
+                                                # 示例: 'wss://api.sgroup.qq.com/websocket' 或 'ws://localhost:8080/ws'
     'log_level': 'INFO',                        # WebSocket专用日志级别
     'log_message_content': False,               # 是否记录消息内容(调试模式)
 }
@@ -61,11 +57,7 @@ WEBSOCKET_CONFIG = {
 WEB_SECURITY = {
     'access_token': 'admin123',              # Web面板访问令牌，URL参数验证
     'admin_password': 'admin1234',           # 管理员登录密码
-    'cookie_secret': 'elaina_cookie_secret_key_2024_v1',  # Cookie加密签名密钥
-    'cookie_name': 'elaina_admin_session',      # 管理员会话Cookie名称
-    'cookie_expires_days': 7,                   # Cookie有效期天数
     'production_mode': True,                    # 生产环境模式，影响错误信息显示
-    'secure_headers': True                      # 是否启用安全响应头防护
 }
 
 # 主数据库配置 - 业务数据存储设置
@@ -101,11 +93,6 @@ DB_CONFIG = {
     'long_query_warning_time': 60,             # 长查询时间警告阈值(秒)
     'pool_status_interval': 180,               # 连接池状态记录间隔(秒，3分钟)
     'pool_maintenance_interval': 15,           # 连接池维护清理间隔(秒)
-    
-    # 兼容性设置
-    'pool_name': 'elaina_pool',                # 连接池标识名称
-    'use_pure': True,                          # 使用纯Python MySQL驱动
-    'buffered': False                          # 是否缓存查询结果
 }
 
 # 日志数据库配置 - 系统日志存储设置

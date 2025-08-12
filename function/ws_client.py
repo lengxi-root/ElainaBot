@@ -104,6 +104,9 @@ class WebSocketClient:
         self.session_id = None
         self.last_seq = 0
         
+        # 检测是否为纯WebSocket模式（非QQ Bot协议）
+        self.is_custom_mode = config and config.get('custom_mode', False)
+        
         self.handlers = {
             'message': [],
             'connect': [],
@@ -231,6 +234,15 @@ class WebSocketClient:
         self._update_stats(start_time=time.time())
         
         await self._call_handlers('connect', {'timestamp': time.time()})
+        
+        # 如果是自定义模式，直接触发ready事件，不等待QQ Bot协议
+        if self.is_custom_mode:
+            await self._call_handlers('ready', {
+                'session_id': None,
+                'bot_info': {'username': 'Custom WebSocket'},
+                'data': {'custom_mode': True}
+            })
+        
         return True
     
     async def disconnect(self):
@@ -312,6 +324,23 @@ class WebSocketClient:
     async def _process_message(self, message):
         """处理收到的消息"""
         try:
+            # 如果是自定义模式，直接将原始消息传递给处理器
+            if self.is_custom_mode:
+                self._update_stats(received_messages=self.stats['received_messages'] + 1)
+                
+                # 尝试解析JSON，如果失败就传递原始字符串
+                try:
+                    if isinstance(message, (bytes, bytearray)):
+                        message = message.decode('utf-8')
+                    parsed_data = json.loads(message) if isinstance(message, str) else message
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    parsed_data = message
+                
+                # 直接传递给消息处理器
+                await self._call_handlers('message', parsed_data)
+                return
+            
+            # QQ Bot模式的原有逻辑
             data = json.loads(message if isinstance(message, str) else message.decode('utf-8'))
             
             self._update_stats(received_messages=self.stats['received_messages'] + 1)
@@ -568,9 +597,18 @@ class QQBotWSManager:
     
     async def create_client(self, name: str = "qq_bot") -> Optional[WebSocketClient]:
         """创建客户端"""
-        gateway_url = self.get_gateway_url()  # 移除await，因为现在是同步方法
-        if not gateway_url:
-            return None
+        # 检查是否配置了自定义WebSocket URL
+        custom_url = self.config.get('custom_url')
+        
+        if custom_url:
+            # 使用自定义URL，直接连接
+            logger.info(f"使用自定义WebSocket URL: {custom_url}")
+            gateway_url = custom_url
+        else:
+            # 使用默认方式获取网关地址
+            gateway_url = self.get_gateway_url()
+            if not gateway_url:
+                return None
         
         client_config = {
             'url': gateway_url,
@@ -602,6 +640,23 @@ async def create_qq_bot_client(config: Dict[str, Any], name: str = "qq_bot") -> 
     
     if client:
         _manager.add_client(name, client)
+    
+    return client
+
+def create_custom_ws_client(ws_url: str, name: str = "custom_ws", config: Dict[str, Any] = None) -> WebSocketClient:
+    """创建自定义WebSocket客户端 - 直接连接指定URL"""
+    client_config = config or {}
+    client_config.update({
+        'url': ws_url,
+        'reconnect_interval': client_config.get('reconnect_interval', 5),
+        'max_reconnects': client_config.get('max_reconnects', -1),
+        'log_level': client_config.get('log_level', 'INFO'),
+        'log_message_content': client_config.get('log_message_content', False),
+    })
+    
+    logger.info(f"创建自定义WebSocket客户端: {name} -> {ws_url}")
+    client = WebSocketClient(name, client_config)
+    _manager.add_client(name, client)
     
     return client
 

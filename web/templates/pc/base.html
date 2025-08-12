@@ -45,13 +45,11 @@
                         <span class="connection-status disconnected" id="connection-indicator"></span>
                         <span class="text-light" id="connection-text">未连接</span>
                     </div>
-                    <div class="me-3">
-                        <span class="text-light"><i class="bi bi-alarm"></i> <span id="topbar-uptime-text">0天 0小时</span></span>
-                    </div>
-                    <div class="me-3">
-                        <span class="text-light"><i class="bi bi-clock-history"></i> <span id="topbar-start-time">未知</span></span>
-                    </div>
+
                     <span class="text-light me-3"><i class="bi bi-clock"></i> <span id="current-time"></span></span>
+                    <button class="btn btn-sm btn-outline-danger me-2" onclick="restartBot()" id="restart-btn">
+                        <i class="bi bi-power"></i> 重启
+                    </button>
                     <a href="#" id="mobile-switch-btn" class="btn btn-sm btn-outline-light me-2">
                         <i class="bi bi-phone"></i> 切换手机版
                     </a>
@@ -148,6 +146,198 @@
                 window.pageLoadOptimizer.currentPage = currentPage;
             }
         });
+        
+        // 重启机器人功能
+        async function restartBot() {
+            const restartBtn = document.getElementById('restart-btn');
+            const originalText = restartBtn.innerHTML;
+            
+            // 确认对话框
+            if (!confirm('⚠️ 确定要重启机器人吗？\n\n这将临时中断服务，重启完成后页面会自动刷新。')) {
+                return;
+            }
+            
+            try {
+                // 禁用按钮并显示重启状态
+                restartBtn.disabled = true;
+                restartBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 重启中...';
+                restartBtn.className = 'btn btn-warning btn-sm';
+                
+                // 发送重启请求
+                const response = await fetch('/web/api/restart', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        // 显示重启成功消息
+                        restartBtn.innerHTML = '<i class="bi bi-check-circle"></i> 重启中...';
+                        
+                        // 开始检测服务器状态
+                        showRestartStatus();
+                        checkServerStatus();
+                    } else {
+                        throw new Error(result.error || '重启失败');
+                    }
+                } else {
+                    throw new Error('请求失败');
+                }
+                
+            } catch (error) {
+                console.error('重启失败:', error);
+                
+                // 恢复按钮状态
+                restartBtn.disabled = false;
+                restartBtn.innerHTML = originalText;
+                restartBtn.className = 'btn btn-outline-danger btn-sm';
+                
+                // 显示错误消息
+                showToast('重启失败: ' + error.message, 'error');
+            }
+        }
+
+        // 显示重启状态界面
+        function showRestartStatus() {
+            // 创建遮罩层
+            const overlay = document.createElement('div');
+            overlay.id = 'restart-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 9999;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            `;
+            
+            // 创建状态卡片
+            const statusCard = document.createElement('div');
+            statusCard.style.cssText = `
+                background: white;
+                padding: 30px;
+                border-radius: 10px;
+                text-align: center;
+                max-width: 400px;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            `;
+            
+            statusCard.innerHTML = `
+                <div class="mb-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+                <h5 class="mb-3">🔄 机器人重启中</h5>
+                <p class="text-muted mb-3">正在等待服务器响应...</p>
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 100%"></div>
+                </div>
+                <small class="text-muted">
+                    <span id="restart-status-text">检测服务器状态中...</span><br>
+                    <span id="restart-attempts">检测次数: 0</span>
+                </small>
+            `;
+            
+            overlay.appendChild(statusCard);
+            document.body.appendChild(overlay);
+        }
+
+        // 检测服务器状态
+        let checkAttempts = 0;
+        async function checkServerStatus() {
+            checkAttempts++;
+            const statusText = document.getElementById('restart-status-text');
+            const attemptsText = document.getElementById('restart-attempts');
+            
+            if (attemptsText) {
+                attemptsText.textContent = `检测次数: ${checkAttempts}`;
+            }
+            
+            try {
+                // 检测当前端口是否响应
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒超时
+                
+                const response = await fetch('/web/api/status', {
+                    method: 'GET',
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.status === 'ok') {
+                        // 服务器已恢复
+                        if (statusText) {
+                            statusText.textContent = '✅ 服务器已恢复，正在刷新页面...';
+                        }
+                        
+                        // 延迟1秒后刷新页面
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                        return;
+                    }
+                }
+            } catch (error) {
+                // 服务器还未恢复，继续检测
+                if (statusText) {
+                    statusText.textContent = `⏳ 等待服务器恢复... (${Math.floor(checkAttempts * 0.3)}s)`;
+                }
+            }
+            
+            // 每0.3秒检测一次
+            setTimeout(checkServerStatus, 300);
+        }
+
+        // 显示提示消息
+        function showToast(message, type = 'info') {
+            // 创建toast元素
+            const toast = document.createElement('div');
+            toast.className = `toast align-items-center text-white bg-${type === 'error' ? 'danger' : 'success'} border-0`;
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 10000;
+                min-width: 300px;
+            `;
+            toast.setAttribute('role', 'alert');
+            toast.setAttribute('aria-live', 'assertive');
+            toast.setAttribute('aria-atomic', 'true');
+            
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">
+                        ${message}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            // 使用Bootstrap的Toast
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+            
+            // 3秒后自动移除
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 3000);
+        }
     </script>
 </body>
 </html>

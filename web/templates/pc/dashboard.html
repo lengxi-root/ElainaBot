@@ -174,13 +174,33 @@
         </div>
     </div>
 
-    <!-- 内存分配详情卡片 -->
+    <!-- 服务数据卡片 -->
     <div class="col-md-6">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="mb-0"><i class="bi bi-bar-chart-fill"></i> 内存分配详情</h6>
+                <h6 class="mb-0"><i class="bi bi-bar-chart-fill"></i> 服务数据</h6>
             </div>
             <div class="card-body">
+                <!-- 开机时间信息 -->
+                <div class="row row-cols-2 g-3 mb-3">
+                    <div class="col">
+                        <div class="p-2 border rounded bg-light h-100">
+                            <div class="d-flex flex-column align-items-center">
+                                <div><i class="bi bi-calendar-check text-info"></i> 开机时间</div>
+                                <div id="framework-boot-time" class="badge bg-info mt-1">未知</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="p-2 border rounded bg-light h-100">
+                            <div class="d-flex flex-column align-items-center">
+                                <div><i class="bi bi-clock-history text-success"></i> 运行时间</div>
+                                <div id="framework-uptime" class="badge bg-success mt-1">0天 0小时</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- 原有的GC和对象数信息 -->
                 <div class="row row-cols-2 g-3">
                     <div class="col">
                         <div class="p-2 border rounded bg-light h-100">
@@ -215,5 +235,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化WebSocket连接（仅dashboard页面需要的功能）
     initSocket('dashboard');
 });
+
+
 </script>
 {% endblock %}

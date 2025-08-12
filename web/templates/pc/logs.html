@@ -1,6 +1,13 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
+<!-- 单独进程Web警告 -->
+<div id="standalone-web-warning" class="alert alert-warning alert-dismissible fade show" style="display: none;" role="alert">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <strong>注意：</strong> 您正在使用单独进程WEB，无法接收实时日志。请进入数据库查看全部日志。
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+
 <!-- 日志标签页 -->
 <ul class="nav nav-tabs" id="logTabs" role="tablist">
     <li class="nav-item">
@@ -290,8 +297,43 @@ function copyLogEntry(button) {
 }
 
 // 页面初始化
+// 检测是否为单独进程Web
+function checkStandaloneWeb() {
+    // 通过后端配置信息来判断是否为单独进程模式
+    fetch('/api/system/status', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('系统状态检查结果:', data);
+        
+        // 只有当配置文件中明确设置为单独进程模式时才显示警告
+        if (data.success && data.standalone_web === true) {
+            document.getElementById('standalone-web-warning').style.display = 'block';
+            console.info('检测到单独进程Web模式，已显示警告信息');
+        } else if (data.success && data.standalone_web === false) {
+            // 明确不是单独进程模式，隐藏警告
+            document.getElementById('standalone-web-warning').style.display = 'none';
+            console.info('检测到非单独进程模式，WebSocket可用性:', data.websocket_available);
+        } else {
+            // 状态不明确，不显示警告（避免误报）
+            console.warn('系统状态检查失败，但不显示警告以避免误报:', data);
+        }
+    })
+    .catch(error => {
+        // 网络错误不再自动显示警告，避免误报
+        console.warn('无法检查系统状态，但不显示警告以避免误报:', error);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     initLogPanels();
+    
+    // 检测单独进程
+    checkStandaloneWeb();
     
     // 初始化所有日志页面
     Object.keys(logContainers).forEach(type => {

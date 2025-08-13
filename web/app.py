@@ -3260,6 +3260,8 @@ def restart_bot():
         import json
         import platform
         import subprocess
+        import psutil
+        import importlib.util
         
         current_pid = os.getpid()
         current_dir = os.getcwd()
@@ -3272,8 +3274,126 @@ def restart_bot():
                 'error': 'main.py文件不存在！'
             })
         
+        # 读取配置文件
+        config_path = os.path.join(current_dir, 'config.py')
+        config = None
+        if os.path.exists(config_path):
+            try:
+                spec = importlib.util.spec_from_file_location("config", config_path)
+                config = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(config)
+            except Exception as e:
+                print(f"[WARNING] 无法读取config.py: {e}")
+        
+        # 检查是否为独立进程模式
+        is_dual_process = False
+        main_port = 5001
+        web_port = 5002
+        
+        if config and hasattr(config, 'SERVER_CONFIG'):
+            server_config = config.SERVER_CONFIG
+            is_dual_process = server_config.get('web_dual_process', False)
+            main_port = server_config.get('port', 5001)
+            web_port = server_config.get('web_port', 5002)
+        
+        def find_processes_by_port(port):
+            """通过端口号查找进程ID"""
+            pids = []
+            try:
+                for conn in psutil.net_connections():
+                    if conn.laddr.port == port and conn.status == 'LISTEN':
+                        try:
+                            proc = psutil.Process(conn.pid)
+                            pids.append(conn.pid)
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            continue
+            except Exception as e:
+                print(f"[WARNING] 查找端口{port}进程失败: {e}")
+            return pids
+        
+        def kill_process_safely(pid):
+            """安全地杀死进程"""
+            try:
+                if platform.system().lower() == 'windows':
+                    subprocess.run(['taskkill', '/PID', str(pid), '/F'], 
+                                 check=False, capture_output=True)
+                else:
+                    try:
+                        proc = psutil.Process(pid)
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=3)
+                        except psutil.TimeoutExpired:
+                            proc.kill()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                return True
+            except Exception as e:
+                print(f"[WARNING] 杀死进程{pid}失败: {e}")
+                return False
+        
         # 创建重启脚本内容
-        def _create_restart_python_script(current_pid, main_py_path):
+        def _create_restart_python_script(main_py_path, is_dual_process, main_port, web_port):
+            # 构建要杀死的进程列表
+            if is_dual_process:
+                kill_ports_code = f"""
+        # 独立进程模式：查找并杀死主程序和web面板进程
+        ports_to_kill = [{main_port}, {web_port}]
+        pids_to_kill = []
+        
+        for port in ports_to_kill:
+            for conn in psutil.net_connections():
+                if conn.laddr.port == port and conn.status == 'LISTEN':
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        pids_to_kill.append(conn.pid)
+                        print(f"找到端口{{port}}的进程: PID {{conn.pid}}")
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+        
+        # 去重
+        pids_to_kill = list(set(pids_to_kill))
+        
+        # 杀死所有相关进程
+        for pid in pids_to_kill:
+            try:
+                if platform.system().lower() == 'windows':
+                    subprocess.run(['taskkill', '/PID', str(pid), '/F'], 
+                                 check=False, capture_output=True)
+                    print(f"Windows: 已杀死进程 PID {{pid}}")
+                else:
+                    proc = psutil.Process(pid)
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                    print(f"Linux: 已杀死进程 PID {{pid}}")
+            except Exception as e:
+                print(f"杀死进程{{pid}}失败: {{e}}")
+                """
+            else:
+                kill_ports_code = f"""
+        # 单进程模式：只杀死当前进程
+        current_pid = os.getpid()
+        try:
+            if platform.system().lower() == 'windows':
+                subprocess.run(['taskkill', '/PID', str(current_pid), '/F'], 
+                             check=False, capture_output=True)
+            else:
+                try:
+                    os.kill(current_pid, signal.SIGTERM)
+                    time.sleep(0.1)
+                    try:
+                        os.kill(current_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                except ProcessLookupError:
+                    pass
+        except Exception as e:
+            print(f"杀死当前进程失败: {{e}}")
+                """
+            
             script_content = f'''#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -3283,30 +3403,22 @@ import time
 import signal
 import platform
 import subprocess
+import psutil
 
 def main():
-    current_pid = {current_pid}
     main_py_path = r"{main_py_path}"
-    try:
-        if platform.system().lower() == 'windows':
-            subprocess.run(['taskkill', '/PID', str(current_pid), '/F'], 
-                         check=False, capture_output=True)
-        else:
-            try:
-                os.kill(current_pid, signal.SIGTERM)
-                time.sleep(0.1)
-                try:
-                    os.kill(current_pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            except ProcessLookupError:
-                pass
-    except Exception as e:
-        pass
     
-    time.sleep(0.1)
+    try:{kill_ports_code}
+    except Exception as e:
+        print(f"杀死进程过程中出错: {{e}}")
+    
+    # 等待进程完全终止
+    time.sleep(1)
+    
     try:
         os.chdir(os.path.dirname(main_py_path))
+        
+        print(f"正在重新启动主程序: {{main_py_path}}")
         
         if platform.system().lower() == 'windows':
             subprocess.Popen(
@@ -3315,6 +3427,7 @@ def main():
                 cwd=os.path.dirname(main_py_path)
             )
         else:
+            # 清理重启脚本
             try:
                 script_path = __file__
                 if os.path.exists(script_path):
@@ -3323,12 +3436,16 @@ def main():
                 pass
             os.execv(sys.executable, [sys.executable, main_py_path])
         
+        print("重启命令已执行")
+        
     except Exception as e:
+        print(f"重启失败: {{e}}")
         sys.exit(1)
     
     if platform.system().lower() == 'windows':
-        time.sleep(0.1)
+        time.sleep(1)
         try:
+            # 清理重启脚本
             script_path = __file__
             if os.path.exists(script_path):
                 os.remove(script_path)
@@ -3342,11 +3459,21 @@ if __name__ == "__main__":
             return script_content
         
         # 创建重启脚本
-        restart_script_content = _create_restart_python_script(current_pid, main_py_path)
+        restart_script_content = _create_restart_python_script(main_py_path, is_dual_process, main_port, web_port)
         restart_script_path = os.path.join(current_dir, 'bot_restarter.py')
         
         with open(restart_script_path, 'w', encoding='utf-8') as f:
             f.write(restart_script_content)
+        
+        # 输出调试信息
+        restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
+        print(f"[INFO] 重启模式: {restart_mode}")
+        if is_dual_process:
+            print(f"[INFO] 主程序端口: {main_port}, Web面板端口: {web_port}")
+            # 显示当前监听的端口进程
+            main_pids = find_processes_by_port(main_port)
+            web_pids = find_processes_by_port(web_port)
+            print(f"[INFO] 主程序进程: {main_pids}, Web面板进程: {web_pids}")
         
         # 执行重启脚本
         is_windows = platform.system().lower() == 'windows'
@@ -3360,7 +3487,7 @@ if __name__ == "__main__":
         
         return jsonify({
             'success': True,
-            'message': '重启命令已发送'
+            'message': f'重启命令已发送 ({restart_mode})'
         })
         
     except Exception as e:

@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 
 from function.db_pool import ConnectionManager, DatabaseService
+from config import DB_CONFIG
 
 logger = logging.getLogger('database')
 
@@ -17,6 +18,12 @@ class Database:
             cls._instance._init_database()
         return cls._instance
 
+    @staticmethod
+    def get_table_name(base_name):
+        """获取带前缀的表名"""
+        prefix = DB_CONFIG.get('table_prefix', 'M_')
+        return f"{prefix}{base_name}"
+
     def _init_database(self):
         """初始化数据库"""
         try:
@@ -29,15 +36,20 @@ class Database:
 
     def _initialize_tables(self):
         """初始化数据库表"""
+        users_table = self.get_table_name('users')
+        groups_table = self.get_table_name('groups')
+        groups_users_table = self.get_table_name('groups_users')
+        members_table = self.get_table_name('members')
+        
         tables = {
-            'M_users': "CREATE TABLE IF NOT EXISTS M_users (user_id VARCHAR(255) NOT NULL UNIQUE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            'M_groups': "CREATE TABLE IF NOT EXISTS M_groups (group_id VARCHAR(255) NOT NULL UNIQUE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci", 
-            'M_groups_users': """CREATE TABLE IF NOT EXISTS M_groups_users (
+            users_table: f"CREATE TABLE IF NOT EXISTS {users_table} (user_id VARCHAR(255) NOT NULL UNIQUE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+            groups_table: f"CREATE TABLE IF NOT EXISTS {groups_table} (group_id VARCHAR(255) NOT NULL UNIQUE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci", 
+            groups_users_table: f"""CREATE TABLE IF NOT EXISTS {groups_users_table} (
                 group_id VARCHAR(255) NOT NULL UNIQUE,
                 users JSON DEFAULT NULL,
                 PRIMARY KEY (group_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
-            'M_members': """CREATE TABLE IF NOT EXISTS M_members (
+            members_table: f"""CREATE TABLE IF NOT EXISTS {members_table} (
                 user_id VARCHAR(255) NOT NULL UNIQUE,
                 PRIMARY KEY (user_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"""
@@ -119,15 +131,15 @@ class Database:
 
     def _add_user(self, user_id):
         """执行添加用户"""
-        self._safe_execute(self._simple_insert, 'M_users', 'user_id', user_id)
+        self._safe_execute(self._simple_insert, self.get_table_name('users'), 'user_id', user_id)
 
     def get_user_count(self):
         """获取用户总数"""
-        return self._safe_execute(self._count_records, 'M_users') or 0
+        return self._safe_execute(self._count_records, self.get_table_name('users')) or 0
 
     def exists_user(self, user_id):
         """检查用户是否存在"""
-        return self._safe_execute(self._record_exists, 'M_users', 'user_id', user_id) or False
+        return self._safe_execute(self._record_exists, self.get_table_name('users'), 'user_id', user_id) or False
 
     # === 群组管理 ===
     def add_group(self, group_id):
@@ -136,11 +148,11 @@ class Database:
 
     def _add_group(self, group_id):
         """执行添加群组"""
-        self._safe_execute(self._simple_insert, 'M_groups', 'group_id', group_id)
+        self._safe_execute(self._simple_insert, self.get_table_name('groups'), 'group_id', group_id)
 
     def get_group_count(self):
         """获取群组总数"""
-        return self._safe_execute(self._count_records, 'M_groups') or 0
+        return self._safe_execute(self._count_records, self.get_table_name('groups')) or 0
 
     def add_user_to_group(self, group_id, user_id):
         """添加用户到群组"""
@@ -149,8 +161,10 @@ class Database:
     def _add_user_to_group(self, group_id, user_id):
         """执行添加用户到群组（并发安全版本）"""
         try:
+            groups_users_table = self.get_table_name('groups_users')
+            
             # 先查询当前群组的用户列表
-            sql = "SELECT users FROM M_groups_users WHERE group_id = %s"
+            sql = f"SELECT users FROM {groups_users_table} WHERE group_id = %s"
             result = DatabaseService.execute_query(sql, (group_id,))
             
             if result and result.get('users'):
@@ -162,7 +176,7 @@ class Database:
                     users_json = json.dumps(users)
                     
                     # 使用 ON DUPLICATE KEY UPDATE 避免并发冲突
-                    sql = """INSERT INTO M_groups_users (group_id, users) VALUES (%s, %s)
+                    sql = f"""INSERT INTO {groups_users_table} (group_id, users) VALUES (%s, %s)
                              ON DUPLICATE KEY UPDATE users = %s"""
                     DatabaseService.execute_update(sql, (group_id, users_json, users_json))
             else:
@@ -171,12 +185,12 @@ class Database:
                 users_json = json.dumps(users)
                 
                 # 使用 INSERT IGNORE 避免主键重复错误
-                sql = "INSERT IGNORE INTO M_groups_users (group_id, users) VALUES (%s, %s)"
+                sql = f"INSERT IGNORE INTO {groups_users_table} (group_id, users) VALUES (%s, %s)"
                 affected_rows = DatabaseService.execute_update(sql, (group_id, users_json))
                 
                 # 如果插入失败（说明记录已存在），则更新记录
                 if affected_rows == 0:
-                    sql = "UPDATE M_groups_users SET users = %s WHERE group_id = %s"
+                    sql = f"UPDATE {groups_users_table} SET users = %s WHERE group_id = %s"
                     DatabaseService.execute_update(sql, (users_json, group_id))
                     
         except Exception as e:
@@ -185,7 +199,8 @@ class Database:
     def get_group_member_count(self, group_id):
         """获取群组成员数量"""
         try:
-            sql = "SELECT users FROM M_groups_users WHERE group_id = %s"
+            groups_users_table = self.get_table_name('groups_users')
+            sql = f"SELECT users FROM {groups_users_table} WHERE group_id = %s"
             result = DatabaseService.execute_query(sql, (group_id,))
             if result and result.get('users'):
                 users = json.loads(result.get('users'))
@@ -202,8 +217,21 @@ class Database:
             
     def _add_member(self, user_id):
         """执行添加成员"""
-        self._safe_execute(self._simple_insert, 'M_members', 'user_id', user_id)
+        self._safe_execute(self._simple_insert, self.get_table_name('members'), 'user_id', user_id)
 
     def get_member_count(self):
         """获取没有群聊的用户数量"""
-        return self._safe_execute(self._count_records, 'M_members') or 0 
+        return self._safe_execute(self._count_records, self.get_table_name('members')) or 0
+
+
+# 预定义常用表名，方便其他模块直接导入使用
+def get_table_name(base_name):
+    """获取带前缀的表名"""
+    prefix = DB_CONFIG.get('table_prefix', 'M_')
+    return f"{prefix}{base_name}"
+
+# 预定义表名常量
+USERS_TABLE = get_table_name('users')
+GROUPS_TABLE = get_table_name('groups')
+GROUPS_USERS_TABLE = get_table_name('groups_users')
+MEMBERS_TABLE = get_table_name('members') 

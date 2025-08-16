@@ -12,6 +12,7 @@ import re
 from typing import Dict, List, Any, Optional
 from function.log_db import LogDatabasePool
 from function.db_pool import DatabaseService
+from function.database import USERS_TABLE, GROUPS_TABLE, MEMBERS_TABLE, GROUPS_USERS_TABLE
 
 try:
     from core.plugin.PluginManager import PluginManager
@@ -192,11 +193,11 @@ class DAUAnalytics:
 
     def _get_user_stats(self) -> Dict[str, Any]:
         queries = [
-            ("SELECT COUNT(*) as count FROM M_users", None, False),
-            ("SELECT COUNT(*) as count FROM M_groups", None, False),
-            ("SELECT COUNT(*) as count FROM M_members", None, False),
-            ("""SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM M_groups_users
+            (f"SELECT COUNT(*) as count FROM {USERS_TABLE}", None, False),
+            (f"SELECT COUNT(*) as count FROM {GROUPS_TABLE}", None, False),
+            (f"SELECT COUNT(*) as count FROM {MEMBERS_TABLE}", None, False),
+            (f"""SELECT group_id, JSON_LENGTH(users) as member_count
+                FROM {GROUPS_USERS_TABLE}
                 ORDER BY member_count DESC
                 LIMIT 3""", None, True)
         ]

@@ -8,6 +8,7 @@ import logging
 import time
 import datetime
 from config import LOG_DB_CONFIG
+from function.database import USERS_TABLE, GROUPS_TABLE, MEMBERS_TABLE, GROUPS_USERS_TABLE
 import traceback
 from function.httpx_pool import sync_get
 from function.database import Database
@@ -667,13 +668,13 @@ class system_plugin(Plugin):
         """获取所有查询参数"""
         return [
             # 基础查询
-            ("SELECT COUNT(*) as count FROM M_users", None, False),  # 用户数量
-            ("SELECT COUNT(*) as count FROM M_groups", None, False),  # 群组数量
-            ("SELECT COUNT(*) as count FROM M_members", None, False),  # 私聊用户数量
+            (f"SELECT COUNT(*) as count FROM {USERS_TABLE}", None, False),  # 用户数量
+            (f"SELECT COUNT(*) as count FROM {GROUPS_TABLE}", None, False),  # 群组数量
+            (f"SELECT COUNT(*) as count FROM {MEMBERS_TABLE}", None, False),  # 私聊用户数量
             # 最活跃群组查询
-            ("""
+            (f"""
                 SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM M_groups_users
+                FROM {GROUPS_USERS_TABLE}
                 ORDER BY member_count DESC
                 LIMIT 1
             """, None, False),
@@ -686,11 +687,11 @@ class system_plugin(Plugin):
         """获取指定群组的查询参数"""
         return [
             # 群成员数量
-            ("SELECT users FROM M_groups_users WHERE group_id = %s", (group_id,), False),
+                            (f"SELECT users FROM {GROUPS_USERS_TABLE} WHERE group_id = %s", (group_id,), False),
             # 获取所有群组数据，用于计算排名
-            ("""
+            (f"""
                 SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM M_groups_users
+                FROM {GROUPS_USERS_TABLE}
                 ORDER BY member_count DESC
             """, None, True)
         ]

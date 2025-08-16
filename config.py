@@ -77,6 +77,7 @@ DB_CONFIG = {
     'read_timeout': 7,                         # 数据读取超时时间(秒)
     'write_timeout': 7,                        # 数据写入超时时间(秒)
     'autocommit': True,                        # 是否自动提交事务
+    'table_prefix': 'M_',                      # 储存用户名前缀，可自定义修改
     
     # 连接池高级设置
     'connection_lifetime': 1200,               # 单个连接最大生命周期(秒，20分钟)

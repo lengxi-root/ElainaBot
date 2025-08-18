@@ -86,27 +86,13 @@ class system_plugin(Plugin):
     
     @staticmethod
     def create_buttons(event, button_configs):
-        rows = []
-        for row_config in button_configs:
-            row = []
-            for btn_config in row_config:
-                button = {
-                    'text': btn_config.get('text', ''),
-                    'data': btn_config.get('data', ''),
-                    'type': btn_config.get('type', 1),
-                    'style': btn_config.get('style', 1),
-                    'enter': btn_config.get('enter', True)
-                }
-                row.append(button)
-            rows.append(event.rows(row))
-        return event.button(rows)
+        # 按钮功能已禁用
+        return None
     
     @staticmethod
     def safe_reply(event, message, buttons=None):
-        if buttons:
-            event.reply(message, buttons, hide_avatar_and_center=True)
-        else:
-            event.reply(message)
+        # 忽略按钮参数，直接发送消息
+        event.reply(message)
     
     @classmethod
     def get_regex_handlers(cls):
@@ -146,12 +132,7 @@ class system_plugin(Plugin):
         if '\\n' in content or '\\t' in content or '\\r' in content or '\\\\' in content:
             content = content.encode('utf-8').decode('unicode_escape')
         
-        button_configs = [[
-            {'text': '再次重试', 'data': event.content, 'enter': False, 'style': 1, 'type': 2},
-            {'text': '重新测试', 'data': 'dm', 'enter': False, 'style': 1, 'type': 2}
-        ]]
-        buttons = system_plugin.create_buttons(event, button_configs)
-        event.reply(content, buttons)
+        event.reply(content)
     
     @classmethod
     def admin_tools(cls, event):
@@ -189,9 +170,7 @@ class system_plugin(Plugin):
         code_content.append(f'总命令数: {total_commands}个')
         message = '\n'.join(header) + "\n\n```python\n" + '\n'.join(code_content) + "\n```\n"
         
-        button_configs = [[{'text': '查看DAU', 'data': 'dau', 'enter': False}]]
-        buttons = system_plugin.create_buttons(event, button_configs)
-        event.reply(message, buttons, hide_avatar_and_center=True)
+        event.reply(message)
     
     @classmethod
     def handle_dau(cls, event):
@@ -268,15 +247,10 @@ class system_plugin(Plugin):
                 logger.warning(f"尝试从数据库读取DAU数据失败: {e}")
             
             display_date = f"{date_str[4:6]}-{date_str[6:8]}"
-            button_configs = [[{'text': '补全DAU', 'data': '补全dau'}]]
-            buttons = system_plugin.create_buttons(event, button_configs)
-            
             event.reply(
                 f"<@{event.user_id}>\n"
                 f"❌ {display_date} 的DAU数据未生成或无该日期数据\n"
-                f"💡 可以尝试使用下方按钮补全DAU记录",
-                buttons,
-                hide_avatar_and_center=True
+                f"💡 可以发送'补全dau'命令补全DAU记录"
             )
             return
         
@@ -296,7 +270,9 @@ class system_plugin(Plugin):
             
             try:
                 cursor = connection.cursor()
-                table_name = f"Mlog_{date_str}_message"
+                # 使用配置中的表前缀
+                table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+                table_name = f"{table_prefix}{date_str}_message"
                 
                 check_query = """
                     SELECT COUNT(*) as count 
@@ -393,7 +369,7 @@ class system_plugin(Plugin):
                 event_stats = {'group_join_count': 0, 'group_leave_count': 0, 'friend_add_count': 0, 'friend_remove_count': 0}
                 if is_today:
                     try:
-                        dau_table_name = "Mlog_dau"
+                        dau_table_name = f"{table_prefix}dau"
                         cursor.execute(f"""
                             SELECT COUNT(*) as count 
                             FROM information_schema.tables 
@@ -424,7 +400,7 @@ class system_plugin(Plugin):
                 # 如果有昨天的日期，查询昨天同时段的数据进行对比
                 yesterday_data = None
                 if yesterday_str and current_hour is not None and current_minute is not None:
-                    yesterday_table = f"Mlog_{yesterday_str}_message"
+                    yesterday_table = f"{table_prefix}{yesterday_str}_message"
                     
                     # 检查昨天的表是否存在
                     cursor.execute(check_query, (yesterday_table,))
@@ -546,18 +522,8 @@ class system_plugin(Plugin):
                 info.append(f'🕒 查询耗时: {query_time}ms')
                 info.append(f'📁 数据源: 实时数据库查询')
                 
-                # 创建按钮
-                button_configs = [
-                    [
-                        {'text': '查询dau', 'data': 'dau', 'type': 2, 'enter': False},
-                        {'text': '今日DAU', 'data': 'dau'}
-                    ],
-                    [{'text': '用户统计', 'data': '用户统计'}]
-                ]
-                buttons = system_plugin.create_buttons(event, button_configs)
-                
-                # 发送带按钮的消息
-                event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+                # 发送消息
+                event.reply('\n'.join(info))
                 
             finally:
                 # 确保关闭游标和释放连接
@@ -645,18 +611,8 @@ class system_plugin(Plugin):
                 except:
                     pass
             
-            # 创建按钮
-            button_configs = [
-                [
-                    {'text': '查询dau', 'data': 'dau', 'type': 2, 'enter': False},
-                    {'text': '今日DAU', 'data': 'dau'}
-                ],
-                [{'text': '用户统计', 'data': '用户统计'}]
-            ]
-            buttons = system_plugin.create_buttons(event, button_configs)
-            
-            # 发送带按钮的消息
-            event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+            # 发送消息
+            event.reply('\n'.join(info))
             
         except Exception as e:
             logger.error(f"发送DAU数据库数据失败: {e}")
@@ -809,12 +765,8 @@ class system_plugin(Plugin):
             query_time = round((time.time() - start_time) * 1000)
             info.append(f'🕒 查询耗时: {query_time}ms')
             
-            # 创建按钮
-            button_configs = [[{'text': 'DAU查询', 'data': 'dau'}]]
-            buttons = system_plugin.create_buttons(event, button_configs)
-            
-            # 发送带按钮的消息
-            event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+            # 发送消息
+            event.reply('\n'.join(info))
             
         except Exception as e:
             logger.error(f'获取统计信息失败: {e}')
@@ -847,12 +799,7 @@ f'💫 已加载内核数: {kernel_count}\n'
 f'⚡ 已加载处理器数: {function_count}\n'
 '\n\n>Tip:只有艾特伊蕾娜，伊蕾娜才能接收到你的消息~！'
         )
-        button_configs = [[
-            {'text': '菜单', 'data': '/菜单'},
-            {'text': '娱乐菜单', 'data': '/娱乐菜单'}
-        ]]
-        btn = system_plugin.create_buttons(event, button_configs)
-        system_plugin.safe_reply(event, msg, btn) 
+        system_plugin.safe_reply(event, msg) 
     
     @staticmethod
     def complete_dau(event):
@@ -920,12 +867,8 @@ f'⚡ 已加载处理器数: {function_count}\n'
             for date in failed_dates:
                 info.append(f'  • {date}')
         
-        # 创建按钮
-        button_configs = [[{'text': 'DAU查询', 'data': 'dau'}]]
-        buttons = system_plugin.create_buttons(event, button_configs)
-        
-        # 发送带按钮的消息
-        event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+        # 发送消息
+        event.reply('\n'.join(info))
     
     @staticmethod
     def clean_historical_data(event):
@@ -991,16 +934,19 @@ f'⚡ 已加载处理器数: {function_count}\n'
         try:
             cursor = connection.cursor(DictCursor)
             
+            # 获取配置中的表前缀
+            table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+            
             # 获取所有日志表
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT table_name 
                 FROM information_schema.tables 
                 WHERE table_schema = DATABASE() 
-                AND (table_name LIKE 'Mlog_%_message' 
-                     OR table_name LIKE 'Mlog_%_plugin'
-                     OR table_name LIKE 'Mlog_%_framework' 
-                     OR table_name LIKE 'Mlog_%_error'
-                     OR table_name LIKE 'Mlog_%_unmatched')
+                AND (table_name LIKE '{table_prefix}%_message' 
+                     OR table_name LIKE '{table_prefix}%_plugin'
+                     OR table_name LIKE '{table_prefix}%_framework' 
+                     OR table_name LIKE '{table_prefix}%_error'
+                     OR table_name LIKE '{table_prefix}%_unmatched')
             """)
             
             log_tables = cursor.fetchall()
@@ -1035,11 +981,21 @@ f'⚡ 已加载处理器数: {function_count}\n'
             return False
             
         try:
-            parts = table_name.split('_')
+            # 获取配置中的表前缀
+            table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+            
+            # 检查表名是否以配置的前缀开始
+            if not table_name.startswith(table_prefix):
+                return False
+                
+            # 移除前缀后获取剩余部分
+            remaining_part = table_name[len(table_prefix):]
+            parts = remaining_part.split('_')
+            
             if len(parts) < 2:
                 return False
                 
-            date_part = parts[1]  # 获取YYYYMMDD部分
+            date_part = parts[0]  # 获取YYYYMMDD部分
             
             if len(date_part) != 8 or not date_part.isdigit():
                 return False
@@ -1094,13 +1050,7 @@ f'⚡ 已加载处理器数: {function_count}\n'
             f'📅 清理范围: {eight_days_ago.strftime("%Y-%m-%d")}之前的日志表'
         ])
         
-        button_configs = [[
-            {'text': '用户统计', 'data': '用户统计'},
-            {'text': 'DAU查询', 'data': 'dau'}
-        ]]
-        buttons = system_plugin.create_buttons(event, button_configs)
-        
-        event.reply('\n'.join(info), buttons, hide_avatar_and_center=True)
+        event.reply('\n'.join(info))
     
     @staticmethod
     def restart_bot(event):

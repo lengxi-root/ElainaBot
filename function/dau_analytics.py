@@ -13,6 +13,7 @@ from typing import Dict, List, Any, Optional
 from function.log_db import LogDatabasePool
 from function.db_pool import DatabaseService
 from function.database import USERS_TABLE, GROUPS_TABLE, MEMBERS_TABLE, GROUPS_USERS_TABLE
+from config import DB_CONFIG, LOG_DB_CONFIG
 
 try:
     from core.plugin.PluginManager import PluginManager
@@ -26,6 +27,9 @@ class DAUAnalytics:
     def __init__(self):
         self.is_running = False
         self.scheduler_thread = None
+        # 获取当前框架的表前缀配置
+        self.log_table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+        self.main_table_prefix = DB_CONFIG.get('table_prefix', 'M_')
 
     def _with_log_db_cursor(self, operation):
         log_db_pool = LogDatabasePool()
@@ -130,7 +134,7 @@ class DAUAnalytics:
 
     def _get_message_stats(self, date_str: str) -> Optional[Dict[str, Any]]:
         def get_stats(cursor):
-            table_name = f"Mlog_{date_str}_message"
+            table_name = f"{self.log_table_prefix}{date_str}_message"
             
             if not self._table_exists(cursor, table_name):
                 return None
@@ -192,12 +196,18 @@ class DAUAnalytics:
         return self._with_log_db_cursor(get_stats)
 
     def _get_user_stats(self) -> Dict[str, Any]:
+        # 确保使用当前框架的表前缀
+        users_table = f"{self.main_table_prefix}users"
+        groups_table = f"{self.main_table_prefix}groups"
+        members_table = f"{self.main_table_prefix}members"
+        groups_users_table = f"{self.main_table_prefix}groups_users"
+        
         queries = [
-            (f"SELECT COUNT(*) as count FROM {USERS_TABLE}", None, False),
-            (f"SELECT COUNT(*) as count FROM {GROUPS_TABLE}", None, False),
-            (f"SELECT COUNT(*) as count FROM {MEMBERS_TABLE}", None, False),
+            (f"SELECT COUNT(*) as count FROM {users_table}", None, False),
+            (f"SELECT COUNT(*) as count FROM {groups_table}", None, False),
+            (f"SELECT COUNT(*) as count FROM {members_table}", None, False),
             (f"""SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM {GROUPS_USERS_TABLE}
+                FROM {groups_users_table}
                 ORDER BY member_count DESC
                 LIMIT 3""", None, True)
         ]
@@ -220,7 +230,7 @@ class DAUAnalytics:
 
     def _get_command_stats(self, date_str: str) -> List[Dict[str, Any]]:
         def get_stats(cursor):
-            table_name = f"Mlog_{date_str}_message"
+            table_name = f"{self.log_table_prefix}{date_str}_message"
             
             if not self._table_exists(cursor, table_name):
                 return []
@@ -275,7 +285,7 @@ class DAUAnalytics:
             return field or default
         
         def get_dau_data(cursor):
-            table_name = "Mlog_dau"
+            table_name = f"{self.log_table_prefix}dau"
             
             if not self._table_exists(cursor, table_name):
                 return None
@@ -331,7 +341,7 @@ class DAUAnalytics:
             return field or default
         
         def get_recent_data(cursor):
-            table_name = "Mlog_dau"
+            table_name = f"{self.log_table_prefix}dau"
             
             if not self._table_exists(cursor, table_name):
                 return []

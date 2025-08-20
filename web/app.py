@@ -1640,6 +1640,10 @@ def get_today_dau_data(force_refresh=False):
 
 def start_web(main_app=None):
     global socketio
+    
+    # 检查重启状态
+    _check_restart_status()
+    
     if main_app is None:
         app = Flask(__name__)
         app.register_blueprint(web, url_prefix=PREFIX)
@@ -3249,10 +3253,54 @@ def get_system_status():
             'config_source': 'fallback'
         })
 
+def _get_restart_status_file():
+    """获取重启状态文件路径"""
+    web_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(web_dir, 'data')
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    return os.path.join(data_dir, 'restart_status.json')
+
+def _check_restart_status():
+    """检查重启状态并清理状态文件"""
+    restart_status_file = _get_restart_status_file()
+    if not os.path.exists(restart_status_file):
+        return
+    
+    try:
+        with open(restart_status_file, 'r', encoding='utf-8') as f:
+            restart_data = json.load(f)
+        
+        if restart_data.get('completed', True):
+            return
+            
+        restart_time = restart_data.get('restart_time')
+        if not restart_time:
+            return
+            
+        start_time = datetime.datetime.fromisoformat(restart_time)
+        duration_ms = int((datetime.datetime.now() - start_time).total_seconds() * 1000)
+        
+        # Web重启完成日志
+        print(f"[INFO] Web重启完成，耗时: {duration_ms}ms")
+        
+        # 标记为已完成
+        restart_data.update({'completed': True})
+        with open(restart_status_file, 'w', encoding='utf-8') as f:
+            json.dump(restart_data, f, ensure_ascii=False)
+            
+    except Exception as e:
+        print(f"[WARNING] 检查重启状态失败: {e}")
+        # 清理损坏的状态文件
+        try:
+            os.remove(restart_status_file)
+        except:
+            pass
+
 @web.route('/api/restart', methods=['POST'])
 @require_auth
 def restart_bot():
-    """重启机器人"""
+    """重启机器人 - 使用与用户统计.py一致的重启逻辑"""
     try:
         import os
         import sys
@@ -3296,7 +3344,22 @@ def restart_bot():
             main_port = server_config.get('port', 5001)
             web_port = server_config.get('web_port', 5002)
         
-        def find_processes_by_port(port):
+        restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
+        
+        # 保存重启状态（模拟事件对象的信息）
+        restart_status = {
+            'restart_time': datetime.datetime.now().isoformat(),
+            'completed': False,
+            'message_id': None,  # Web重启没有message_id
+            'user_id': 'web_admin',  # Web管理员标识
+            'group_id': 'web_panel'  # Web面板标识
+        }
+        
+        restart_status_file = _get_restart_status_file()
+        with open(restart_status_file, 'w', encoding='utf-8') as f:
+            json.dump(restart_status, f, ensure_ascii=False)
+        
+        def _find_processes_by_port(port):
             """通过端口号查找进程ID"""
             pids = []
             try:
@@ -3332,8 +3395,9 @@ def restart_bot():
                 print(f"[WARNING] 杀死进程{pid}失败: {e}")
                 return False
         
-        # 创建重启脚本内容
-        def _create_restart_python_script(main_py_path, is_dual_process, main_port, web_port):
+        # 使用与用户统计.py一致的重启脚本创建函数
+        def _create_restart_python_script(main_py_path, is_dual_process=False, main_port=5001, web_port=5002):
+            """创建重启脚本，支持独立进程模式"""
             # 构建要杀死的进程列表
             if is_dual_process:
                 kill_ports_code = f"""
@@ -3373,7 +3437,7 @@ def restart_bot():
                 print(f"杀死进程{{pid}}失败: {{e}}")
                 """
             else:
-                kill_ports_code = f"""
+                kill_ports_code = """
         # 单进程模式：只杀死当前进程
         current_pid = os.getpid()
         try:
@@ -3466,14 +3530,16 @@ if __name__ == "__main__":
             f.write(restart_script_content)
         
         # 输出调试信息
-        restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
         print(f"[INFO] 重启模式: {restart_mode}")
         if is_dual_process:
             print(f"[INFO] 主程序端口: {main_port}, Web面板端口: {web_port}")
             # 显示当前监听的端口进程
-            main_pids = find_processes_by_port(main_port)
-            web_pids = find_processes_by_port(web_port)
-            print(f"[INFO] 主程序进程: {main_pids}, Web面板进程: {web_pids}")
+            try:
+                main_pids = _find_processes_by_port(main_port)
+                web_pids = _find_processes_by_port(web_port)
+                print(f"[INFO] 主程序进程: {main_pids}, Web面板进程: {web_pids}")
+            except Exception as e:
+                print(f"[WARNING] 获取进程信息失败: {e}")
         
         # 执行重启脚本
         is_windows = platform.system().lower() == 'windows'
@@ -3487,7 +3553,7 @@ if __name__ == "__main__":
         
         return jsonify({
             'success': True,
-            'message': f'重启命令已发送 ({restart_mode})'
+            'message': f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 预计重启时间: 1秒'
         })
         
     except Exception as e:
@@ -3537,13 +3603,17 @@ def get_chats():
         try:
             cursor = connection.cursor(DictCursor)
             
+            # 获取表前缀
+            table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+            id_table_name = f'{table_prefix}id'
+            
             # 检查ID表是否存在
             cursor.execute("""
                 SELECT COUNT(*) as count 
                 FROM information_schema.tables 
                 WHERE table_schema = DATABASE() 
-                AND table_name = 'Mlog_id'
-            """)
+                AND table_name = %s
+            """, (id_table_name,))
             if cursor.fetchone()['count'] == 0:
                 return jsonify({'success': False, 'message': 'ID表不存在'})
             
@@ -3559,7 +3629,7 @@ def get_chats():
             # 获取聊天数据（最多30个）
             data_sql = f"""
                 SELECT chat_id, last_message_id, MAX(timestamp) as last_time
-                FROM Mlog_id 
+                FROM {id_table_name} 
                 WHERE chat_type = %s {search_condition}
                 GROUP BY chat_id, last_message_id
                 ORDER BY last_time DESC
@@ -3622,9 +3692,10 @@ def get_chat_history():
         try:
             cursor = connection.cursor(DictCursor)
             
-            # 获取今日消息表名
+            # 获取表前缀和今日消息表名
+            table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
             today = datetime.datetime.now().strftime('%Y%m%d')
-            table_name = f'Mlog_{today}_message'
+            table_name = f'{table_prefix}{today}_message'
             
             # 检查表是否存在
             cursor.execute("""
@@ -3723,10 +3794,14 @@ def send_message():
         try:
             cursor = connection.cursor(DictCursor)
             
+            # 获取表前缀和ID表名
+            table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+            id_table_name = f'{table_prefix}id'
+            
             # 获取最后的消息ID和时间
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT last_message_id, timestamp 
-                FROM Mlog_id 
+                FROM {id_table_name} 
                 WHERE chat_type = %s AND chat_id = %s
             """, (chat_type, chat_id))
             

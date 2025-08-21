@@ -132,3 +132,14 @@ LOG_DB_CONFIG = {
     'retry_interval': 2                        # 重试间隔时间(秒)
 }
 
+COS_CONFIG = {
+    'enabled': True,                          # 是否启用COS上传功能
+    'secret_id': 'AKID开头的ID',             # 腾讯云API密钥ID
+    'secret_key': '密钥',           # 腾讯云API密钥Key，需要从控制台获取完整的SecretKey
+    'region': 'ap-guangzhou',                   # 存储桶区域
+    'bucket_name': ' ',         # 存储桶名称
+    'domain': None,                            # 自定义域名(可选)
+    'upload_path_prefix': 'mlog/',             # 默认上传路径前缀
+    'max_file_size': 50 * 1024 * 1024,       # 最大文件大小100MB
+    'storage_class': 'STANDARD',               # 存储类型
+}

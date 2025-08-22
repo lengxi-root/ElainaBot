@@ -3619,7 +3619,7 @@ def main():
     time.sleep(1)
     
     # 最终验证：确保端口已经释放
-    ports_to_check = [{main_port}, {web_port}] if {str(is_dual_process).lower()} else [5001]
+    ports_to_check = [{main_port}, {web_port}] if {str(is_dual_process)} else [5001]
     max_wait = 5  # 最多等待5秒
     wait_count = 0
     while wait_count < max_wait:

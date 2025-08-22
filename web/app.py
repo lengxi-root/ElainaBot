@@ -803,25 +803,36 @@ def _build_fallback_robot_info(error_msg, robot_share_url, connection_type, conn
     }
 
 @web.route('/api/robot_info')
-@catch_error  
 def get_robot_info():
     """获取机器人信息API"""
-    robot_share_url = f"https://qun.qq.com/qunpro/robot/qunshare?robot_uin={ROBOT_QQ}"
-    is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-    connection_type = 'WebSocket' if is_websocket else 'WebHook'
-    connection_status = get_websocket_status() if is_websocket else 'WebHook'
-    
     try:
-        api_url = f"https://qun.qq.com/qunng/http2rpc/gotrpc/noauth/trpc.group_pro_robot.manager.TrpcHandler/GetShareInfo?robot_uin={ROBOT_QQ}"
+        robot_share_url = f"https://qun.qq.com/qunpro/robot/qunshare?robot_uin={ROBOT_QQ}"
+        is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
+        connection_type = 'WebSocket' if is_websocket else 'WebHook'
+        connection_status = get_websocket_status() if is_websocket else 'WebHook'
+        # 使用新的API接口
+        api_url = f"https://qun.qq.com/qunpro/robot/proxy/domain/qun.qq.com/cgi-bin/group_pro/robot/manager/share_info?bkn=508459323&robot_appid={appid}"
         
-        response = requests.get(api_url, timeout=10)
+        # 新的headers格式
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 15; PJX110 Build/UKQ1.231108.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/135.0.7049.111 Mobile Safari/537.36 V1_AND_SQ_9.1.75_10026_HDBM_T PA QQ/9.1.75.25965 NetType/WIFI WebP/0.4.1 AppId/537287845 Pixel/1080 StatusBarHeight/120 SimpleUISwitch/0 QQTheme/1000 StudyMode/0 CurrentMode/0 CurrentFontScale/0.87 GlobalDensityScale/0.9028571 AllowLandscape/false InMagicWin/0',
+            'qname-service': '976321:131072',
+            'qname-space': 'Production'
+        }
+        
+        # 发送GET请求
+        response = requests.get(api_url, headers=headers, timeout=10)
+        
         response.raise_for_status()
         api_response = response.json()
         
         if api_response.get('retcode') != 0:
-            raise Exception(f"API返回错误: {api_response.get('message', 'Unknown error')}")
+            error_msg = api_response.get('msg', 'Unknown error')
+            raise Exception(f"API返回错误: {error_msg}")
         
-        robot_data = api_response.get('data', {}).get('data', {})
+        # 新API的数据结构：data.robot_data
+        robot_data = api_response.get('data', {}).get('robot_data', {})
+        commands = api_response.get('data', {}).get('commands', [])
         
         avatar_url = robot_data.get('robot_avatar', '')
         if avatar_url and 'myqcloud.com' in avatar_url:
@@ -842,14 +853,32 @@ def get_robot_info():
             'data_source': 'api',
             'is_banned': robot_data.get('robot_ban', False),
             'mute_status': robot_data.get('mute_status', 0),
-            'commands_count': len(robot_data.get('commands', [])),
+            'commands_count': len(commands),
             'is_sharable': robot_data.get('is_sharable', False),
             'service_note': robot_data.get('service_note', ''),
             'qr_code_api': f'/web/api/robot_qrcode?url={robot_share_url}'
         })
         
     except Exception as e:
-        return jsonify(_build_fallback_robot_info(str(e), robot_share_url, connection_type, connection_status)), 500
+        # 如果变量未定义，使用默认值
+        try:
+            robot_share_url_safe = robot_share_url
+        except NameError:
+            robot_share_url_safe = f"https://qun.qq.com/qunpro/robot/qunshare?robot_uin={ROBOT_QQ}"
+        
+        try:
+            connection_type_safe = connection_type
+        except NameError:
+            is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
+            connection_type_safe = 'WebSocket' if is_websocket else 'WebHook'
+        
+        try:
+            connection_status_safe = connection_status
+        except NameError:
+            is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
+            connection_status_safe = get_websocket_status() if is_websocket else 'WebHook'
+        
+        return jsonify(_build_fallback_robot_info(str(e), robot_share_url_safe, connection_type_safe, connection_status_safe))
 
 @web.route('/api/robot_qrcode')
 @catch_error
@@ -1640,10 +1669,6 @@ def get_today_dau_data(force_refresh=False):
 
 def start_web(main_app=None):
     global socketio
-    
-    # 检查重启状态
-    _check_restart_status()
-    
     if main_app is None:
         app = Flask(__name__)
         app.register_blueprint(web, url_prefix=PREFIX)
@@ -2967,7 +2992,6 @@ def openapi_update_whitelist():
         })
         
     except Exception as e:
-        print(f"[ERROR] 更新白名单失败: {e}")
         return openapi_error_response(f'操作失败: {str(e)}')
 
 @web.route('/openapi/get_delete_qr', methods=['POST'])
@@ -3014,7 +3038,6 @@ def openapi_get_delete_qr():
         })
         
     except Exception as e:
-        print(f"[ERROR] 获取删除授权二维码失败: {e}")
         return openapi_error_response(f'获取授权二维码失败: {str(e)}')
 
 @web.route('/openapi/check_delete_auth', methods=['POST'])
@@ -3060,7 +3083,6 @@ def openapi_check_delete_auth():
             })
         
     except Exception as e:
-        print(f"[ERROR] 检查删除授权状态失败: {e}")
         return jsonify({
             'success': False,
             'error': True,
@@ -3114,7 +3136,6 @@ def openapi_execute_delete_ip():
         })
         
     except Exception as e:
-        print(f"[ERROR] 执行删除IP失败: {e}")
         return openapi_error_response(f'删除IP失败: {str(e)}')
 
 @web.route('/openapi/batch_add_whitelist', methods=['POST'])
@@ -3141,8 +3162,6 @@ def openapi_batch_add_whitelist():
         return openapi_error_response('IP列表不能为空')
     
     try:
-        print(f"[INFO] 开始批量添加IP到白名单, AppID: {appid_to_use}, IP数量: {len(ip_list)}")
-        print(f"[DEBUG] IP列表: {ip_list}")
         
         # 将IP列表转换为逗号分隔的字符串（QQ开放平台的格式要求）
         ip_string = ','.join(ip_list)
@@ -3163,7 +3182,6 @@ def openapi_batch_add_whitelist():
             error_msg = res.get('msg') or '批量添加IP失败'
             return openapi_error_response(error_msg)
         
-        print(f"[INFO] 批量添加IP成功，总计: {len(ip_list)} 个IP")
         return jsonify({
             'success': True,
             'message': f'成功批量添加 {len(ip_list)} 个IP地址',
@@ -3175,7 +3193,6 @@ def openapi_batch_add_whitelist():
         })
         
     except Exception as e:
-        print(f"[ERROR] 批量添加IP失败: {e}")
         return openapi_error_response(f'批量添加IP失败: {str(e)}')
 
 # ===== 系统状态相关API =====
@@ -3203,7 +3220,6 @@ def get_system_status():
             websocket_enabled = websocket_config.get('enabled', False)
             
         except (ImportError, AttributeError) as e:
-            print(f"[WARNING] 无法读取配置文件: {e}")
             # 如果无法导入配置文件，使用默认值
             web_dual_process = False
             websocket_enabled = False
@@ -3244,7 +3260,6 @@ def get_system_status():
         })
         
     except Exception as e:
-        print(f"[ERROR] 获取系统状态失败: {e}")
         return jsonify({
             'success': False,
             'standalone_web': True,  # 出错时保守判断为单独进程
@@ -3253,50 +3268,6 @@ def get_system_status():
             'config_source': 'fallback'
         })
 
-def _get_restart_status_file():
-    """获取重启状态文件路径"""
-    web_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(web_dir, 'data')
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-    return os.path.join(data_dir, 'restart_status.json')
-
-def _check_restart_status():
-    """检查重启状态并清理状态文件"""
-    restart_status_file = _get_restart_status_file()
-    if not os.path.exists(restart_status_file):
-        return
-    
-    try:
-        with open(restart_status_file, 'r', encoding='utf-8') as f:
-            restart_data = json.load(f)
-        
-        if restart_data.get('completed', True):
-            return
-            
-        restart_time = restart_data.get('restart_time')
-        if not restart_time:
-            return
-            
-        start_time = datetime.datetime.fromisoformat(restart_time)
-        duration_ms = int((datetime.datetime.now() - start_time).total_seconds() * 1000)
-        
-        # Web重启完成日志
-        print(f"[INFO] Web重启完成，耗时: {duration_ms}ms")
-        
-        # 标记为已完成
-        restart_data.update({'completed': True})
-        with open(restart_status_file, 'w', encoding='utf-8') as f:
-            json.dump(restart_data, f, ensure_ascii=False)
-            
-    except Exception as e:
-        print(f"[WARNING] 检查重启状态失败: {e}")
-        # 清理损坏的状态文件
-        try:
-            os.remove(restart_status_file)
-        except:
-            pass
-
 @web.route('/api/restart', methods=['POST'])
 @require_auth
 def restart_bot():
@@ -3304,7 +3275,6 @@ def restart_bot():
     try:
         import os
         import sys
-        import datetime
         import json
         import platform
         import subprocess
@@ -3322,7 +3292,7 @@ def restart_bot():
                 'error': 'main.py文件不存在！'
             })
         
-        # 读取配置文件
+        # 读取配置文件检查是否为独立进程模式
         config_path = os.path.join(current_dir, 'config.py')
         config = None
         if os.path.exists(config_path):
@@ -3331,7 +3301,7 @@ def restart_bot():
                 config = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(config)
             except Exception as e:
-                print(f"[WARNING] 无法读取config.py: {e}")
+                pass
         
         # 检查是否为独立进程模式
         is_dual_process = False
@@ -3346,9 +3316,17 @@ def restart_bot():
         
         restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
         
+        def _get_restart_status_file():
+            """获取重启状态文件路径"""
+            plugin_dir = os.path.dirname(os.path.abspath(__file__))
+            data_dir = os.path.join(os.path.dirname(plugin_dir), 'plugins', 'system', 'data')
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+            return os.path.join(data_dir, 'restart_status.json')
+        
         # 保存重启状态（模拟事件对象的信息）
         restart_status = {
-            'restart_time': datetime.datetime.now().isoformat(),
+            'restart_time': datetime.now().isoformat(),
             'completed': False,
             'message_id': None,  # Web重启没有message_id
             'user_id': 'web_admin',  # Web管理员标识
@@ -3361,6 +3339,7 @@ def restart_bot():
         
         def _find_processes_by_port(port):
             """通过端口号查找进程ID"""
+            import psutil
             pids = []
             try:
                 for conn in psutil.net_connections():
@@ -3371,33 +3350,14 @@ def restart_bot():
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             continue
             except Exception as e:
-                print(f"[WARNING] 查找端口{port}进程失败: {e}")
+                pass
             return pids
         
-        def kill_process_safely(pid):
-            """安全地杀死进程"""
-            try:
-                if platform.system().lower() == 'windows':
-                    subprocess.run(['taskkill', '/PID', str(pid), '/F'], 
-                                 check=False, capture_output=True)
-                else:
-                    try:
-                        proc = psutil.Process(pid)
-                        proc.terminate()
-                        try:
-                            proc.wait(timeout=3)
-                        except psutil.TimeoutExpired:
-                            proc.kill()
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        pass
-                return True
-            except Exception as e:
-                print(f"[WARNING] 杀死进程{pid}失败: {e}")
-                return False
-        
-        # 使用与用户统计.py一致的重启脚本创建函数
         def _create_restart_python_script(main_py_path, is_dual_process=False, main_port=5001, web_port=5002):
             """创建重启脚本，支持独立进程模式"""
+            # 获取当前Python进程的PID，传递给重启脚本
+            current_python_pid = current_pid
+            
             # 构建要杀死的进程列表
             if is_dual_process:
                 kill_ports_code = f"""
@@ -3422,40 +3382,71 @@ def restart_bot():
         for pid in pids_to_kill:
             try:
                 if platform.system().lower() == 'windows':
-                    subprocess.run(['taskkill', '/PID', str(pid), '/F'], 
-                                 check=False, capture_output=True)
-                    print(f"Windows: 已杀死进程 PID {{pid}}")
+                    result = subprocess.run(['taskkill', '/PID', str(pid), '/F'], 
+                                         check=False, capture_output=True)
+                    print(f"Windows: 杀死进程 PID {{pid}}, 返回码: {{result.returncode}}")
                 else:
                     proc = psutil.Process(pid)
                     proc.terminate()
                     try:
                         proc.wait(timeout=3)
+                        print(f"Linux: 进程 PID {{pid}} 已正常终止")
                     except psutil.TimeoutExpired:
                         proc.kill()
-                    print(f"Linux: 已杀死进程 PID {{pid}}")
+                        print(f"Linux: 强制杀死进程 PID {{pid}}")
             except Exception as e:
                 print(f"杀死进程{{pid}}失败: {{e}}")
+        
+        # 等待进程完全终止
+        time.sleep(1)
+        
+        # 验证进程是否真的被杀死
+        for pid in pids_to_kill:
+            try:
+                proc = psutil.Process(pid)
+                if proc.is_running():
+                    print(f"警告: 进程 {{pid}} 仍在运行，尝试强制杀死")
+                    if platform.system().lower() == 'windows':
+                        subprocess.run(['taskkill', '/PID', str(pid), '/F', '/T'], check=False)
+                    else:
+                        proc.kill()
+            except psutil.NoSuchProcess:
+                print(f"确认: 进程 {{pid}} 已成功终止")
+            except Exception as e:
+                print(f"验证进程{{pid}}状态失败: {{e}}")
                 """
             else:
-                kill_ports_code = """
-        # 单进程模式：只杀死当前进程
-        current_pid = os.getpid()
+                kill_ports_code = f"""
+        # 单进程模式：杀死指定的Python进程
+        target_pid = {current_python_pid}
         try:
+            proc = psutil.Process(target_pid)
+            print(f"准备杀死Python进程: PID {{target_pid}}")
+            
             if platform.system().lower() == 'windows':
-                subprocess.run(['taskkill', '/PID', str(current_pid), '/F'], 
+                # Windows下先尝试正常终止，再强制杀死
+                result = subprocess.run(['taskkill', '/PID', str(target_pid), '/T'], 
+                                     check=False, capture_output=True)
+                time.sleep(0.1)
+                subprocess.run(['taskkill', '/PID', str(target_pid), '/F', '/T'], 
                              check=False, capture_output=True)
+                print(f"Windows: 已杀死进程 PID {{target_pid}}")
             else:
+                # Linux下先发送SIGTERM，等待一段时间后发送SIGKILL
+                proc.terminate()
                 try:
-                    os.kill(current_pid, signal.SIGTERM)
-                    time.sleep(0.1)
-                    try:
-                        os.kill(current_pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                except ProcessLookupError:
-                    pass
+                    proc.wait(timeout=3)
+                    print(f"Linux: 进程 PID {{target_pid}} 已正常终止")
+                except psutil.TimeoutExpired:
+                    proc.kill()
+                    print(f"Linux: 强制杀死进程 PID {{target_pid}}")
+        except psutil.NoSuchProcess:
+            print(f"进程 {{target_pid}} 不存在或已终止")
         except Exception as e:
-            print(f"杀死当前进程失败: {{e}}")
+            print(f"杀死进程{{target_pid}}失败: {{e}}")
+        
+        # 等待进程完全终止
+        time.sleep(1)
                 """
             
             script_content = f'''#!/usr/bin/env python3
@@ -3478,6 +3469,29 @@ def main():
     
     # 等待进程完全终止
     time.sleep(1)
+    
+    # 最终验证：确保端口已经释放
+    ports_to_check = [{main_port}, {web_port}] if {str(is_dual_process).lower()} else [5001]
+    max_wait = 5  # 最多等待5秒
+    wait_count = 0
+    while wait_count < max_wait:
+        ports_still_occupied = False
+        try:
+            for conn in psutil.net_connections():
+                if conn.laddr.port in ports_to_check and conn.status == 'LISTEN':
+                    ports_still_occupied = True
+                    print(f"端口{{conn.laddr.port}}仍被PID{{conn.pid}}占用")
+                    break
+        except:
+            pass
+            
+        if not ports_still_occupied:
+            print("确认端口已释放，可以启动新进程")
+            break
+        else:
+            print(f"端口仍被占用，继续等待... ({{wait_count + 1}}/{{max_wait}})")
+            time.sleep(1)
+            wait_count += 1
     
     try:
         os.chdir(os.path.dirname(main_py_path))
@@ -3522,26 +3536,24 @@ if __name__ == "__main__":
 '''
             return script_content
         
-        # 创建重启脚本
-        restart_script_content = _create_restart_python_script(main_py_path, is_dual_process, main_port, web_port)
+        # 创建重启脚本时传递独立进程模式信息
+        restart_script_content = _create_restart_python_script(
+            main_py_path, is_dual_process, main_port, web_port
+        )
         restart_script_path = os.path.join(current_dir, 'bot_restarter.py')
         
         with open(restart_script_path, 'w', encoding='utf-8') as f:
             f.write(restart_script_content)
         
         # 输出调试信息
-        print(f"[INFO] 重启模式: {restart_mode}")
         if is_dual_process:
-            print(f"[INFO] 主程序端口: {main_port}, Web面板端口: {web_port}")
             # 显示当前监听的端口进程
             try:
                 main_pids = _find_processes_by_port(main_port)
                 web_pids = _find_processes_by_port(web_port)
-                print(f"[INFO] 主程序进程: {main_pids}, Web面板进程: {web_pids}")
             except Exception as e:
-                print(f"[WARNING] 获取进程信息失败: {e}")
+                pass
         
-        # 执行重启脚本
         is_windows = platform.system().lower() == 'windows'
         
         if is_windows:
@@ -3557,7 +3569,6 @@ if __name__ == "__main__":
         })
         
     except Exception as e:
-        print(f"[ERROR] 重启失败: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

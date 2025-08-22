@@ -217,9 +217,64 @@ def upload_local_file(local_path: str,
     return cos_uploader.upload_local_file(local_path, user_id, custom_filename, custom_path)
 
 
-def simple_upload(file_data: Union[bytes, BytesIO], filename: str, upload_path: str = None) -> Optional[str]:
+def get_cos_image_dimensions(cos_key: str) -> Optional[Dict[str, int]]:
+    """通过腾讯云数据万象服务获取图片尺寸"""
+    if not cos_uploader.config.get('enabled', False):
+        return None
+    
+    try:
+        import requests
+        bucket_name = cos_uploader.config['bucket_name']
+        region = cos_uploader.config['region']
+        ci_domain = f"{bucket_name}.pic{region}.myqcloud.com"
+        image_info_url = f"https://{ci_domain}/{cos_key}?imageInfo"
+        
+        response = requests.get(image_info_url, timeout=5)
+        if response.status_code == 200:
+            info = response.json()
+            return {
+                'width': info.get('width', 0),
+                'height': info.get('height', 0)
+            }
+    except Exception as e:
+        logger.debug(f"获取COS图片尺寸失败: {e}")
+    
+    return None
+
+
+def simple_upload(file_data: Union[bytes, BytesIO], filename: str, upload_path: str = None, return_url_only: bool = False) -> Union[Optional[str], Optional[Dict[str, Any]]]:
+    """上传文件，默认返回包含px值的完整信息，可选择只返回URL"""
     result = cos_uploader.upload_file(file_data, filename, custom_path=upload_path)
-    return result['file_url'] if result and result.get('success') else None
+    if not result or not result.get('success'):
+        return None
+    
+    if return_url_only:
+        return result['file_url']
+    
+    # 优先尝试从COS数据万象获取尺寸
+    dimensions = get_cos_image_dimensions(result['cos_key'])
+    
+    if dimensions and dimensions.get('width') and dimensions.get('height'):
+        width, height = dimensions['width'], dimensions['height']
+    else:
+        # 备选方案：本地PIL获取尺寸
+        width, height = 300, 300
+        try:
+            from PIL import Image
+            from io import BytesIO as IO
+            image_bytes = file_data.getvalue() if isinstance(file_data, BytesIO) else file_data
+            with Image.open(IO(image_bytes)) as img:
+                width, height = img.size
+        except:
+            pass
+    
+    result.update({
+        'width': width,
+        'height': height,
+        'px': f'#{width}px #{height}px'
+    })
+    
+    return result
 
 
 def get_upload_url(cos_key: str) -> str:

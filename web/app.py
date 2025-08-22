@@ -69,6 +69,10 @@ statistics_cache = None
 statistics_cache_time = 0
 STATISTICS_CACHE_DURATION = 300
 
+# 异步任务管理
+statistics_tasks = {}  # 存储统计任务状态
+task_results = {}      # 存储任务结果
+
 def format_datetime(dt_str):
     try:
         if isinstance(dt_str, str):
@@ -716,19 +720,94 @@ def status():
         }
     })
 
+def run_statistics_task(task_id, force_refresh=False, selected_date=None):
+    """异步执行统计任务"""
+    try:
+        statistics_tasks[task_id] = {
+            'status': 'running',
+            'progress': 0,
+            'start_time': time.time(),
+            'message': '开始统计计算...'
+        }
+        
+        if selected_date and selected_date != 'today':
+            statistics_tasks[task_id]['message'] = f'查询日期 {selected_date} 的数据...'
+            statistics_tasks[task_id]['progress'] = 50
+            
+            date_data = get_specific_date_data(selected_date)
+            if not date_data:
+                statistics_tasks[task_id] = {
+                    'status': 'failed',
+                    'error': f'未找到日期 {selected_date} 的数据',
+                    'end_time': time.time()
+                }
+                return
+            
+            result = {
+                'selected_date_data': date_data,
+                'date': selected_date
+            }
+        else:
+            statistics_tasks[task_id]['message'] = '获取历史数据...'
+            statistics_tasks[task_id]['progress'] = 30
+            
+            data = get_statistics_data(force_refresh=force_refresh)
+            
+            statistics_tasks[task_id]['message'] = '计算性能指标...'
+            statistics_tasks[task_id]['progress'] = 80
+            
+            # 性能监控
+            end_time = time.time()
+            response_time = round((end_time - statistics_tasks[task_id]['start_time']) * 1000, 2)
+            data['performance'] = {
+                'response_time_ms': response_time,
+                'timestamp': datetime.now().isoformat(),
+                'optimized': True,
+                'async': True
+            }
+            
+            result = data
+        
+        # 任务完成
+        statistics_tasks[task_id] = {
+            'status': 'completed',
+            'progress': 100,
+            'end_time': time.time(),
+            'message': '统计计算完成'
+        }
+        
+        task_results[task_id] = result
+        
+        # 清理过期的任务结果（保留1小时）
+        current_time = time.time()
+        expired_tasks = [tid for tid, task in statistics_tasks.items() 
+                        if task.get('end_time', 0) < current_time - 3600]
+        for tid in expired_tasks:
+            statistics_tasks.pop(tid, None)
+            task_results.pop(tid, None)
+            
+    except Exception as e:
+        statistics_tasks[task_id] = {
+            'status': 'failed',
+            'error': str(e),
+            'end_time': time.time(),
+            'message': f'统计计算失败: {str(e)}'
+        }
+
 @web.route('/api/statistics')
 @check_ip_ban
 @require_token
 @require_auth
 @catch_error
 def get_statistics():
-    """获取统计数据API（已优化性能）"""
-    start_time = time.time()
+    """获取统计数据API（异步处理）"""
     force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
-    
     selected_date = request.args.get('date')
+    async_mode = request.args.get('async', 'true').lower() == 'true'
     
+    # 历史日期数据优先使用同步处理（通常很快）
     if selected_date and selected_date != 'today':
+        start_time = time.time()
         date_data = get_specific_date_data(selected_date)
         if not date_data:
             return api_error_response(f'未找到日期 {selected_date} 的数据', 404)
@@ -736,23 +815,92 @@ def get_statistics():
             'selected_date_data': date_data,
             'date': selected_date
         })
-    else:
+    
+    # 如果不是异步模式，使用同步处理
+    if not async_mode:
+        start_time = time.time()
         data = get_statistics_data(force_refresh=force_refresh)
-        
-        # 性能监控
         end_time = time.time()
-        response_time = round((end_time - start_time) * 1000, 2)  # 毫秒
+        response_time = round((end_time - start_time) * 1000, 2)
         data['performance'] = {
             'response_time_ms': response_time,
             'timestamp': datetime.now().isoformat(),
             'optimized': True
         }
-        
-        # 记录性能日志
-        if response_time > 1000:  # 大于1秒记录警告
-            add_framework_log(f"统计数据查询耗时: {response_time}ms, force_refresh: {force_refresh}")
-        
         return api_success_response(data)
+    
+    # 异步模式处理
+    import uuid
+    task_id = str(uuid.uuid4())
+    
+    # 启动后台任务
+    def start_task():
+        run_statistics_task(task_id, force_refresh, selected_date)
+    
+    task_thread = threading.Thread(target=start_task)
+    task_thread.daemon = True
+    task_thread.start()
+    
+    return api_success_response({
+        'task_id': task_id,
+        'status': 'started',
+        'message': '统计任务已启动，请使用task_id查询进度'
+    })
+
+@web.route('/api/statistics/task/<task_id>')
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def get_statistics_task_status(task_id):
+    """查询统计任务状态"""
+    if task_id not in statistics_tasks:
+        return api_error_response('任务不存在或已过期', 404)
+    
+    task_info = statistics_tasks[task_id].copy()
+    
+    # 如果任务完成，返回结果
+    if task_info['status'] == 'completed' and task_id in task_results:
+        return api_success_response({
+            'status': 'completed',
+            'progress': 100,
+            'data': task_results[task_id],
+            'task_info': task_info
+        })
+    
+    # 如果任务失败，返回错误信息
+    if task_info['status'] == 'failed':
+        return api_error_response(task_info.get('error', '未知错误'), 500, task_info=task_info)
+    
+    # 如果任务运行中，返回进度
+    return api_success_response({
+        'status': task_info['status'],
+        'progress': task_info.get('progress', 0),
+        'message': task_info.get('message', ''),
+        'elapsed_time': time.time() - task_info.get('start_time', 0)
+    })
+
+@web.route('/api/statistics/tasks')
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def get_all_statistics_tasks():
+    """获取所有统计任务状态"""
+    current_time = time.time()
+    tasks_info = {}
+    
+    for task_id, task in statistics_tasks.items():
+        task_copy = task.copy()
+        if 'start_time' in task_copy:
+            task_copy['elapsed_time'] = current_time - task_copy['start_time']
+        tasks_info[task_id] = task_copy
+    
+    return api_success_response({
+        'tasks': tasks_info,
+        'total_tasks': len(tasks_info),
+        'active_tasks': len([t for t in tasks_info.values() if t['status'] == 'running'])
+    })
 
 @web.route('/api/complete_dau', methods=['POST'])
 @check_ip_ban

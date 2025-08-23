@@ -4,8 +4,9 @@
 import os
 import logging
 import mimetypes
+import re
 from datetime import datetime
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, Tuple
 from io import BytesIO
 
 # 抑制SDK自身INFO日志
@@ -46,21 +47,34 @@ class COSUploader:
             logger.error(f"COS初始化失败: {e}")
     
     def _validate_file(self, file_data: bytes, filename: str) -> bool:
-        if len(file_data) > self.config.get('max_file_size', 100 * 1024 * 1024):
-            logger.error(f"文件 {filename} 大小超限")
-            return False
-        
-        file_ext = filename.split('.')[-1].lower() if '.' in filename else ''
-        if self.config.get('allowed_extensions') and file_ext not in self.config['allowed_extensions']:
-            logger.error(f"文件 {filename} 格式不允许")
-            return False
-        
-        return True
+        return len(file_data) <= self.config.get('max_file_size', 100 * 1024 * 1024)
     
-    def _generate_cos_key(self, filename: str, custom_path: str = None, user_id: str = None) -> str:
-        if custom_path:
-            return custom_path.replace('\\', '/')
+    def _get_image_dimensions(self, file_data: bytes) -> Optional[Dict[str, int]]:
+        from core.event.MessageEvent import MessageEvent
+        temp_event = type('TempEvent', (), {'get_image_size': MessageEvent.get_image_size})()
+        result = temp_event.get_image_size(file_data)
+        return {'width': result['width'], 'height': result['height']} if result else None
+    
+    def _generate_filename_with_dimensions(self, filename: str, width: int, height: int) -> str:
+        name, ext = os.path.splitext(filename)
+        return f"{name}_{width}x{height}{ext}"
+    
+    def _generate_cos_key(self, filename: str, custom_path: str = None, user_id: str = None, dimensions: Tuple[int, int] = None) -> str:
+        # 总是处理尺寸信息
+        if dimensions and not self._has_dimensions_in_filename(filename):
+            filename = self._generate_filename_with_dimensions(filename, dimensions[0], dimensions[1])
         
+        # 如果提供了自定义路径，替换其中的文件名
+        if custom_path:
+            custom_path = custom_path.replace('\\', '/')
+            # 如果custom_path包含文件名，替换为带尺寸的文件名
+            if '/' in custom_path:
+                path_parts = custom_path.rsplit('/', 1)
+                return f"{path_parts[0]}/{filename}"
+            else:
+                return filename
+        
+        # 默认路径生成逻辑
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         path_parts = [self.config.get('upload_path_prefix', 'mlog/')]
         if user_id:
@@ -69,9 +83,13 @@ class COSUploader:
         
         return ''.join(path_parts) + filename.replace('\\', '/')
     
+
+    def _has_dimensions_in_filename(self, filename: str) -> bool:
+        return bool(re.search(r'_\d+x\d+\.[^.]+$', filename))
+    
     def _get_content_type(self, filename: str) -> str:
         content_type, _ = mimetypes.guess_type(filename)
-        return content_type or 'application/octet-stream'
+        return content_type or 'image/jpeg'
     
     def upload_file(self, 
                    file_data: Union[bytes, BytesIO], 
@@ -92,20 +110,17 @@ class COSUploader:
             if not self._validate_file(file_bytes, filename):
                 return None
             
-            cos_key = self._generate_cos_key(filename, custom_path, user_id)
-            file_stream = BytesIO(file_bytes)
+            # 获取图片尺寸
+            dimensions_data = self._get_image_dimensions(file_bytes)
+            dimensions = (dimensions_data['width'], dimensions_data['height']) if dimensions_data else (300, 300)
+            
+            cos_key = self._generate_cos_key(filename, custom_path, user_id, dimensions)
             
             response = self.client.put_object(
                 Bucket=self.config['bucket_name'],
-                Body=file_stream,
+                Body=BytesIO(file_bytes),
                 Key=cos_key,
-                StorageClass=self.config.get('storage_class', 'STANDARD'),
-                ContentType=self._get_content_type(filename),
-                Metadata={
-                    'original-filename': filename,
-                    'upload-time': datetime.now().isoformat(),
-                    'user-id': user_id or 'anonymous'
-                }
+                ContentType=self._get_content_type(filename)
             )
             
             base_url = f"https://{self.config['domain']}" if self.config.get('domain') else \
@@ -115,37 +130,18 @@ class COSUploader:
                 'success': True,
                 'cos_key': cos_key,
                 'file_url': f"{base_url}/{cos_key}",
-                'etag': response.get('ETag', '').strip('"'),
-                'filename': filename,
-                'file_size': len(file_bytes)
+                'filename': os.path.basename(cos_key),
+                'file_size': len(file_bytes),
+                'width': dimensions[0],
+                'height': dimensions[1],
+                'px': f'#{dimensions[0]}px #{dimensions[1]}px'
             }
             
-        except (CosServiceError, CosClientError) as e:
-            logger.error(f"COS上传失败 [{filename}]: {str(e)[:100]}")
-        except Exception as e:
-            logger.error(f"上传失败 [{filename}]: {e}")
-        
-        return None
-    
-    def upload_local_file(self, 
-                         local_path: str,
-                         user_id: str = None,
-                         custom_filename: str = None,
-                         custom_path: str = None) -> Optional[Dict[str, Any]]:
-        if not os.path.exists(local_path):
-            logger.error(f"文件不存在: {local_path}")
-            return None
-        
-        try:
-            with open(local_path, 'rb') as f:
-                return self.upload_file(f.read(), 
-                                      custom_filename or os.path.basename(local_path),
-                                      user_id, 
-                                      custom_path)
-        except Exception as e:
-            logger.error(f"读取文件失败 [{local_path}]: {e}")
+        except Exception:
             return None
     
+
+
     def delete_file(self, cos_key: str) -> bool:
         if not self.client:
             logger.error("COS客户端未初始化")
@@ -195,108 +191,56 @@ class COSUploader:
                 'last_modified': obj['LastModified']
             } for obj in response['Contents']]
             
-        except Exception as e:
-            logger.error(f"列出文件失败: {e}")
+        except Exception:
             return None
+
+
+def parse_dimensions_from_filename(filename: str):
+    match = re.search(r'_(\d+)x(\d+)\.[^.]+$', filename)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def get_image_size(file_data):
+    from core.event.MessageEvent import MessageEvent
+    temp_event = type('TempEvent', (), {'get_image_size': MessageEvent.get_image_size})()
+    result = temp_event.get_image_size(file_data)
+    return result or {'width': 300, 'height': 300, 'px': '#300px #300px'}
+
+
 
 
 cos_uploader = COSUploader()
 
 
-def upload_file(file_data: Union[bytes, BytesIO], 
-               filename: str,
-               user_id: str = None,
-               custom_path: str = None) -> Optional[Dict[str, Any]]:
-    return cos_uploader.upload_file(file_data, filename, user_id, custom_path)
-
-
-def upload_local_file(local_path: str,
-                     user_id: str = None,
-                     custom_filename: str = None,
-                     custom_path: str = None) -> Optional[Dict[str, Any]]:
-    return cos_uploader.upload_local_file(local_path, user_id, custom_filename, custom_path)
-
-
-def get_cos_image_dimensions(cos_key: str) -> Optional[Dict[str, int]]:
-    """通过腾讯云数据万象服务获取图片尺寸"""
-    if not cos_uploader.config.get('enabled', False):
+def upload_image(file_data: Union[bytes, BytesIO], filename: str, user_id: str = None, 
+                custom_path: str = None, return_url_only: bool = False):
+    result = cos_uploader.upload_file(file_data, filename, user_id, custom_path)
+    if not result:
         return None
-    
-    try:
-        import requests
-        bucket_name = cos_uploader.config['bucket_name']
-        region = cos_uploader.config['region']
-        ci_domain = f"{bucket_name}.pic{region}.myqcloud.com"
-        image_info_url = f"https://{ci_domain}/{cos_key}?imageInfo"
-        
-        response = requests.get(image_info_url, timeout=5)
-        if response.status_code == 200:
-            info = response.json()
-            return {
-                'width': info.get('width', 0),
-                'height': info.get('height', 0)
-            }
-    except Exception as e:
-        logger.debug(f"获取COS图片尺寸失败: {e}")
-    
-    return None
+    return result['file_url'] if return_url_only else result
 
 
-def simple_upload(file_data: Union[bytes, BytesIO], filename: str, upload_path: str = None, return_url_only: bool = False) -> Union[Optional[str], Optional[Dict[str, Any]]]:
-    """上传文件，默认返回包含px值的完整信息，可选择只返回URL"""
-    result = cos_uploader.upload_file(file_data, filename, custom_path=upload_path)
-    if not result or not result.get('success'):
-        return None
-    
-    if return_url_only:
-        return result['file_url']
-    
-    # 优先尝试从COS数据万象获取尺寸
-    dimensions = get_cos_image_dimensions(result['cos_key'])
-    
-    if dimensions and dimensions.get('width') and dimensions.get('height'):
-        width, height = dimensions['width'], dimensions['height']
-    else:
-        # 备选方案：本地PIL获取尺寸
-        width, height = 300, 300
-        try:
-            from PIL import Image
-            from io import BytesIO as IO
-            image_bytes = file_data.getvalue() if isinstance(file_data, BytesIO) else file_data
-            with Image.open(IO(image_bytes)) as img:
-                width, height = img.size
-        except:
-            pass
-    
-    result.update({
-        'width': width,
-        'height': height,
-        'px': f'#{width}px #{height}px'
-    })
-    
-    return result
+def upload_file(file_data: Union[bytes, BytesIO], filename: str, user_id: str = None, custom_path: str = None):
+    return upload_image(file_data, filename, user_id, custom_path)
 
 
-def get_upload_url(cos_key: str) -> str:
-    if not cos_uploader.config.get('enabled', False):
-        return ""
-    
+def simple_upload(file_data: Union[bytes, BytesIO], filename: str, upload_path: str = None, return_url_only: bool = False):
+    return upload_image(file_data, filename, custom_path=upload_path, return_url_only=return_url_only)
+
+def get_upload_url(cos_key: str):
     base_url = f"https://{cos_uploader.config['domain']}" if cos_uploader.config.get('domain') else \
               f"https://{cos_uploader.config['bucket_name']}.cos.{cos_uploader.config['region']}.myqcloud.com"
     return f"{base_url}/{cos_key}"
 
 
-def delete_by_url(file_url: str) -> bool:
+
+def delete_by_url(file_url: str):
     if not file_url:
         return False
     
-    try:
-        base_url = f"https://{cos_uploader.config['domain']}/" if cos_uploader.config.get('domain') else \
-                  f"https://{cos_uploader.config['bucket_name']}.cos.{cos_uploader.config['region']}.myqcloud.com/"
-        
-        if file_url.startswith(base_url):
-            return cos_uploader.delete_file(file_url[len(base_url):])
-    except Exception as e:
-        logger.error(f"URL解析失败: {e}")
+    base_url = f"https://{cos_uploader.config['domain']}/" if cos_uploader.config.get('domain') else \
+              f"https://{cos_uploader.config['bucket_name']}.cos.{cos_uploader.config['region']}.myqcloud.com/"
     
+    if file_url.startswith(base_url):
+        return cos_uploader.delete_file(file_url[len(base_url):])
     return False

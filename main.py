@@ -279,8 +279,7 @@ def _process_message_concurrent(event):
     def plugin_task():
         """插件处理任务"""
         try:
-            plugin_manager = PluginManager()
-            result[0] = plugin_manager.dispatch_message(event)
+            result[0] = PluginManager.dispatch_message(event)
         except Exception as e:
             log_error(f"插件处理失败: {str(e)}")
     
@@ -445,8 +444,7 @@ def init_systems():
         def load_plugins_async():
             try:
                 from core.plugin.PluginManager import PluginManager
-                plugin_manager = PluginManager()
-                plugin_manager.load_plugins()
+                PluginManager.load_plugins()
                 log_to_console("插件系统初始化成功")
             except Exception as e:
                 log_error(f"插件系统初始化失败: {str(e)}")
@@ -471,8 +469,8 @@ def initialize_app():
     app = create_app()
     init_systems()
     
-    # 集成Web面板服务
-    if _web_available and SERVER_CONFIG.get('enable_web', True):
+    # 集成Web面板服务（固定启用）
+    if _web_available:
         if SERVER_CONFIG.get('web_dual_process', False):
             # 双进程模式：启动独立的Web进程
             start_web_dual_process()
@@ -521,13 +519,13 @@ def start_main_process():
         
         host = SERVER_CONFIG.get('host', '0.0.0.0')
         port = SERVER_CONFIG.get('port', 5001)
-        socket_timeout = SERVER_CONFIG.get('socket_timeout', 30)
-        keepalive = SERVER_CONFIG.get('keepalive', True)
+        socket_timeout = 30  # 固定30秒超时
+        keepalive = True     # 固定启用Keep-Alive
         
         logging.info(f"🚀 主框架启动成功！")
         logging.info(f"📡 主服务器地址: {host}:{port}")
         
-        if _web_available and SERVER_CONFIG.get('enable_web', True):
+        if _web_available:
             if not SERVER_CONFIG.get('web_dual_process', False):
                 # 单进程模式：Web面板集成在主端口
                 web_token = WEB_SECURITY.get('access_token', '')

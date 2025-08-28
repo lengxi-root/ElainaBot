@@ -1850,7 +1850,7 @@ def get_today_dau_data(force_refresh=False):
             'error': str(e)
         }
 
-def start_web(main_app=None):
+def start_web(main_app=None, is_subprocess=False):
     global socketio
     if main_app is None:
         app = Flask(__name__)

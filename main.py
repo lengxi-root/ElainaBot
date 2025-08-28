@@ -102,6 +102,9 @@ def start_web_process():
     setup_logging()
     log_to_console("Web进程已启动")
     
+    # Web子进程：初始化基础系统，但跳过WebSocket
+    init_systems(is_subprocess=True)
+    
     from web.app import start_web
     import eventlet
     from eventlet import wsgi
@@ -110,8 +113,8 @@ def start_web_process():
     web_port = SERVER_CONFIG.get('web_port', 5002)
     
     log_to_console(f"Web面板独立进程启动在 {web_host}:{web_port}")
-    
-    web_app, web_socketio = start_web(main_app=None)
+ 
+    web_app, web_socketio = start_web(main_app=None, is_subprocess=True)
     
     wsgi.server(
         eventlet.listen((web_host, web_port)),
@@ -465,7 +468,7 @@ def setup_websocket():
     except Exception as e:
         log_error(f"WebSocket设置失败: {str(e)}")
 
-def init_systems():
+def init_systems(is_subprocess=False):
     """初始化系统组件"""
     try:
         setup_logging()
@@ -486,7 +489,11 @@ def init_systems():
         plugin_thread = threading.Thread(target=load_plugins_async, daemon=True)
         plugin_thread.start()
         
-        setup_websocket()
+        # 只在主进程中启动WebSocket，避免子进程冲突
+        if not is_subprocess:
+            setup_websocket()
+        else:
+            log_to_console("子进程模式：跳过WebSocket初始化")
         
         return True
     except Exception as e:

@@ -229,8 +229,10 @@
 <script>
 // Dashboard页面初始化
 document.addEventListener('DOMContentLoaded', function() {
+    // 初始化机器人信息
+    loadRobotInfo();
+    
     // 初始化WebSocket连接（仅dashboard页面需要的功能）
-    // 注意：机器人信息加载已在common.js中处理，无需重复调用
     initSocket('dashboard');
 });
 

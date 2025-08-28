@@ -338,7 +338,7 @@ function initStatistics() {
 
 
 
-// 加载统计数据（完全照抄老版本实现）
+// 加载统计数据（支持异步处理）
 function loadStatistics(forceRefresh = false) {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
@@ -347,8 +347,16 @@ function loadStatistics(forceRefresh = false) {
         return;
     }
     
-    // 构建API URL，如果需要强制刷新则添加参数（完全照抄老版本）
-    let apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}`;
+    // 显示加载状态
+    updateDataSourceInfo({
+        data_source_info: {
+            source: 'loading',
+            update_time: '加载中...'
+        }
+    });
+    
+    // 构建API URL，默认使用异步模式
+    let apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}&async=true`;
     if (forceRefresh) {
         apiUrl += '&force_refresh=true';
     }
@@ -362,14 +370,13 @@ function loadStatistics(forceRefresh = false) {
         })
         .then(data => {
             if (data.success) {
-                statisticsData = data;
-                // 只有在加载完整统计数据时才更新图表
-                if (data.historical && data.today) {
-                    updateChart('messages_combined');
-                    updateTables(data.today || {});
-                } else if (data.selected_date_data) {
-                    // 这是历史日期数据，只更新表格
-                    updateTables(data.selected_date_data);
+                // 检查是否是异步响应
+                if (data.task_id && data.status === 'started') {
+                    // 异步模式：开始轮询任务状态
+                    pollTaskStatus(data.task_id, token);
+                } else {
+                    // 同步模式：直接处理数据
+                    handleStatisticsData(data);
                 }
             } else {
                 console.error('加载统计数据失败:', data.error);
@@ -380,6 +387,81 @@ function loadStatistics(forceRefresh = false) {
             console.error('获取统计数据时出错:', error);
             showStatisticsError('获取统计数据时出错: ' + error.message);
         });
+}
+
+// 轮询任务状态
+function pollTaskStatus(taskId, token, maxAttempts = 60) {
+    let attempts = 0;
+    
+    const checkStatus = () => {
+        attempts++;
+        if (attempts > maxAttempts) {
+            showStatisticsError('统计任务超时，请稍后重试');
+            return;
+        }
+        
+        fetch(`/web/api/statistics/task/${taskId}?token=${encodeURIComponent(token)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 后端直接返回任务数据，不在data.task下
+                    const taskData = data;
+                    
+                    // 更新进度显示
+                    if (taskData.progress !== undefined) {
+                        updateDataSourceInfo({
+                            data_source_info: {
+                                source: 'processing',
+                                update_time: `${taskData.message || '处理中'} (${taskData.progress}%)`
+                            }
+                        });
+                    }
+                    
+                    if (taskData.status === 'completed') {
+                        // 任务完成，处理结果数据
+                        if (taskData.data) {
+                            handleStatisticsData(taskData.data);
+                        } else {
+                            showStatisticsError('统计任务完成但无数据返回');
+                        }
+                    } else if (taskData.status === 'failed') {
+                        // 任务失败
+                        showStatisticsError('统计任务失败: ' + (taskData.error || '未知错误'));
+                    } else {
+                        // 任务仍在进行中，继续轮询
+                        setTimeout(checkStatus, 1000);
+                    }
+                } else {
+                    showStatisticsError('查询任务状态失败: ' + (data.error || '未知错误'));
+                }
+            })
+            .catch(error => {
+                console.error('查询任务状态出错:', error);
+                showStatisticsError('查询任务状态出错: ' + error.message);
+            });
+    };
+    
+    // 开始轮询
+    setTimeout(checkStatus, 1000);
+}
+
+// 处理统计数据
+function handleStatisticsData(data) {
+    statisticsData = data;
+    
+    // 更新数据源信息
+    if (data.data_source_info) {
+        updateDataSourceInfo(data);
+    }
+    
+    // 只有在加载完整统计数据时才更新图表
+    if (data.historical && data.today) {
+        updateChart('messages_combined');
+        updateTables(data.today || {});
+    } else if (data.selected_date_data) {
+        // 这是历史日期数据，只更新表格
+        updateTables(data.selected_date_data);
+    }
 }
 
 // 更新图表
@@ -758,7 +840,15 @@ function updateDataSourceInfo(data) {
     let icon = 'hourglass-split';
     let text = '未知';
     
-    if (sourceInfo.source === 'api') {
+    if (sourceInfo.source === 'loading') {
+        badgeClass = 'bg-warning';
+        icon = 'hourglass-split';
+        text = '加载中';
+    } else if (sourceInfo.source === 'processing') {
+        badgeClass = 'bg-info';
+        icon = 'gear-fill';
+        text = '计算中';
+    } else if (sourceInfo.source === 'api') {
         badgeClass = 'bg-success';
         icon = 'cloud-check';
         text = '实时数据';
@@ -1115,7 +1205,7 @@ function loadStatisticsData(forceRefresh = false) {
     loadStatistics(forceRefresh);
 }
 
-// 加载历史日期数据（完全照抄老版本实现）
+// 加载历史日期数据（使用同步模式，因为历史数据通常很快）
 function loadHistoricalDateData(dateStr) {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
@@ -1125,8 +1215,16 @@ function loadHistoricalDateData(dateStr) {
         return;
     }
     
-    // 构建API URL查询特定日期（完全照抄老版本）
-    const apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}&date=${dateStr}`;
+    // 显示加载状态
+    updateDataSourceInfo({
+        data_source_info: {
+            source: 'loading',
+            update_time: '加载历史数据...'
+        }
+    });
+    
+    // 构建API URL查询特定日期，强制使用同步模式
+    const apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}&date=${dateStr}&async=false`;
     
     fetch(apiUrl)
         .then(response => {

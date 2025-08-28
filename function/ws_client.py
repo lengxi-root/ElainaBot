@@ -142,18 +142,6 @@ class WebSocketClient:
     def _get_config_value(self, key, default=None):
         """获取配置值"""
         return self.config.get(key, default)
-    
-    async def _safe_sleep(self, seconds):
-        """安全的异步睡眠，处理事件循环异常"""
-        try:
-            await asyncio.sleep(seconds)
-        except RuntimeError as e:
-            if "no running event loop" in str(e):
-                # 如果没有运行中的事件循环，使用同步睡眠
-                import time
-                time.sleep(seconds)
-            else:
-                raise
 
     @asynccontextmanager
     async def _safe_websocket_operation(self):
@@ -321,7 +309,7 @@ class WebSocketClient:
         async def heartbeat_loop():
             while self.running and self.connected:
                 try:
-                    await self._safe_sleep(self.heartbeat_interval / 1000)
+                    await asyncio.sleep(self.heartbeat_interval / 1000)
                     if self.running and self.connected:
                         await self.send_heartbeat()
                 except asyncio.CancelledError:
@@ -478,11 +466,14 @@ class WebSocketClient:
             except Exception as e:
                 logger.error(f"主循环异常: {e}")
                 self.connected = False
-                await self._safe_sleep(1)  # 固定1秒重连间隔
+                await asyncio.sleep(self._get_config_value('reconnect_interval', 5))
 
     async def _should_stop_reconnecting(self):
         """检查是否应该停止重连"""
-        # 固定为无限重连
+        max_reconnects = self._get_config_value('max_reconnects', -1)
+        if max_reconnects != -1 and self.reconnect_count >= max_reconnects:
+            logger.error("达到最大重连次数")
+            return True
         return False
 
     async def _handle_connection_failure(self):
@@ -490,7 +481,8 @@ class WebSocketClient:
         self.reconnect_count += 1
         self._update_stats(reconnect_count=self.reconnect_count)
         
-        await self._safe_sleep(1)  # 固定1秒重连间隔
+        reconnect_interval = self._get_config_value('reconnect_interval', 5)
+        await asyncio.sleep(reconnect_interval)
 
     async def stop(self):
         """停止客户端"""
@@ -620,6 +612,8 @@ class QQBotWSManager:
         
         client_config = {
             'url': gateway_url,
+            'reconnect_interval': self.config.get('reconnect_interval', 5),
+            'max_reconnects': self.config.get('max_reconnects', -1),
             'log_level': self.config.get('log_level', 'INFO'),
             'log_message_content': self.config.get('log_message_content', False),
         }
@@ -654,6 +648,8 @@ def create_custom_ws_client(ws_url: str, name: str = "custom_ws", config: Dict[s
     client_config = config or {}
     client_config.update({
         'url': ws_url,
+        'reconnect_interval': client_config.get('reconnect_interval', 5),
+        'max_reconnects': client_config.get('max_reconnects', -1),
         'log_level': client_config.get('log_level', 'INFO'),
         'log_message_content': client_config.get('log_message_content', False),
     })

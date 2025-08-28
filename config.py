@@ -78,6 +78,7 @@ DB_CONFIG = {
     'write_timeout': 7,                        # 数据写入超时时间(秒)
     'autocommit': True,                        # 是否自动提交事务
     'table_prefix': 'M_',                      # 储存用户名前缀，可自定义修改
+
     
     # 连接池高级设置
     'connection_lifetime': 1200,               # 单个连接最大生命周期(秒，20分钟)
@@ -109,7 +110,10 @@ LOG_DB_CONFIG = {
     # 功能开关配置
     'enabled': True,                           # 是否启用日志数据库功能
     'use_main_db': False,                      # 是否复用主数据库配置(DB_CONFIG)
-    
+    'create_tables': True,                     # 是否自动创建日志表
+    'table_per_day': True,                     # 是否按日期自动分表
+    'fallback_to_file': True,                  # 数据库写入失败时是否回退到文件记录
+
     # 日志写入策略
     'insert_interval': 20,                     # 批量写入间隔时间(秒)，0表示立即写入
     'batch_size': 1000,                        # 每批次最大写入日志记录数

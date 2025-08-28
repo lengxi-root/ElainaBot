@@ -25,9 +25,11 @@ import requests
 from config import LOG_DB_CONFIG, WEB_SECURITY, WEB_INTERFACE, ROBOT_QQ, appid, WEBSOCKET_CONFIG
 
 try:
-    from function.log_db import add_log_to_db
+    from function.log_db import add_log_to_db, add_sent_message_to_db
 except ImportError:
     def add_log_to_db(log_type, log_data):
+        return False
+    def add_sent_message_to_db(chat_type, chat_id, content, raw_message=None, timestamp=None):
         return False
 
 def get_websocket_status():
@@ -504,8 +506,16 @@ class LogHandler:
     def add(self, content, traceback_info=None, skip_db=False):
         global socketio
         
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        entry = {'timestamp': timestamp, 'content': content}
+        # 如果content是字典（包含完整日志数据），直接使用
+        if isinstance(content, dict):
+            entry = content.copy()
+            # 确保有timestamp字段
+            if 'timestamp' not in entry:
+                entry['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            # 如果是字符串，创建基本日志结构
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            entry = {'timestamp': timestamp, 'content': content}
         
         if traceback_info:
             entry['traceback'] = traceback_info
@@ -521,9 +531,17 @@ class LogHandler:
         
         if socketio is not None:
             try:
+                # 只发送显示必要的字段到前端
+                display_entry = {
+                    'timestamp': entry['timestamp'],
+                    'content': entry.get('content', ''),
+                }
+                if 'traceback' in entry:
+                    display_entry['traceback'] = entry['traceback']
+                
                 socketio.emit('new_message', {
                     'type': self.log_type,
-                    'data': entry
+                    'data': display_entry
                 }, namespace=PREFIX)
             except Exception:
                 pass
@@ -572,9 +590,26 @@ def add_display_message(formatted_message, timestamp=None):
 
 
 @catch_error
-def add_plugin_log(log):
+def add_plugin_log(log, user_id=None, group_id=None, plugin_name=None):
     """添加插件日志"""
-    return plugin_handler.add(log)
+    if isinstance(log, str):
+        # 如果是字符串，创建完整的日志数据
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_data = {
+            'timestamp': timestamp,
+            'content': log,
+            'user_id': user_id or '',
+            'group_id': group_id or 'c2c',
+            'plugin_name': plugin_name or ''
+        }
+    else:
+        # 如果已经是字典，添加缺失的字段
+        log_data = log.copy() if isinstance(log, dict) else {'content': str(log)}
+        log_data.setdefault('user_id', user_id or '')
+        log_data.setdefault('group_id', group_id or 'c2c')
+        log_data.setdefault('plugin_name', plugin_name or '')
+    
+    return plugin_handler.add(log_data)
 
 @catch_error
 def add_framework_log(log):
@@ -3877,11 +3912,15 @@ def get_chat_history():
                     }
                 })
             
-            # 构建查询条件
+            # 构建查询条件（包含接收和发送的消息）
             if chat_type == 'group':
-                where_condition = "group_id = %s AND group_id != 'c2c'"
+                # 群聊：获取该群的接收消息 + 机器人发送到该群的消息
+                where_condition = "(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)"
+                params = (chat_id, chat_id)
             else:  # user
-                where_condition = "user_id = %s AND group_id = 'c2c'"
+                # 私聊：获取该用户的私聊消息 + 机器人发送给该用户的消息
+                where_condition = "(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')"
+                params = (chat_id, chat_id)
             
             # 获取消息记录
             sql = f"""
@@ -3891,19 +3930,32 @@ def get_chat_history():
                 ORDER BY timestamp ASC
                 LIMIT 100
             """
-            cursor.execute(sql, (chat_id,))
+            cursor.execute(sql, params)
             messages = cursor.fetchall()
             
             # 处理消息数据 - 快速返回版本（昵称由前端异步加载）
             message_list = []
             
             for msg in messages:
+                # 判断是否为机器人发送的消息
+                is_self_message = False
+                display_user_id = msg['user_id']
+                
+                if chat_type == 'group' and msg['user_id'] == 'ZFC2G':
+                    # 群聊中的机器人发送消息
+                    is_self_message = True
+                    display_user_id = '机器人'
+                elif chat_type == 'user' and msg['group_id'] == 'ZFC2C':
+                    # 私聊中的机器人发送消息
+                    is_self_message = True
+                    display_user_id = '机器人'
+                
                 message_info = {
-                    'user_id': msg['user_id'],
+                    'user_id': display_user_id,
                     'content': msg['content'],
                     'timestamp': msg['timestamp'].strftime('%H:%M:%S') if msg['timestamp'] else '',
-                    'avatar': get_chat_avatar(msg['user_id'], 'user'),
-                    'is_self': False  # 暂时都设为False，实际使用中可以判断是否为机器人自己
+                    'avatar': get_chat_avatar('robot' if is_self_message else msg['user_id'], 'user'),
+                    'is_self': is_self_message
                 }
                 message_list.append(message_info)
             
@@ -3971,14 +4023,8 @@ def send_message():
             last_message_id = result['last_message_id']
             last_time = result['timestamp']
             
-            # 检查ID是否过期
+            # 获取当前时间用于显示
             now = datetime.datetime.now()
-            time_diff = (now - last_time).total_seconds() / 60  # 转换为分钟
-            
-            if chat_type == 'group' and time_diff > 5:
-                return jsonify({'success': False, 'message': 'ID已过期无法发送（群聊超过5分钟）'})
-            elif chat_type == 'user' and time_diff > 60:
-                return jsonify({'success': False, 'message': 'ID已过期无法发送（私聊超过1小时）'})
             
             # 创建模拟消息事件来发送消息
             mock_raw_data = {
@@ -4082,7 +4128,45 @@ def send_message():
             else:
                 return jsonify({'success': False, 'message': '不支持的发送方法'})
             
-            if message_id:
+            # 根据MessageEvent的返回值判断发送是否成功
+            if message_id is not None:
+                # 检查message_id是否包含官方API错误信息
+                message_id_str = str(message_id)
+                
+                # 检查是否为JSON格式的错误信息（MessageEvent返回的错误）
+                if message_id_str.startswith('{') and message_id_str.endswith('}'):
+                    try:
+                        import json
+                        error_obj = json.loads(message_id_str)
+                        
+                        # 检查是否为错误信息
+                        if error_obj.get('error') is True:
+                            api_error = ''
+                            if error_obj.get('message'):
+                                api_error += error_obj['message']
+                            if error_obj.get('code'):
+                                api_error += f" code:{error_obj['code']}" if api_error else f"code:{error_obj['code']}"
+                            if error_obj.get('trace_id'):
+                                api_error += f" trace_id:{error_obj['trace_id']}" if api_error else f"trace_id:{error_obj['trace_id']}"
+                            
+                            return jsonify({'success': False, 'message': api_error or "发送失败: 未知错误"})
+                    except Exception:
+                        pass
+                
+                # 如果不是API错误格式，则表示发送成功
+                
+                # 记录发送的消息到数据库
+                try:
+                    add_sent_message_to_db(
+                        chat_type=chat_type,
+                        chat_id=chat_id,
+                        content=display_content,
+                        timestamp=now.strftime('%Y-%m-%d %H:%M:%S')
+                    )
+                except Exception as e:
+                    # 记录失败不影响发送成功的响应
+                    print(f"记录发送消息失败: {str(e)}")
+                
                 return jsonify({
                     'success': True,
                     'message': '消息发送成功',
@@ -4094,7 +4178,8 @@ def send_message():
                     }
                 })
             else:
-                return jsonify({'success': False, 'message': '消息发送失败'})
+                # MessageEvent返回None，表示发送失败（如被忽略的错误代码）
+                return jsonify({'success': False, 'message': '消息发送失败，可能是权限不足或其他限制'})
             
         finally:
             cursor.close()

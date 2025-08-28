@@ -21,20 +21,20 @@ except ImportError:
     def add_framework_log(msg):
         pass
 
-# 连接池配置
+# 连接池配置 - 必须从config.py获取，不允许默认值
 POOL_CONFIG = {
-    'max_connections': DB_CONFIG.get('pool_size', 15),
-    'min_connections': DB_CONFIG.get('min_pool_size', max(3, DB_CONFIG.get('pool_size', 15) // 3)),
-    'connection_timeout': DB_CONFIG.get('connect_timeout', 10),
-    'read_timeout': DB_CONFIG.get('read_timeout', 30),
-    'write_timeout': DB_CONFIG.get('write_timeout', 30),
-    'connection_lifetime': DB_CONFIG.get('connection_lifetime', 1200),
-    'gc_interval': DB_CONFIG.get('gc_interval', 60),
-    'idle_timeout': DB_CONFIG.get('idle_timeout', 10),
-    'thread_pool_size': DB_CONFIG.get('thread_pool_size', 8),
-    'request_timeout': DB_CONFIG.get('request_timeout', 10.0),
-    'retry_count': DB_CONFIG.get('retry_count', 3),
-    'retry_interval': DB_CONFIG.get('retry_interval', 0.5)
+    'max_connections': DB_CONFIG['pool_size'],
+    'min_connections': DB_CONFIG['min_pool_size'],
+    'connection_timeout': DB_CONFIG['connect_timeout'],
+    'read_timeout': DB_CONFIG['read_timeout'],
+    'write_timeout': DB_CONFIG['write_timeout'],
+    'connection_lifetime': DB_CONFIG['connection_lifetime'],
+    'gc_interval': DB_CONFIG['gc_interval'],
+    'idle_timeout': DB_CONFIG['idle_timeout'],
+    'thread_pool_size': DB_CONFIG['thread_pool_size'],
+    'request_timeout': DB_CONFIG['request_timeout'],
+    'retry_count': DB_CONFIG['retry_count'],
+    'retry_interval': DB_CONFIG['retry_interval']
 }
 
 class DatabasePool:
@@ -286,7 +286,7 @@ class DatabasePool:
     def _check_and_cleanup_dead_connections(self):
         """检查并清理可能死锁的连接"""
         current_time = time.time()
-        max_connection_hold_time = DB_CONFIG.get('max_connection_hold_time', 20)
+        max_connection_hold_time = DB_CONFIG['max_connection_hold_time']
         
         with self._lock:
             for conn_id in list(self._busy_connections.keys()):
@@ -301,7 +301,7 @@ class DatabasePool:
     def release_connection(self, connection=None):
         """释放数据库连接回连接池"""
         connection_id = threading.get_ident()
-        max_usage_time = DB_CONFIG.get('max_usage_time', 30)
+        max_usage_time = DB_CONFIG['max_usage_time']
         
         with self._lock:
             try:
@@ -377,7 +377,7 @@ class DatabasePool:
     def _maintain_pool(self):
         """维护连接池"""
         while True:
-            sleep_interval = DB_CONFIG.get('pool_maintenance_interval', 15)
+            sleep_interval = DB_CONFIG['pool_maintenance_interval']
             time.sleep(sleep_interval)
             
             try:
@@ -430,7 +430,7 @@ class DatabasePool:
     
     def _check_long_running_connections(self, current_time):
         """检查长时间运行的连接"""
-        long_query_warning_time = DB_CONFIG.get('long_query_warning_time', 60)
+        long_query_warning_time = DB_CONFIG['long_query_warning_time']
         
         for conn_id in list(self._busy_connections.keys()):
             conn_info = self._busy_connections[conn_id]

@@ -212,40 +212,24 @@ def _process_json_kwargs(kwargs):
             kwargs['headers']['Content-Type'] = 'application/json'
     return kwargs
 
-def _make_sync_request(method: str, url: str, max_retries: int = 3, retry_delay: float = 1.0, **kwargs) -> httpx.Response:
+def _make_sync_request(method: str, url: str, **kwargs) -> httpx.Response:
     """统一的同步请求处理"""
     url = _sanitize_url(url)
     kwargs = _process_json_kwargs(kwargs)
     
-    last_exception = None
-    
-    for attempt in range(max_retries):
-        try:
-            pool = get_pool_manager()
-            with pool.sync_request_context(url=url) as client:
-                response = getattr(client, method.lower())(url, **kwargs)
-                return response
-                
-        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
-            last_exception = e
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay * (2 ** attempt))
-                continue
-                
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP状态错误: {e.response.status_code}")
-            raise e
+    try:
+        pool = get_pool_manager()
+        with pool.sync_request_context(url=url) as client:
+            response = getattr(client, method.lower())(url, **kwargs)
+            return response
             
-        except Exception as e:
-            last_exception = e
-            logger.error(f"意外错误: {str(e)}")
-            break
-    
-    if last_exception:
-        logger.error(f"所有重试都失败: {str(last_exception)}")
-        raise last_exception
-    else:
-        raise httpx.RequestError("请求失败，未知错误")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP状态错误: {e.response.status_code}")
+        raise e
+        
+    except Exception as e:
+        logger.error(f"请求错误: {str(e)}")
+        raise e
 
 async def _make_async_request(method: str, url: str, **kwargs) -> httpx.Response:
     """统一的异步请求处理"""
@@ -258,9 +242,9 @@ async def _make_async_request(method: str, url: str, **kwargs) -> httpx.Response
         response = await getattr(client, method.lower())(url, **kwargs)
         return response
 
-def sync_get(url: str, max_retries: int = 3, retry_delay: float = 1.0, **kwargs) -> httpx.Response:
+def sync_get(url: str, **kwargs) -> httpx.Response:
     """发送同步GET请求"""
-    return _make_sync_request('GET', url, max_retries, retry_delay, **kwargs)
+    return _make_sync_request('GET', url, **kwargs)
 
 def sync_post(url: str, **kwargs) -> httpx.Response:
     """发送同步POST请求"""

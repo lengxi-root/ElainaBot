@@ -230,6 +230,9 @@
                                 <i class="bi bi-info-circle"></i> 
                                 <span id="id-expire-info">请选择聊天对象</span>
                             </small>
+                            <div id="send-status" style="display: none;" class="mt-1">
+                                <small id="send-status-content"></small>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -318,7 +321,11 @@
 let currentChatType = 'user';
 let currentChatId = null;
 let searchQuery = '';
+const ROBOT_QQ = '{{ ROBOT_QQ }}';  // 机器人QQ号
 let currentSendMethod = 'text';
+let chatRefreshTimer = null;  // 聊天记录刷新定时器
+let isRefreshing = false;     // 防止重复刷新
+let lastMessageSignature = '';  // 上次消息的签名，用于避免不必要的重新渲染
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
@@ -351,9 +358,91 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// 页面卸载时清理定时器
+window.addEventListener('beforeunload', function() {
+    stopChatRefresh();
+});
+
+// 启动聊天记录实时刷新
+function startChatRefresh() {
+    // 先停止之前的定时器
+    stopChatRefresh();
+    
+    if (currentChatId) {
+        // 每1秒刷新一次聊天记录
+        chatRefreshTimer = setInterval(() => {
+            refreshChatHistory();
+        }, 1000);
+    }
+}
+
+// 停止聊天记录实时刷新
+function stopChatRefresh() {
+    if (chatRefreshTimer) {
+        clearInterval(chatRefreshTimer);
+        chatRefreshTimer = null;
+    }
+    isRefreshing = false;
+}
+
+// 刷新聊天记录（静默刷新，不显示加载状态）
+function refreshChatHistory() {
+    if (!currentChatId || isRefreshing) {
+        return;
+    }
+    
+    isRefreshing = true;
+    
+    // 获取token
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    if (!token) {
+        isRefreshing = false;
+        return;
+    }
+    
+    fetch(`/web/api/message/get_chat_history?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            chat_type: currentChatType,
+            chat_id: currentChatId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // 保存当前滚动位置
+            const messageArea = document.getElementById('message-area');
+            const isAtBottom = messageArea.scrollTop + messageArea.clientHeight >= messageArea.scrollHeight - 10;
+            
+            // 更新聊天记录
+            renderChatHistory(data.data.messages);
+            
+            // 如果之前在底部，保持在底部；否则保持原位置
+            if (isAtBottom) {
+                messageArea.scrollTop = messageArea.scrollHeight;
+            }
+        }
+    })
+    .catch(error => {
+        console.error('刷新聊天记录失败:', error);
+    })
+    .finally(() => {
+        isRefreshing = false;
+    });
+}
+
 // 切换聊天类型（好友/群聊）
 function switchChatType(type) {
+    // 停止当前的实时刷新
+    stopChatRefresh();
+    
     currentChatType = type;
+    currentChatId = null;  // 清空当前选中的聊天
     searchQuery = '';
     document.getElementById('search-input').value = '';
     
@@ -364,7 +453,41 @@ function switchChatType(type) {
     // 更新标题
     document.getElementById('chat-list-title').textContent = type === 'user' ? '好友列表' : '群聊列表';
     
+    // 隐藏发送区域
+    document.getElementById('send-area').style.display = 'none';
+    
+    // 重置聊天窗口
+    resetChatWindow();
+    
     loadChatList();
+}
+
+// 重置聊天窗口
+function resetChatWindow() {
+    // 重置聊天窗口头部
+    const avatarElement = document.getElementById('current-chat-avatar');
+    const nameElement = document.getElementById('current-chat-name');
+    const infoElement = document.getElementById('current-chat-info');
+    
+    avatarElement.innerHTML = '<i class="bi bi-chat-square-dots text-muted" style="font-size: 2rem;"></i>';
+    nameElement.textContent = '选择一个聊天';
+    infoElement.textContent = '点击左侧列表选择聊天对象';
+    
+    // 重置消息区域
+    const messageArea = document.getElementById('message-area');
+    messageArea.innerHTML = `
+        <div class="text-center text-muted">
+            <i class="bi bi-chat-text" style="font-size: 3rem;"></i>
+            <p class="mt-2">选择聊天对象开始对话</p>
+        </div>
+    `;
+    
+    // 重置ID状态
+    const expireInfo = document.getElementById('id-expire-info');
+    expireInfo.textContent = '请选择聊天对象';
+    
+    // 重置消息签名
+    lastMessageSignature = '';
 }
 
 // 切换发送方法
@@ -694,6 +817,9 @@ function loadNicknameForMessage(userId) {
 
 // 选择聊天
 function selectChat(chatId, chatType) {
+    // 停止之前的实时刷新
+    stopChatRefresh();
+    
     currentChatId = chatId;
     
     // 更新选中状态
@@ -713,6 +839,11 @@ function selectChat(chatId, chatType) {
     
     // 更新ID状态
     updateIdStatus(chatType);
+    
+    // 启动实时刷新（延迟启动，确保初始加载完成）
+    setTimeout(() => {
+        startChatRefresh();
+    }, 1000);
 }
 
 // 更新聊天窗口头部
@@ -785,20 +916,48 @@ function renderChatHistory(messages) {
     const messageArea = document.getElementById('message-area');
     
     if (messages.length === 0) {
+        lastMessageSignature = '';
         messageArea.innerHTML = '<div class="text-center text-muted"><i class="bi bi-chat-text" style="font-size: 3rem;"></i><p class="mt-2">暂无聊天记录</p></div>';
         return;
     }
     
+    // 生成消息签名，用于检测是否需要重新渲染
+    const messageSignature = messages.map(msg => `${msg.user_id}-${msg.content}-${msg.timestamp}`).join('|');
+    
+    // 如果消息没有变化，则不重新渲染
+    if (messageSignature === lastMessageSignature) {
+        return;
+    }
+    
+    lastMessageSignature = messageSignature;
+    
     const html = messages.map(msg => {
         const isSelf = msg.is_self;
-        const avatarHtml = `<img src="${msg.avatar}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none;">${msg.user_id.slice(-2).toUpperCase()}</div>`;
+        
+        // 优化头像显示逻辑
+        let avatarHtml;
+        if (isSelf) {
+            // 机器人头像 - 使用真实QQ头像
+            const robotAvatarUrl = `https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140`;
+            avatarHtml = `<img src="${robotAvatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background-color: #0d6efd;"><i class="bi bi-robot" style="color: white;"></i></div>`;
+        } else {
+            // 用户头像
+            const placeholderText = msg.user_id.length >= 2 ? msg.user_id.slice(-2).toUpperCase() : msg.user_id.toUpperCase();
+            avatarHtml = `<img src="${msg.avatar}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none;">${placeholderText}</div>`;
+        }
+        
+        // 优化昵称显示（只有非自己发送的群聊消息才显示昵称）
+        let nicknameHtml = '';
+        if (!isSelf && currentChatType === 'group') {
+            nicknameHtml = `<div class="small text-primary mb-1" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</div>`;
+        }
         
         return `
             <div class="message-bubble ${isSelf ? 'self' : 'other'}">
                 <div class="d-flex ${isSelf ? 'justify-content-end' : ''}">
                     ${!isSelf ? avatarHtml : ''}
                     <div class="message-content">
-                        ${!isSelf && currentChatType === 'group' ? `<div class="small text-primary mb-1" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</div>` : ''}
+                        ${nicknameHtml}
                         ${msg.content}
                         <div class="small text-muted mt-1">${msg.timestamp}</div>
                     </div>
@@ -849,7 +1008,7 @@ function sendMessage() {
     const token = urlParams.get('token');
     
     if (!token) {
-        showAlert('未找到访问token', 'danger');
+        showSendStatus('未找到访问token', false);
         resetSendButtons();
         return;
     }
@@ -869,16 +1028,37 @@ function sendMessage() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            clearCurrentInputs();
-            // 添加消息到聊天记录
-            appendMessage(getDisplayContent(sendData), true, data.data.timestamp);
-            showAlert('消息发送成功', 'success');
+            // 检查message_id是否包含错误信息
+            const messageId = data.data.message_id;
+            const isActualError = messageId && (
+                messageId.includes('消息发送失败') || 
+                messageId.includes('code:') ||
+                messageId.includes('错误') ||
+                messageId.includes('失败')
+            );
+            
+            if (isActualError) {
+                // 虽然返回success=true，但实际是发送了错误消息
+                const apiErrorMsg = getApiErrorMessage(messageId);
+                showSendStatus('发送失败: ' + apiErrorMsg, false);
+            } else {
+                // 真正发送成功
+                clearCurrentInputs();
+                // 添加消息到聊天记录
+                appendMessage(getDisplayContent(sendData), true, data.data.timestamp);
+                showSendStatus('消息发送成功', true);
+                
+                // 立即刷新聊天记录以获取最新消息（包括发送的消息）
+                setTimeout(() => {
+                    refreshChatHistory();
+                }, 200);
+            }
         } else {
-            showAlert('发送失败: ' + data.message, 'danger');
+            showSendStatus('发送失败: ' + data.message, false);
         }
     })
     .catch(error => {
-        showAlert('网络错误', 'danger');
+        showSendStatus('网络错误', false);
         console.error('Error:', error);
     })
     .finally(() => {
@@ -1062,13 +1242,26 @@ function resetSendButtons() {
 function appendMessage(content, isSelf, timestamp) {
     const messageArea = document.getElementById('message-area');
     
+    // 头像显示逻辑（与renderChatHistory保持一致）
+    let avatarHtml;
+    if (isSelf) {
+        // 机器人头像 - 使用真实QQ头像
+        const robotAvatarUrl = `https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140`;
+        avatarHtml = `<img src="${robotAvatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background-color: #0d6efd;"><i class="bi bi-robot" style="color: white;"></i></div>`;
+    } else {
+        // 用户头像（这种情况在appendMessage中通常不会出现，但保持完整性）
+        avatarHtml = `<div class="chat-avatar-placeholder me-2">U</div>`;
+    }
+    
     const messageHtml = `
         <div class="message-bubble ${isSelf ? 'self' : 'other'}">
             <div class="d-flex ${isSelf ? 'justify-content-end' : ''}">
+                ${!isSelf ? avatarHtml : ''}
                 <div class="message-content">
                     ${content}
                     <div class="small text-muted mt-1">${timestamp}</div>
                 </div>
+                ${isSelf ? avatarHtml : ''}
             </div>
         </div>
     `;
@@ -1077,26 +1270,56 @@ function appendMessage(content, isSelf, timestamp) {
     messageArea.scrollTop = messageArea.scrollHeight;
 }
 
-// 显示提示消息
-function showAlert(message, type) {
-    const alertHtml = `
-        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    `;
+// 提取API原始错误信息
+function getApiErrorMessage(errorMsg) {
+    if (!errorMsg) return '未知错误';
     
-    // 在页面顶部显示提示
-    const container = document.querySelector('.container-fluid');
-    container.insertAdjacentHTML('afterbegin', alertHtml);
+    // 提取错误码
+    const codeMatch = errorMsg.match(/code:(\d+)/);
+    const errorCode = codeMatch ? codeMatch[1] : null;
     
-    // 3秒后自动关闭
-    setTimeout(() => {
-        const alert = container.querySelector('.alert');
-        if (alert) {
-            alert.remove();
-        }
-    }, 3000);
+    // 提取trace_id
+    const traceMatch = errorMsg.match(/trace_id:([a-f0-9]+)/);
+    const traceId = traceMatch ? traceMatch[1] : null;
+    
+    // 构建原始API错误格式
+    let apiError = '';
+    if (errorCode) {
+        apiError += `code:${errorCode}`;
+    }
+    if (traceId) {
+        apiError += apiError ? ` trace_id:${traceId}` : `trace_id:${traceId}`;
+    }
+    
+    // 如果没有提取到错误码和trace_id，返回清理后的原始消息（去掉提示文本）
+    if (!apiError) {
+        apiError = errorMsg
+            .replace(/消息发送失败\s*/g, '')
+            .replace(/>\s*/g, '')
+            .replace(/注：出现错误，请截图进行反馈\s*/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+    
+    return apiError || '未知错误';
+}
+
+// 显示发送状态
+function showSendStatus(message, isSuccess) {
+    const statusDiv = document.getElementById('send-status');
+    const statusContent = document.getElementById('send-status-content');
+    
+    if (statusDiv && statusContent) {
+        statusContent.innerHTML = isSuccess 
+            ? `<span class="text-success"><i class="bi bi-check-circle"></i> ${message}</span>`
+            : `<span class="text-danger"><i class="bi bi-x-circle"></i> ${message}</span>`;
+        statusDiv.style.display = 'block';
+        
+        // 5秒后自动隐藏
+        setTimeout(() => {
+            statusDiv.style.display = 'none';
+        }, 5000);
+    }
 }
 </script>
 {% endblock %}

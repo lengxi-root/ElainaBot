@@ -833,7 +833,7 @@ class PluginManager:
         is_first_reply = [True]
         
         # 创建日志包装器
-        wrapped_methods = cls._create_method_logger(original_methods, plugin_name, is_first_reply)
+        wrapped_methods = cls._create_method_logger(original_methods, plugin_name, is_first_reply, event)
         
         # 替换方法
         for method_name, wrapped_method in wrapped_methods.items():
@@ -862,7 +862,7 @@ class PluginManager:
                     setattr(event, method_name, original_method)
     
     @classmethod
-    def _create_method_logger(cls, original_methods_dict, plugin_name, is_first_reply):
+    def _create_method_logger(cls, original_methods_dict, plugin_name, is_first_reply, event):
         """创建带日志记录的方法包装器"""
         def _create_logged_method(original_method, method_name):
             def logged_method(*args, **kwargs):
@@ -882,9 +882,12 @@ class PluginManager:
                 if method_name == 'reply' and not isinstance(text_content, str):
                     text_content = "[非文本内容]"
                 
-                # 记录日志
-                status = "(处理完成)" if is_first_reply[0] else "(继续处理)"
-                add_plugin_log(f"插件 {plugin_name} 回复：{text_content} {status}")
+                # 记录日志，只保存实际发送的内容
+                # 从event中获取用户ID和群ID
+                user_id = getattr(event, 'user_id', '')
+                group_id = getattr(event, 'group_id', 'c2c')
+                
+                add_plugin_log(text_content, user_id=user_id, group_id=group_id, plugin_name=plugin_name)
                 if is_first_reply[0]:
                     is_first_reply[0] = False
                 

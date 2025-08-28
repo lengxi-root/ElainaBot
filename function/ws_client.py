@@ -88,6 +88,18 @@ class Intent:
     PUBLIC_GUILD = BASIC | PUBLIC_GUILD_MESSAGES
     WITH_GROUP = BASIC | GROUP_AT_MESSAGE_CREATE
 
+def _safe_asyncio_sleep(duration: float):
+    """安全的异步睡眠，处理事件循环异常"""
+    async def safe_sleep():
+        try:
+            await asyncio.sleep(duration)
+        except RuntimeError as e:
+            if "no running event loop" in str(e):
+                logger.error(f"事件循环已停止，无法执行睡眠操作")
+                raise asyncio.CancelledError("Event loop stopped")
+            raise
+    return safe_sleep()
+
 class WebSocketClient:
     """WebSocket客户端"""
     
@@ -466,7 +478,12 @@ class WebSocketClient:
             except Exception as e:
                 logger.error(f"主循环异常: {e}")
                 self.connected = False
-                await asyncio.sleep(self._get_config_value('reconnect_interval', 5))
+                try:
+                    await _safe_asyncio_sleep(self._get_config_value('reconnect_interval', 5))
+                except asyncio.CancelledError:
+                    logger.error("事件循环已停止，退出主循环")
+                    self.running = False
+                    break
 
     async def _should_stop_reconnecting(self):
         """检查是否应该停止重连"""
@@ -482,7 +499,12 @@ class WebSocketClient:
         self._update_stats(reconnect_count=self.reconnect_count)
         
         reconnect_interval = self._get_config_value('reconnect_interval', 5)
-        await asyncio.sleep(reconnect_interval)
+        try:
+            await _safe_asyncio_sleep(reconnect_interval)
+        except asyncio.CancelledError:
+            logger.error("事件循环已停止，无法继续重连")
+            self.running = False
+            return
 
     async def stop(self):
         """停止客户端"""

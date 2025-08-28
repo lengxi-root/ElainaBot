@@ -372,6 +372,7 @@ def run_websocket_client():
     max_retries = 3
     
     for attempt in range(max_retries):
+        loop = None
         try:
             import asyncio
             import sys
@@ -392,10 +393,19 @@ def run_websocket_client():
             asyncio.set_event_loop(loop)
             
             async def websocket_main():
-                log_to_console(f"正在创建WebSocket客户端...")
-                client = await create_websocket_client()
-                log_to_console("WebSocket客户端已创建，开始连接...")
-                await client.start()
+                client = None
+                try:
+                    log_to_console(f"正在创建WebSocket客户端...")
+                    client = await create_websocket_client()
+                    log_to_console("WebSocket客户端已创建，开始连接...")
+                    await client.start()
+                except Exception as e:
+                    if client:
+                        try:
+                            await client.stop()
+                        except:
+                            pass
+                    raise
             
             loop.run_until_complete(websocket_main())
             log_to_console("WebSocket客户端连接成功")
@@ -409,6 +419,30 @@ def run_websocket_client():
             if attempt < max_retries - 1:
                 log_to_console(f"等待 10 秒后重试...")
                 time.sleep(10)  # 增加等待时间
+        finally:
+            # 确保事件循环被正确清理
+            if loop:
+                try:
+                    # 取消所有pending的任务
+                    pending_tasks = asyncio.all_tasks(loop)
+                    for task in pending_tasks:
+                        task.cancel()
+                    
+                    # 等待任务完成或取消
+                    if pending_tasks:
+                        loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                except Exception as e:
+                    log_error(f"清理事件循环时出错: {e}")
+                finally:
+                    try:
+                        loop.close()
+                    except:
+                        pass
+                    # 重置事件循环
+                    try:
+                        asyncio.set_event_loop(None)
+                    except:
+                        pass
 
 
 

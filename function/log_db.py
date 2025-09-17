@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""
+日志数据库中间件
+负责将日志记录到数据库中而不是文件系统
+"""
+
 import os
 import sys
 import time
@@ -21,6 +26,19 @@ logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('log_db')
 
+# 内置默认配置
+DEFAULT_LOG_CONFIG = {
+    'create_tables': True,          # 默认自动创建日志表
+    'table_per_day': True,          # 默认按日期自动分表
+    'batch_size': 0,                # 每批次最大写入日志记录数默认全部（无限制）
+    'min_pool_size': 3,             # 日志表最小保持连接数为3
+    'autocommit': True,             # 默认自动提交事务
+    'pool_size': 50,                # 线程池大小默认50
+}
+
+# 合并配置：用户配置覆盖默认配置
+MERGED_LOG_CONFIG = {**DEFAULT_LOG_CONFIG, **LOG_DB_CONFIG}
+
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_INSERT_INTERVAL = 10
 LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'unmatched', 'dau', 'id']
@@ -35,12 +53,16 @@ TABLE_SUFFIX = {
 }
 
 class LogDatabasePool:
-    """日志数据库连接池"""
+    """日志数据库动态连接池"""
     _instance = None
     _lock = threading.Lock()
     _pool = []
     _busy_connections = {}
     _initialized = False
+    
+    # 动态连接池配置
+    _min_connections = MERGED_LOG_CONFIG['min_pool_size']  # 日志库最少连接数
+    _idle_timeout = 300   # 5分钟未使用则清理
     
     def __new__(cls):
         with cls._lock:
@@ -52,7 +74,7 @@ class LogDatabasePool:
         with self._lock:
             if not self._initialized:
                 self._thread_pool = ThreadPoolExecutor(
-                    max_workers=LOG_DB_CONFIG['pool_size'],
+                    max_workers=MERGED_LOG_CONFIG['pool_size'],
                     thread_name_prefix="LogDBPool"
                 )
                 self._init_pool()
@@ -76,9 +98,9 @@ class LogDatabasePool:
 
     def _create_connection_with_retry(self):
         """带重试的连接创建"""
-        db_config = DB_CONFIG if LOG_DB_CONFIG['use_main_db'] else LOG_DB_CONFIG
-        retry_count = LOG_DB_CONFIG['max_retry']
-        retry_delay = LOG_DB_CONFIG['retry_interval']
+        db_config = DB_CONFIG if MERGED_LOG_CONFIG['use_main_db'] else MERGED_LOG_CONFIG
+        retry_count = MERGED_LOG_CONFIG['max_retry']
+        retry_delay = MERGED_LOG_CONFIG['retry_interval']
         
         for i in range(retry_count):
             try:
@@ -93,7 +115,7 @@ class LogDatabasePool:
                     connect_timeout=db_config.get('connect_timeout', 3),
                     read_timeout=db_config.get('read_timeout', 10),
                     write_timeout=db_config.get('write_timeout', 10),
-                    autocommit=db_config.get('autocommit', True)
+                    autocommit=MERGED_LOG_CONFIG['autocommit']
                 )
             except Exception as e:
                 if i < retry_count - 1:
@@ -104,10 +126,10 @@ class LogDatabasePool:
         return None
     
     def _init_pool(self):
-        """初始化连接池"""
-        min_connections = LOG_DB_CONFIG['min_pool_size']
+        """初始化动态日志连接池"""
+        created_count = 0
         
-        for _ in range(min_connections):
+        for _ in range(self._min_connections):
             connection = self._create_connection_with_retry()
             if connection:
                 self._pool.append({
@@ -115,6 +137,9 @@ class LogDatabasePool:
                     'created_at': time.time(),
                     'last_used': time.time()
                 })
+                created_count += 1
+        
+        logger.info(f"动态日志连接池初始化完成，创建{created_count}个连接")
     
     def _create_connection(self):
         """创建新连接"""
@@ -135,30 +160,19 @@ class LogDatabasePool:
         self._safe_execute(lambda: connection.close(), "关闭连接失败")
     
     def get_connection(self):
-        """获取数据库连接"""
+        """获取数据库连接 - 动态智能选择"""
         connection_id = threading.get_ident()
         
         if connection_id in self._busy_connections:
             return self._busy_connections[connection_id]['connection']
         
         with self._lock:
-            if self._pool:
-                conn_info = self._pool.pop(0)
-                connection = conn_info['connection']
-                
-                if not self._check_connection(connection):
-                    self._close_connection_safely(connection)
-                    connection = self._create_connection()
-                    if not connection:
-                        return None
-                
-                self._busy_connections[connection_id] = {
-                    'connection': connection,
-                    'acquired_at': time.time(),
-                    'created_at': conn_info.get('created_at', time.time())
-                }
+            # 优先从池中获取最优连接
+            connection = self._get_best_pooled_connection(connection_id)
+            if connection:
                 return connection
             
+            # 动态创建新连接
             connection = self._create_connection()
             if connection:
                 self._busy_connections[connection_id] = {
@@ -166,12 +180,57 @@ class LogDatabasePool:
                     'acquired_at': time.time(),
                     'created_at': time.time()
                 }
+                
                 return connection
         
         return None
     
+    def _get_best_pooled_connection(self, connection_id):
+        """获取最优的池化连接"""
+        if not self._pool:
+            return None
+        
+        current_time = time.time()
+        best_conn_info = None
+        best_index = -1
+        max_remaining_time = -1
+        
+        # 寻找剩余时间最多的健康连接
+        for i, conn_info in enumerate(self._pool):
+            connection = conn_info['connection']
+            
+            if not self._check_connection(connection):
+                # 不健康连接直接移除
+                self._close_connection_safely(connection)
+                self._pool.pop(i)
+                continue
+            
+            # 计算剩余生命时间
+            created_at = conn_info.get('created_at', current_time)
+            used_time = current_time - created_at
+            remaining_time = 3600 - used_time  # 假设1小时生命周期
+            
+            if remaining_time > max_remaining_time:
+                max_remaining_time = remaining_time
+                best_conn_info = conn_info
+                best_index = i
+        
+        if best_conn_info and best_index >= 0:
+            self._pool.pop(best_index)
+            connection = best_conn_info['connection']
+            
+            self._busy_connections[connection_id] = {
+                'connection': connection,
+                'acquired_at': current_time,
+                'created_at': best_conn_info.get('created_at', current_time)
+            }
+            
+            return connection
+        
+        return None
+    
     def release_connection(self, connection=None):
-        """释放连接回池"""
+        """释放连接回池 - 动态回收策略"""
         connection_id = threading.get_ident()
         
         with self._lock:
@@ -195,6 +254,7 @@ class LogDatabasePool:
             connection = conn_info['connection']
             del self._busy_connections[connection_id]
             
+            # 动态回收：只要连接健康就回收，不限制池大小
             if self._check_connection(connection):
                 self._pool.append({
                     'connection': connection,
@@ -205,36 +265,84 @@ class LogDatabasePool:
                 self._close_connection_safely(connection)
     
     def _maintain_pool(self):
-        """维护连接池"""
+        """维护动态日志连接池"""
+        maintenance_cycle = 0
+        
         while True:
-            time.sleep(60)
-            
-            with self._lock:
+            try:
+                time.sleep(60)
+                maintenance_cycle += 1
                 current_time = time.time()
                 
-                # 清理超时连接
-                for i in range(len(self._pool) - 1, -1, -1):
-                    if i < len(self._pool):
-                        conn_info = self._pool[i]
-                        if current_time - conn_info['last_used'] > 300:
-                            self._safe_execute(
-                                lambda: conn_info['connection'].close(),
-                                "维护过程中关闭连接失败"
-                            )
-                            del self._pool[i]
-                
-                # 确保最小连接数
-                min_connections = LOG_DB_CONFIG['min_pool_size']
-                while len(self._pool) < min_connections:
-                    conn = self._create_connection()
-                    if conn:
-                        self._pool.append({
-                            'connection': conn,
-                            'created_at': time.time(),
-                            'last_used': time.time()
-                        })
-                    else:
-                        break
+                with self._lock:
+                    # 清理5分钟未使用的连接，但保持最少3个
+                    self._cleanup_idle_connections(current_time)
+                    
+                    # 确保最小连接数
+                    self._ensure_min_log_connections()
+                    
+                    # 每10个周期记录一次统计信息
+                    if maintenance_cycle % 10 == 0:
+                        self._log_stats(current_time)
+                        
+            except Exception as e:
+                logger.error(f"动态日志连接池维护失败: {str(e)}")
+                time.sleep(5)  # 等待一段时间后重试
+    
+    def _cleanup_idle_connections(self, current_time):
+        """清理空闲连接"""
+        if not self._pool:
+            return
+        
+        kept_connections = []
+        cleaned_count = 0
+        current_pool_size = len(self._pool)
+        
+        for conn_info in self._pool:
+            idle_time = current_time - conn_info['last_used']
+            
+            # 清理策略：超过空闲时间且超过最小连接数
+            should_remove = (idle_time > self._idle_timeout and 
+                           current_pool_size - cleaned_count > self._min_connections)
+            
+            if should_remove:
+                self._safe_execute(
+                    lambda: conn_info['connection'].close(),
+                    "清理空闲日志连接失败"
+                )
+                cleaned_count += 1
+            else:
+                kept_connections.append(conn_info)
+        
+        self._pool[:] = kept_connections
+        
+        if cleaned_count > 0:
+            logger.info(f"清理了{cleaned_count}个空闲日志连接")
+    
+    def _ensure_min_log_connections(self):
+        """确保最小连接数"""
+        needed = max(0, self._min_connections - len(self._pool))
+        if needed > 0:
+            created = 0
+            for _ in range(needed):
+                conn = self._create_connection()
+                if conn:
+                    self._pool.append({
+                        'connection': conn,
+                        'created_at': time.time(),
+                        'last_used': time.time()
+                    })
+                    created += 1
+                else:
+                    break
+            
+            if created > 0:
+                logger.info(f"补充了{created}个日志连接")
+    
+    def _log_stats(self, current_time):
+        """简化的统计信息"""
+        # 减少频繁的统计信息记录
+        pass
 
 class LogDatabaseManager:
     """日志数据库管理器"""
@@ -257,12 +365,14 @@ class LogDatabaseManager:
         
         # 预定义SQL模板和数据处理器，提高插入效率
         self._init_sql_templates()
+        # 初始化表结构定义
+        self._table_schemas = self._init_table_schemas()
         
-        if LOG_DB_CONFIG['create_tables']:
+        if MERGED_LOG_CONFIG['create_tables']:
             self._create_all_tables()
         
-        self._save_interval = LOG_DB_CONFIG['insert_interval']
-        self._batch_size = LOG_DB_CONFIG['batch_size']
+        self._save_interval = MERGED_LOG_CONFIG['insert_interval']
+        self._batch_size = MERGED_LOG_CONFIG['batch_size']
         
         self._stop_event = threading.Event()
         self._save_thread = threading.Thread(
@@ -271,14 +381,6 @@ class LogDatabaseManager:
             name="LogDBSaveThread"
         )
         self._save_thread.start()
-        
-        if LOG_DB_CONFIG['auto_cleanup']:
-            self._cleanup_thread = threading.Thread(
-                target=self._cleanup_old_tables,
-                daemon=True,
-                name="LogDBCleanupThread"
-            )
-            self._cleanup_thread.start()
         
         # ID清理任务已集成到DAU分析调度器中
 
@@ -343,89 +445,68 @@ class LogDatabaseManager:
             """
         }
         
-        # 数据处理器字典 - 统一数据提取逻辑
-        self._data_processors = {
-            'received': self._process_message_data,
-            'unmatched': self._process_message_data,
-            'plugin': self._process_plugin_data,
-            'error': self._process_error_data,
-            'dau': self._process_dau_data,
-            'id': self._process_id_data,
-            'default': self._process_default_data
+        # 字段提取器映射，避免多个if-else
+        self._field_extractors = {
+            'received': lambda log: (log.get('timestamp'), log.get('user_id', '未知用户'), log.get('group_id', 'c2c'), log.get('content'), log.get('raw_message', '')),
+            'unmatched': lambda log: (log.get('timestamp'), log.get('user_id', '未知用户'), log.get('group_id', 'c2c'), log.get('content'), log.get('raw_message', '')),
+            'plugin': lambda log: (log.get('timestamp'), log.get('user_id', ''), log.get('group_id', 'c2c'), log.get('plugin_name', ''), log.get('content', '')),
+            'error': lambda log: (log.get('timestamp'), log.get('content'), log.get('traceback', ''), log.get('resp_obj', ''), log.get('send_payload', ''), log.get('raw_message', '')),
+            'id': lambda log: (log.get('chat_type'), log.get('chat_id'), log.get('last_message_id')),
+            'default': lambda log: (log.get('timestamp'), log.get('content'))
         }
+        
+        # 批量优化标记
+        self._batch_optimized_types = {'received', 'unmatched', 'plugin', 'error', 'id', 'default'}
 
-    def _process_message_data(self, logs):
-        """处理消息类型日志数据"""
-        return [(
-            log.get('timestamp'),
-            log.get('user_id', '未知用户'),
-            log.get('group_id', 'c2c'),
-            log.get('content'),
-            log.get('raw_message', '')
-        ) for log in logs]
+    def _extract_log_data_optimized(self, log_type, logs):
+        """统一的高性能数据提取方法"""
+        if log_type == 'dau':
+            return self._process_dau_data(logs)
         
-    def _process_plugin_data(self, logs):
-        """处理插件日志数据"""
-        return [(
-            log.get('timestamp'),
-            log.get('user_id', ''),
-            log.get('group_id', 'c2c'),
-            log.get('plugin_name', ''),
-            log.get('content', '')
-        ) for log in logs]
+        # 批量处理，减少函数调用开销
+        if log_type in self._batch_optimized_types:
+            extractor = self._field_extractors[log_type]
+            return [extractor(log) for log in logs]
         
-    def _process_error_data(self, logs):
-        """处理错误日志数据"""
-        return [(
-            log.get('timestamp'),
-            log.get('content'),
-            log.get('traceback', ''),
-            log.get('resp_obj', ''),
-            log.get('send_payload', ''),
-            log.get('raw_message', '')
-        ) for log in logs]
+        # 默认处理
+        extractor = self._field_extractors.get(log_type, self._field_extractors['default'])
+        return [extractor(log) for log in logs]
         
     def _process_dau_data(self, logs):
-        """处理DAU统计数据"""
+        """处理DAU统计数据 - 高性能批量处理"""
+        if not logs:
+            return []
+        
+        # 预分配内存，局部化函数引用
         values = []
+        json_dumps = json.dumps
+        log_get = lambda log, key, default=0: log.get(key, default)
+        
         for log in logs:
-            # 优化JSON序列化 - 只对有数据的字段进行序列化
+            # 批量获取JSON字段，减少条件判断
             message_detail = log.get('message_stats_detail')
             user_detail = log.get('user_stats_detail')
             command_detail = log.get('command_stats_detail')
             
             values.append((
                 log.get('date'),
-                log.get('active_users', 0),
-                log.get('active_groups', 0),
-                log.get('total_messages', 0),
-                log.get('private_messages', 0),
-                log.get('group_join_count', 0),
-                log.get('group_leave_count', 0),
-                log.get('group_count_change', 0),
-                log.get('friend_add_count', 0),
-                log.get('friend_remove_count', 0),
-                log.get('friend_count_change', 0),
-                json.dumps(message_detail, ensure_ascii=False) if message_detail else None,
-                json.dumps(user_detail, ensure_ascii=False) if user_detail else None,
-                json.dumps(command_detail, ensure_ascii=False) if command_detail else None
+                log_get(log, 'active_users'),
+                log_get(log, 'active_groups'),
+                log_get(log, 'total_messages'),
+                log_get(log, 'private_messages'),
+                log_get(log, 'group_join_count'),
+                log_get(log, 'group_leave_count'),
+                log_get(log, 'group_count_change'),
+                log_get(log, 'friend_add_count'),
+                log_get(log, 'friend_remove_count'),
+                log_get(log, 'friend_count_change'),
+                json_dumps(message_detail, ensure_ascii=False) if message_detail else None,
+                json_dumps(user_detail, ensure_ascii=False) if user_detail else None,
+                json_dumps(command_detail, ensure_ascii=False) if command_detail else None
             ))
         return values
         
-    def _process_id_data(self, logs):
-        """处理ID缓存数据"""
-        return [(
-            log.get('chat_type'),
-            log.get('chat_id'),
-            log.get('last_message_id')
-        ) for log in logs]
-        
-    def _process_default_data(self, logs):
-        """处理默认类型日志数据"""
-        return [(
-            log.get('timestamp'),
-            log.get('content')
-        ) for log in logs]
+    # 移除重复的数据处理方法，统一使用 _extract_log_data_optimized
 
     def _safe_execute(self, operation, error_msg="操作失败"):
         """安全执行操作"""
@@ -459,14 +540,14 @@ class LogDatabaseManager:
 
     def _get_table_name(self, log_type):
         """获取表名"""
-        prefix = LOG_DB_CONFIG['table_prefix']
+        prefix = MERGED_LOG_CONFIG['table_prefix']
         suffix = TABLE_SUFFIX.get(log_type, log_type)
         
         # DAU表和ID表不按日期分表，使用统一表名
         if log_type in ('dau', 'id'):
             return f"{prefix}{suffix}"
         
-        if LOG_DB_CONFIG['table_per_day']:
+        if MERGED_LOG_CONFIG['table_per_day']:
             today = datetime.datetime.now().strftime('%Y%m%d')
             return f"{prefix}{today}_{suffix}"
         else:
@@ -483,44 +564,53 @@ class LogDatabaseManager:
         result = cursor.fetchone()
         return result and result['count'] > 0
 
-    def _get_create_table_sql(self, table_name, log_type):
-        """获取创建表SQL"""
-        if log_type in ('dau', 'id'):
-            # DAU表和ID表特殊处理，不需要默认的id和timestamp字段
-            base_sql = f"""
-                CREATE TABLE IF NOT EXISTS `{table_name}` (
-            """
-        else:
-            base_sql = f"""
-                CREATE TABLE IF NOT EXISTS `{table_name}` (
-                    `id` bigint(20) NOT NULL AUTO_INCREMENT,
-                    `timestamp` datetime NOT NULL,
-            """
+
         
-        if log_type == 'received':
-            specific_fields = """
+    def _init_table_schemas(self):
+        """初始化表结构定义，避免复杂的if-else逻辑"""
+        # 通用字段定义
+        message_fields = """
                 `user_id` varchar(255) NOT NULL COMMENT '用户ID',
                 `group_id` varchar(255) DEFAULT 'c2c' COMMENT '群聊ID',
                 `content` text NOT NULL COMMENT '消息内容',
                 `raw_message` text COMMENT '原始消息数据',
-            """
-        elif log_type == 'unmatched':
-            specific_fields = """
+        """
+        
+        return {
+            'received': {
+                'base': 'standard',
+                'fields': message_fields,
+                'end': 'standard'
+            },
+            'unmatched': {
+                'base': 'standard',
+                'fields': message_fields,
+                'end': 'standard'
+            },
+            'plugin': {
+                'base': 'standard',
+                'fields': """
                 `user_id` varchar(255) NOT NULL COMMENT '用户ID',
                 `group_id` varchar(255) DEFAULT 'c2c' COMMENT '群聊ID',
-                `content` text NOT NULL COMMENT '消息内容',
-                `raw_message` text COMMENT '原始消息数据',
-            """
-        elif log_type == 'error':
-            specific_fields = """
+                `plugin_name` varchar(255) DEFAULT '' COMMENT '插件名称',
+                `content` text NOT NULL COMMENT '插件回复内容',
+                """,
+                'end': 'standard'
+            },
+            'error': {
+                'base': 'standard',
+                'fields': """
                 `content` text NOT NULL,
                 `traceback` text,
                 `resp_obj` text COMMENT '响应对象',
                 `send_payload` text COMMENT '发送载荷',
                 `raw_message` text COMMENT '原始消息',
-            """
-        elif log_type == 'dau':
-            specific_fields = """
+                """,
+                'end': 'standard'
+            },
+            'dau': {
+                'base': 'special',
+                'fields': """
                 `date` date NOT NULL COMMENT '日期' PRIMARY KEY,
                 `active_users` int(11) DEFAULT 0 COMMENT '活跃用户数',
                 `active_groups` int(11) DEFAULT 0 COMMENT '活跃群聊数',
@@ -535,44 +625,55 @@ class LogDatabaseManager:
                 `message_stats_detail` json COMMENT '详细消息统计数据(JSON)',
                 `user_stats_detail` json COMMENT '详细用户统计数据(JSON)',
                 `command_stats_detail` json COMMENT '详细命令统计数据(JSON)',
-            """
-        elif log_type == 'id':
-            specific_fields = """
+                """,
+                'end': 'dau'
+            },
+            'id': {
+                'base': 'special',
+                'fields': """
                 `chat_type` varchar(10) NOT NULL COMMENT '聊天类型:group/user',
                 `chat_id` varchar(255) NOT NULL COMMENT '聊天ID:群ID或用户ID',
                 `last_message_id` varchar(255) NOT NULL COMMENT '最后一个消息ID',
                 PRIMARY KEY (`chat_type`, `chat_id`),
-            """
-        elif log_type == 'plugin':
-            specific_fields = """
-                `user_id` varchar(255) NOT NULL COMMENT '用户ID',
-                `group_id` varchar(255) DEFAULT 'c2c' COMMENT '群聊ID',
-                `plugin_name` varchar(255) DEFAULT '' COMMENT '插件名称',
-                `content` text NOT NULL COMMENT '插件回复内容',
-            """
-        else:
-            specific_fields = """
-                `content` text NOT NULL,
-            """
+                """,
+                'end': 'id'
+            },
+            'default': {
+                'base': 'standard',
+                'fields': "`content` text NOT NULL,",
+                'end': 'standard'
+            }
+        }
+    
+    def _get_create_table_sql(self, table_name, log_type):
+        """获取创建表SQL - 优化版本，使用配置驱动"""
+        schema = self._table_schemas.get(log_type, self._table_schemas['default'])
         
-        if log_type == 'dau':
-            end_sql = """
-                    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
-        elif log_type == 'id':
-            end_sql = """
-                    `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间'
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
+        # 基础结构
+        if schema['base'] == 'special':
+            base_sql = f"CREATE TABLE IF NOT EXISTS `{table_name}` ("
         else:
-            end_sql = """
-                    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """
+            base_sql = f"""CREATE TABLE IF NOT EXISTS `{table_name}` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `timestamp` datetime NOT NULL,"""
         
-        return base_sql + specific_fields + end_sql
+        # 结束部分
+        end_templates = {
+            'standard': """
+                `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
+            'dau': """
+                `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
+            'id': """
+                `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间'
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"""
+        }
+        
+        end_sql = end_templates[schema['end']]
+        
+        return base_sql + schema['fields'] + end_sql
 
     def _create_table(self, log_type):
         """创建日志表"""
@@ -617,7 +718,7 @@ class LogDatabaseManager:
     
     def add_log(self, log_type, log_data):
         """添加日志到队列"""
-        if not LOG_DB_CONFIG['enabled']:
+        if not MERGED_LOG_CONFIG['enabled']:
             return False
             
         if log_type not in LOG_TYPES:
@@ -689,14 +790,13 @@ class LogDatabaseManager:
             self._save_log_type_to_db(log_type)
 
     def _build_insert_sql_and_values(self, log_type, table_name, logs):
-        """构建插入SQL和数据 - 优化版本"""
+        """构建插入SQL和数据 - 高性能优化版本"""
         # 使用预定义的SQL模板，避免重复构建
         sql_template = self._sql_templates.get(log_type, self._sql_templates['default'])
         sql = sql_template.format(table_name=table_name)
         
-        # 使用对应的数据处理器
-        processor = self._data_processors.get(log_type, self._data_processors['default'])
-        values = processor(logs)
+        # 使用统一的高性能数据提取器
+        values = self._extract_log_data_optimized(log_type, logs)
         
         return sql, values
     
@@ -706,7 +806,8 @@ class LogDatabaseManager:
         if queue_size == 0:
             return
             
-        batch_size = min(queue_size, self._batch_size)
+        # 如果batch_size为0表示无限制，处理队列中所有记录
+        batch_size = queue_size if self._batch_size == 0 else min(queue_size, self._batch_size)
         
         if not self._create_table(log_type):
             logger.error(f"无法保存{log_type}日志: 表创建失败")
@@ -735,7 +836,7 @@ class LogDatabaseManager:
         except Exception as e:
             logger.error(f"保存{log_type}日志失败: {str(e)}")
             
-            if LOG_DB_CONFIG['fallback_to_file']:
+            if MERGED_LOG_CONFIG['fallback_to_file']:
                 self._fallback_to_file(log_type, logs_to_insert)
                 
         finally:
@@ -782,45 +883,6 @@ class LogDatabaseManager:
         except Exception as e:
             logger.error(f"回退到文件保存失败: {str(e)}")
     
-    def _cleanup_old_tables(self):
-        """清理过期表"""
-        if not LOG_DB_CONFIG['retention_days'] > 0:
-            return
-            
-        while not self._stop_event.is_set():
-            time.sleep(24 * 60 * 60)
-            
-            if self._stop_event.is_set():
-                break
-                
-            retention_days = LOG_DB_CONFIG['retention_days']
-            
-            try:
-                with self._with_cursor() as (cursor, connection):
-                    prefix = LOG_DB_CONFIG['table_prefix']
-                    cursor.execute("""
-                        SELECT table_name 
-                        FROM information_schema.tables 
-                        WHERE table_schema = DATABASE() 
-                        AND table_name LIKE %s
-                    """, (f"{prefix}%",))
-                    
-                    tables = cursor.fetchall()
-                    
-                    for table in tables:
-                        table_name = table['table_name']
-                        parts = table_name.split('_')
-                        for part in parts:
-                            if len(part) == 8 and part.isdigit():
-                                table_date = datetime.datetime.strptime(part, '%Y%m%d')
-                                if (datetime.datetime.now() - table_date).days > retention_days:
-                                    cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
-                                break
-                    
-                    connection.commit()
-                    
-            except Exception as e:
-                logger.error(f"清理过期表失败: {str(e)}")
 
     def _cleanup_yesterday_ids(self):
         """清理昨天的ID记录"""
@@ -853,12 +915,9 @@ class LogDatabaseManager:
         
         if hasattr(self, '_save_thread') and self._save_thread.is_alive():
             self._save_thread.join(timeout=5)
-        
-        if hasattr(self, '_cleanup_thread') and self._cleanup_thread.is_alive():
-            self._cleanup_thread.join(timeout=5)
 
 # 全局单例
-log_db_manager = LogDatabaseManager() if LOG_DB_CONFIG['enabled'] else None
+log_db_manager = LogDatabaseManager() if MERGED_LOG_CONFIG['enabled'] else None
 
 def add_log_to_db(log_type, log_data):
     """添加日志到数据库"""
@@ -1034,11 +1093,8 @@ def add_sent_message_to_db(chat_type, chat_id, content, raw_message=None, timest
         'content': content,
         'raw_message': raw_message or ''
     }
-    
-    # 记录到received类型的表中（与普通消息使用相同的表）
-    # 发送消息需要实时存储，不使用批量队列
+ 
     if log_db_manager:
-        # 直接调用内部方法实现实时存储
         log_db_manager.log_queues['received'].put(message_data)
         log_db_manager._save_log_type_to_db('received')
         return True

@@ -71,7 +71,6 @@ DB_CONFIG = {
     'charset': 'utf8mb4',                      # 字符集，支持完整Unicode
     
     # 连接池基础设置
-    'pool_size': 15,                           # 连接池最大连接数
     'min_pool_size': 3,                        # 连接池最小保持连接数
     'connect_timeout': 5,                      # 数据库连接超时时间(秒)
     'read_timeout': 7,                         # 数据读取超时时间(秒)
@@ -81,20 +80,9 @@ DB_CONFIG = {
 
     
     # 连接池高级设置
-    'connection_lifetime': 1200,               # 单个连接最大生命周期(秒，20分钟)
-    'gc_interval': 60,                         # 连接池垃圾回收间隔(秒)
-    'idle_timeout': 10,                        # 空闲连接超时时间(秒)
-    'thread_pool_size': 10,                    # 并发查询线程池大小
-    'request_timeout': 3.0,                    # 获取连接请求超时时间(秒)
+    'connection_lifetime': 300,               # 单个连接最大生命周期(秒，5分钟)
     'retry_count': 3,                          # 连接失败重试次数
     'retry_interval': 0.5,                     # 重试间隔时间(秒)
-    
-    # 监控和维护设置
-    'max_usage_time': 30,                      # 单次连接最长使用时间(秒)
-    'max_connection_hold_time': 20,            # 连接占用超时警告阈值(秒)
-    'long_query_warning_time': 60,             # 长查询时间警告阈值(秒)
-    'pool_status_interval': 180,               # 连接池状态记录间隔(秒，3分钟)
-    'pool_maintenance_interval': 15,           # 连接池维护清理间隔(秒)
 }
 
 # 日志数据库配置 - 系统日志存储设置
@@ -124,8 +112,6 @@ LOG_DB_CONFIG = {
     'auto_cleanup': True,                      # 是否自动清理过期日志表
     
     # 连接池配置(仅当use_main_db=False时生效)
-    'pool_size': 5,                            # 日志库连接池大小
-    'min_pool_size': 2,                        # 日志库最小连接数
     'connect_timeout': 3,                      # 连接超时时间(秒)
     'read_timeout': 10,                        # 读取超时时间(秒)
     'write_timeout': 10,                       # 写入超时时间(秒)
@@ -144,6 +130,5 @@ COS_CONFIG = {
     'bucket_name': ' ',         # 存储桶名称
     'domain': None,                            # 自定义域名(可选)
     'upload_path_prefix': 'mlog/',             # 默认上传路径前缀
-    'max_file_size': 50 * 1024 * 1024,       # 最大文件大小100MB
-    'storage_class': 'STANDARD',               # 存储类型
+    'max_file_size': 50 * 1024 * 1024,       # 最大文件大小50MB
 }

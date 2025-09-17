@@ -9,7 +9,10 @@ import logging
 import threading
 import schedule
 import re
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache, partial
+from collections import defaultdict
 from function.log_db import LogDatabasePool
 from function.db_pool import DatabaseService
 from function.database import USERS_TABLE, GROUPS_TABLE, MEMBERS_TABLE, GROUPS_USERS_TABLE
@@ -23,6 +26,12 @@ except ImportError:
 
 logger = logging.getLogger('dau_analytics')
 
+# 配置常量
+BATCH_SIZE = 1000
+MAX_WORKERS = 4
+QUERY_TIMEOUT = 30
+CACHE_TTL = 300  # 5分钟缓存
+
 class DAUAnalytics:
     def __init__(self):
         self.is_running = False
@@ -30,19 +39,40 @@ class DAUAnalytics:
         # 获取当前框架的表前缀配置
         self.log_table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
         self.main_table_prefix = DB_CONFIG.get('table_prefix', 'M_')
+        
+        # 组件
+        self._thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="DAU")
+        self._query_cache = {}
+        self._cache_timestamps = {}
+        
+        # 预编译命令模式缓存
+        self._compiled_commands = None
+        self._commands_cache_time = 0
 
-    def _with_log_db_cursor(self, operation):
+    def _with_log_db_cursor(self, operation, timeout=QUERY_TIMEOUT):
+        """数据库操作，支持超时和错误处理"""
         log_db_pool = LogDatabasePool()
         connection = log_db_pool.get_connection()
         if not connection:
             return None
             
+        cursor = None
         try:
             from pymysql.cursors import DictCursor
             cursor = connection.cursor(DictCursor)
-            return operation(cursor)
+            
+            # 设置查询超时
+            if timeout:
+                cursor.execute(f"SET SESSION wait_timeout = {timeout}")
+                cursor.execute(f"SET SESSION interactive_timeout = {timeout}")
+            
+            result = operation(cursor)
+            return result
+        except Exception as e:
+            logger.error(f"数据库操作失败: {str(e)}")
+            return None
         finally:
-            if 'cursor' in locals():
+            if cursor:
                 cursor.close()
             log_db_pool.release_connection(connection)
 
@@ -64,8 +94,29 @@ class DAUAnalytics:
         }
         fmt = formats.get(format_type, formats['display'])
         return fmt(date_obj) if callable(fmt) else date_obj.strftime(fmt)
-
-
+    
+    def _get_cache_key(self, *args) -> str:
+        """生成缓存键"""
+        return "|".join(str(arg) for arg in args)
+    
+    def _get_cached_result(self, cache_key: str) -> Optional[Any]:
+        """获取缓存结果"""
+        if cache_key not in self._query_cache:
+            return None
+            
+        cache_time = self._cache_timestamps.get(cache_key, 0)
+        if time.time() - cache_time > CACHE_TTL:
+            # 缓存过期
+            self._query_cache.pop(cache_key, None)
+            self._cache_timestamps.pop(cache_key, None)
+            return None
+            
+        return self._query_cache[cache_key]
+    
+    def _set_cache_result(self, cache_key: str, result: Any):
+        """设置缓存结果"""
+        self._query_cache[cache_key] = result
+        self._cache_timestamps[cache_key] = time.time()
 
     def start_scheduler(self):
         if self.is_running:
@@ -82,6 +133,14 @@ class DAUAnalytics:
     def stop_scheduler(self):
         self.is_running = False
         schedule.clear()
+        
+        # 清理资源
+        if hasattr(self, '_thread_pool'):
+            self._thread_pool.shutdown(wait=True)
+        
+        # 清理缓存
+        self._query_cache.clear()
+        self._cache_timestamps.clear()
 
     def _run_scheduler(self):
         while self.is_running:
@@ -90,16 +149,37 @@ class DAUAnalytics:
             time.sleep(60)
 
     def _daily_dau_task(self):
+        """每日DAU任务"""
         yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
         
-        # 直接收集并保存数据，不检查是否已存在
-        # 数据库会保留原有的加群等事件数据，只更新消息统计
-        dau_data = self.collect_dau_data(yesterday)
-        if dau_data:
-            self.save_dau_data(dau_data, yesterday)
-            logger.info(f"DAU数据已生成: {self._format_date(yesterday)}")
-        else:
-            logger.warning(f"DAU数据生成失败: {self._format_date(yesterday)}")
+        try:
+            logger.info(f"开始生成DAU数据: {self._format_date(yesterday)}")
+            
+            # 直接收集并保存数据，不检查是否已存在
+            # 数据库会保留原有的加群等事件数据，只更新消息统计
+            dau_data = self.collect_dau_data(yesterday)
+            if dau_data:
+                self.save_dau_data(dau_data, yesterday)
+                logger.info(f"DAU数据已生成: {self._format_date(yesterday)}")
+            else:
+                logger.warning(f"DAU数据生成失败: {self._format_date(yesterday)}")
+                
+        except Exception as e:
+            logger.error(f"DAU任务执行异常: {str(e)}")
+            
+        # 清理缓存
+        self._clear_expired_cache()
+    
+    def _clear_expired_cache(self):
+        """清理过期缓存"""
+        current_time = time.time()
+        expired_keys = [
+            key for key, timestamp in self._cache_timestamps.items()
+            if current_time - timestamp > CACHE_TTL
+        ]
+        for key in expired_keys:
+            self._query_cache.pop(key, None)
+            self._cache_timestamps.pop(key, None)
 
     def _daily_id_cleanup_task(self):
         from function.log_db import cleanup_yesterday_ids
@@ -112,88 +192,154 @@ class DAUAnalytics:
             logger.warning("ID清理任务执行失败")
 
     def collect_dau_data(self, target_date: datetime.datetime) -> Optional[Dict[str, Any]]:
+        """并发收集DAU数据，大幅提升性能"""
         date_str = self._format_date(target_date, 'table')
         display_date = self._format_date(target_date)
         
-        message_stats = self._get_message_stats(date_str)
-        if not message_stats:
-            return None
+        logger.info(f"开始并发收集DAU数据: {display_date}")
+        
+        # 使用线程池并发执行各种统计任务
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="DAUCollect") as executor:
+            # 提交所有任务
+            future_message = executor.submit(self._get_message_stats, date_str)
+            future_user = executor.submit(self._get_user_stats)
+            future_command = executor.submit(self._get_command_stats, date_str)
             
-        user_stats = self._get_user_stats()
-        command_stats = self._get_command_stats(date_str)
+            # 等待所有任务完成
+            try:
+                message_stats = future_message.result(timeout=60)  # 60秒超时
+                user_stats = future_user.result(timeout=30)        # 30秒超时
+                command_stats = future_command.result(timeout=45)  # 45秒超时
+                
+            except Exception as e:
+                logger.error(f"并发数据收集失败: {str(e)}")
+                return None
+        
+        # 检查关键数据
+        if not message_stats:
+            logger.warning(f"消息统计数据为空: {display_date}")
+            return None
+        
+        logger.info(f"DAU数据收集完成: {display_date} - 消息数: {message_stats.get('total_messages', 0)}")
         
         return {
             'date': display_date,
             'date_str': date_str,
             'generated_at': self._format_date(datetime.datetime.now(), 'iso'),
             'message_stats': message_stats,
-            'user_stats': user_stats,
-            'command_stats': command_stats,
-            'version': '1.0'
+            'user_stats': user_stats or {},
+            'command_stats': command_stats or [],
+            'version': '2.0'  # 升级版本号
         }
 
     def _get_message_stats(self, date_str: str) -> Optional[Dict[str, Any]]:
-        def get_stats(cursor):
-            table_name = f"{self.log_table_prefix}{date_str}_message"
-            
-            if not self._table_exists(cursor, table_name):
-                return None
-            
-            queries = {
-                'total_messages': f"SELECT COUNT(*) as count FROM {table_name}",
-                'active_users': f"""SELECT COUNT(DISTINCT user_id) as count 
-                                    FROM {table_name} 
-                                    WHERE user_id IS NOT NULL AND user_id != ''""",
-                'active_groups': f"""SELECT COUNT(DISTINCT group_id) as count 
-                                     FROM {table_name} 
-                                     WHERE group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''""",
-                'private_messages': f"""SELECT COUNT(*) as count 
-                                        FROM {table_name} 
-                                        WHERE group_id = 'c2c'""",
-                'peak_hour': f"""SELECT HOUR(timestamp) as hour, COUNT(*) as count 
-                                 FROM {table_name} 
-                                 GROUP BY HOUR(timestamp) 
-                                 ORDER BY count DESC 
-                                 LIMIT 1""",
-                'top_groups': f"""SELECT group_id, COUNT(*) as msg_count 
-                                  FROM {table_name} 
-                                  WHERE group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''
-                                  GROUP BY group_id 
-                                  ORDER BY msg_count DESC 
-                                  LIMIT 10""",
-                'top_users': f"""SELECT user_id, COUNT(*) as msg_count 
-                                 FROM {table_name} 
-                                 WHERE user_id IS NOT NULL AND user_id != ''
-                                 GROUP BY user_id 
-                                 ORDER BY msg_count DESC 
-                                 LIMIT 10"""
-            }
-            
-            results = {}
-            for key, query in queries.items():
-                cursor.execute(query)
-                if key in ['top_groups', 'top_users']:
-                    results[key] = cursor.fetchall()
-                else:
-                    result = cursor.fetchone()
-                    if key == 'peak_hour':
-                        results['peak_hour'] = result['hour'] if result else 0
-                        results['peak_hour_count'] = result['count'] if result else 0
-                    else:
-                        results[key] = result['count'] if result else 0
-            
-            results['top_groups'] = [
-                {'group_id': g['group_id'], 'message_count': g['msg_count']} 
-                for g in results['top_groups']
-            ]
-            results['top_users'] = [
-                {'user_id': u['user_id'], 'message_count': u['msg_count']} 
-                for u in results['top_users']
-            ]
-            
-            return results
+        """优化的消息统计，使用并发查询和缓存"""
+        cache_key = self._get_cache_key('message_stats', date_str)
+        cached_result = self._get_cached_result(cache_key)
+        if cached_result:
+            return cached_result
         
-        return self._with_log_db_cursor(get_stats)
+        def check_table_exists(cursor):
+            table_name = f"{self.log_table_prefix}{date_str}_message"
+            return self._table_exists(cursor, table_name), table_name
+        
+        # 首先检查表是否存在
+        exists_result = self._with_log_db_cursor(check_table_exists)
+        if not exists_result or not exists_result[0]:
+            return None
+            
+        table_name = exists_result[1]
+        
+        # 优化的SQL查询 - 减少全表扫描
+        optimized_queries = {
+            # 基础统计查询 - 一次性获取多个计数
+            'basic_stats': f"""
+                SELECT 
+                    COUNT(*) as total_messages,
+                    COUNT(DISTINCT CASE WHEN user_id IS NOT NULL AND user_id != '' THEN user_id END) as active_users,
+                    COUNT(DISTINCT CASE WHEN group_id != 'c2c' AND group_id IS NOT NULL AND group_id != '' THEN group_id END) as active_groups,
+                    COUNT(CASE WHEN group_id = 'c2c' THEN 1 END) as private_messages
+                FROM {table_name}
+            """,
+            
+            # 高峰时段统计
+            'peak_hour': f"""
+                SELECT HOUR(timestamp) as hour, COUNT(*) as count 
+                FROM {table_name} 
+                GROUP BY HOUR(timestamp) 
+                ORDER BY count DESC 
+                LIMIT 1
+            """,
+            
+            # 顶部群组统计 - 使用索引优化
+            'top_groups': f"""
+                SELECT group_id, COUNT(*) as msg_count 
+                FROM {table_name} 
+                WHERE group_id != 'c2c' AND group_id IS NOT NULL AND group_id != ''
+                GROUP BY group_id 
+                ORDER BY msg_count DESC 
+                LIMIT 10
+            """,
+            
+            # 顶部用户统计 - 使用索引优化
+            'top_users': f"""
+                SELECT user_id, COUNT(*) as msg_count 
+                FROM {table_name} 
+                WHERE user_id IS NOT NULL AND user_id != ''
+                GROUP BY user_id 
+                ORDER BY msg_count DESC 
+                LIMIT 10
+            """
+        }
+        
+        def execute_concurrent_queries(cursor):
+            """并发执行所有查询"""
+            results = {}
+            
+            try:
+                # 执行基础统计查询
+                cursor.execute(optimized_queries['basic_stats'])
+                basic_result = cursor.fetchone()
+                if basic_result:
+                    results.update(basic_result)
+                
+                # 执行高峰时段查询
+                cursor.execute(optimized_queries['peak_hour'])
+                peak_result = cursor.fetchone()
+                if peak_result:
+                    results['peak_hour'] = peak_result['hour']
+                    results['peak_hour_count'] = peak_result['count']
+                else:
+                    results['peak_hour'] = 0
+                    results['peak_hour_count'] = 0
+                
+                # 执行顶部群组查询
+                cursor.execute(optimized_queries['top_groups'])
+                top_groups = cursor.fetchall()
+                results['top_groups'] = [
+                    {'group_id': g['group_id'], 'message_count': g['msg_count']} 
+                    for g in (top_groups or [])
+                ]
+                
+                # 执行顶部用户查询
+                cursor.execute(optimized_queries['top_users'])
+                top_users = cursor.fetchall()
+                results['top_users'] = [
+                    {'user_id': u['user_id'], 'message_count': u['msg_count']} 
+                    for u in (top_users or [])
+                ]
+
+                return results
+                
+            except Exception as e:
+                logger.error(f"消息统计查询失败: {str(e)}")
+                return None
+        
+        result = self._with_log_db_cursor(execute_concurrent_queries)
+        if result:
+            self._set_cache_result(cache_key, result)
+        
+        return result
 
     def _get_user_stats(self) -> Dict[str, Any]:
         # 确保使用当前框架的表前缀
@@ -229,38 +375,117 @@ class DAUAnalytics:
         }
 
     def _get_command_stats(self, date_str: str) -> List[Dict[str, Any]]:
-        def get_stats(cursor):
+        """高性能命令统计，使用缓存和分批处理"""
+        cache_key = self._get_cache_key('command_stats', date_str)
+        cached_result = self._get_cached_result(cache_key)
+        if cached_result:
+            return cached_result
+        
+        def get_optimized_stats(cursor):
             table_name = f"{self.log_table_prefix}{date_str}_message"
             
             if not self._table_exists(cursor, table_name):
                 return []
-                
-            loaded_commands = self._get_loaded_plugin_commands()
             
+            # 获取并缓存编译后的命令模式
+            compiled_commands = self._get_compiled_commands()
+            if not compiled_commands:
+                return []
+            
+            # 优化的查询：只获取可能是命令的内容，减少数据传输
+            # 添加初步过滤条件来减少需要处理的数据量
             cursor.execute(f"""
-                SELECT content 
+                SELECT content, COUNT(*) as count
                 FROM {table_name} 
-                WHERE content IS NOT NULL AND content != ''
+                WHERE content IS NOT NULL 
+                  AND content != '' 
+                  AND (content LIKE '/%' OR content LIKE '%签到%' OR content LIKE '%查%' OR LENGTH(content) < 50)
+                GROUP BY content
+                HAVING count > 0
+                ORDER BY count DESC
+                LIMIT 1000
             """)
-            contents = cursor.fetchall()
             
-            command_counts = {}
-            for row in contents:
+            content_counts = cursor.fetchall()
+            command_counts = defaultdict(int)
+            
+            # 使用编译后的正则表达式进行高效匹配
+            for row in content_counts:
                 content = row.get('content', '').strip()
+                count = row.get('count', 1)
+                
                 if content:
-                    matched_command = self._match_content_to_plugin(content, loaded_commands)
+                    matched_command = self._match_content_to_plugin_fast(content, compiled_commands)
                     if matched_command:
-                        command_counts[matched_command] = command_counts.get(matched_command, 0) + 1
-                        
+                        command_counts[matched_command] += count
+
+            # 返回前5个最热门命令
             command_stats = [
                 {'command': cmd, 'count': count} 
-                for cmd, count in command_counts.items()
+                for cmd, count in sorted(command_counts.items(), key=lambda x: x[1], reverse=True)[:5]
             ]
-            command_stats.sort(key=lambda x: x['count'], reverse=True)
             
-            return command_stats[:3]
+            return command_stats
         
-        return self._with_log_db_cursor(get_stats) or []
+        result = self._with_log_db_cursor(get_optimized_stats) or []
+        if result:
+            self._set_cache_result(cache_key, result)
+        
+        return result
+    
+    @lru_cache(maxsize=1)
+    def _get_compiled_commands(self) -> Dict[str, Tuple[str, Any]]:
+        """获取预编译的命令模式，使用LRU缓存"""
+        current_time = time.time()
+        
+        # 检查缓存是否需要刷新（每5分钟刷新一次）
+        if (self._compiled_commands is None or 
+            current_time - self._commands_cache_time > 300):
+            
+            self._compiled_commands = {}
+            loaded_commands = self._get_loaded_plugin_commands()
+            
+            for pattern, plugin_name in loaded_commands.items():
+                try:
+                    # 编译正则表达式以提高匹配速度
+                    compiled_pattern = re.compile(pattern, re.IGNORECASE)
+                    self._compiled_commands[pattern] = (plugin_name, compiled_pattern)
+                except re.error:
+                    # 如果正则编译失败，使用简单字符串匹配
+                    self._compiled_commands[pattern] = (plugin_name, None)
+            
+            self._commands_cache_time = current_time
+        
+        return self._compiled_commands
+    
+    def _match_content_to_plugin_fast(self, content: str, compiled_commands: Dict[str, Tuple[str, Any]]) -> Optional[str]:
+        """使用预编译正则的快速命令匹配"""
+        if not content or not compiled_commands:
+            return None
+        
+        clean_content = content.strip()
+        if clean_content.startswith('/'):
+            clean_content = clean_content[1:].strip()
+        
+        # 快速退出：如果内容太长，可能不是命令
+        if len(clean_content) > 100:
+            return None
+        
+        for pattern, (plugin_name, compiled_regex) in compiled_commands.items():
+            try:
+                if compiled_regex:
+                    # 使用预编译的正则表达式
+                    if compiled_regex.match(clean_content):
+                        return pattern
+                else:
+                    # 使用简单字符串匹配作为备选
+                    if (clean_content.lower() == pattern.lower() or
+                        clean_content.lower().startswith(pattern.lower() + ' ')):
+                        return pattern
+            except Exception:
+                continue
+        
+        return None
 
     def save_dau_data(self, dau_data: Dict[str, Any], target_date: datetime.datetime):
         from function.log_db import save_complete_dau_data

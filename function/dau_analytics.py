@@ -229,11 +229,11 @@ class DAUAnalytics:
             'message_stats': message_stats,
             'user_stats': user_stats or {},
             'command_stats': command_stats or [],
-            'version': '2.0'  # 升级版本号
+            'version': '2.0'
         }
 
     def _get_message_stats(self, date_str: str) -> Optional[Dict[str, Any]]:
-        """优化的消息统计，使用并发查询和缓存"""
+        """获取消息统计"""
         cache_key = self._get_cache_key('message_stats', date_str)
         cached_result = self._get_cached_result(cache_key)
         if cached_result:
@@ -243,14 +243,15 @@ class DAUAnalytics:
             table_name = f"{self.log_table_prefix}{date_str}_message"
             return self._table_exists(cursor, table_name), table_name
         
-        # 首先检查表是否存在
         exists_result = self._with_log_db_cursor(check_table_exists)
-        if not exists_result or not exists_result[0]:
+        if not exists_result or not isinstance(exists_result, (tuple, list)) or len(exists_result) < 2:
+            return None
+            
+        if not exists_result[0]:
             return None
             
         table_name = exists_result[1]
         
-        # 优化的SQL查询 - 减少全表扫描
         optimized_queries = {
             # 基础统计查询 - 一次性获取多个计数
             'basic_stats': f"""
@@ -271,7 +272,7 @@ class DAUAnalytics:
                 LIMIT 1
             """,
             
-            # 顶部群组统计 - 使用索引优化
+            # 顶部群组统计
             'top_groups': f"""
                 SELECT group_id, COUNT(*) as msg_count 
                 FROM {table_name} 
@@ -281,7 +282,7 @@ class DAUAnalytics:
                 LIMIT 10
             """,
             
-            # 顶部用户统计 - 使用索引优化
+            # 顶部用户统计
             'top_users': f"""
                 SELECT user_id, COUNT(*) as msg_count 
                 FROM {table_name} 
@@ -352,30 +353,37 @@ class DAUAnalytics:
             (f"SELECT COUNT(*) as count FROM {users_table}", None, False),
             (f"SELECT COUNT(*) as count FROM {groups_table}", None, False),
             (f"SELECT COUNT(*) as count FROM {members_table}", None, False),
-            (f"""SELECT group_id, JSON_LENGTH(users) as member_count
+            (f"""SELECT group_id, 
+                        GREATEST(1, ROUND((CHAR_LENGTH(users) - 2) / 25)) as member_count
                 FROM {groups_users_table}
+                WHERE users IS NOT NULL AND users != '[]'
                 ORDER BY member_count DESC
                 LIMIT 3""", None, True)
         ]
         
         results = DatabaseService.execute_concurrent_queries(queries)
         
+        if not results or not isinstance(results, list):
+            results = [None, None, None, None]
+        elif len(results) < 4:
+            results.extend([None] * (4 - len(results)))
+        
         top_large_groups = []
-        if results[3] and isinstance(results[3], list):
+        if len(results) > 3 and results[3] and isinstance(results[3], list):
             top_large_groups = [
                 {'group_id': g.get('group_id', ''), 'member_count': g.get('member_count', 0)}
                 for g in results[3]
             ]
                 
         return {
-            'total_users': results[0]['count'] if results[0] else 0,
-            'total_groups': results[1]['count'] if results[1] else 0,
-            'total_friends': results[2]['count'] if results[2] else 0,
+            'total_users': results[0]['count'] if results[0] and isinstance(results[0], dict) else 0,
+            'total_groups': results[1]['count'] if results[1] and isinstance(results[1], dict) else 0,
+            'total_friends': results[2]['count'] if results[2] and isinstance(results[2], dict) else 0,
             'top_large_groups': top_large_groups
         }
 
     def _get_command_stats(self, date_str: str) -> List[Dict[str, Any]]:
-        """高性能命令统计，使用缓存和分批处理"""
+        """获取命令统计"""
         cache_key = self._get_cache_key('command_stats', date_str)
         cached_result = self._get_cached_result(cache_key)
         if cached_result:
@@ -392,7 +400,6 @@ class DAUAnalytics:
             if not compiled_commands:
                 return []
             
-            # 优化的查询：只获取可能是命令的内容，减少数据传输
             # 添加初步过滤条件来减少需要处理的数据量
             cursor.execute(f"""
                 SELECT content, COUNT(*) as count

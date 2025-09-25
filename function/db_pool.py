@@ -22,35 +22,32 @@ except ImportError:
     def add_framework_log(msg):
         pass
 
-# 连接池配置 - 从config.py获取，使用合理默认值
 POOL_CONFIG = {
     'connection_timeout': DB_CONFIG['connect_timeout'],
     'read_timeout': DB_CONFIG['read_timeout'],
     'write_timeout': DB_CONFIG['write_timeout'],
     'connection_lifetime': DB_CONFIG['connection_lifetime'],
-    'thread_pool_size': max(50, (os.cpu_count() or 4) * 4),  # 动态线程池：CPU核心数的4倍，最少50个
+    'thread_pool_size': max(50, (os.cpu_count() or 4) * 4),
     'retry_count': DB_CONFIG['retry_count'],
     'retry_interval': DB_CONFIG['retry_interval']
 }
 
 class DatabasePool:
     _instance = None
-    _init_lock = threading.Lock()  # 初始化锁
-    _pool_lock = threading.Lock()  # 连接池操作锁
-    _busy_lock = threading.Lock()  # 忙碌连接映射锁
-    _maintenance_lock = threading.Lock()  # 维护任务锁
+    _init_lock = threading.Lock()
+    _pool_lock = threading.RLock()
+    _busy_lock = threading.RLock()
+    _maintenance_lock = threading.Lock()
     _pool = []
     _busy_connections = {}
     _initialized = False
-    _last_gc_time = 0
     _connection_requests = queue.Queue()
     _thread_pool = None
     
-    # 预缓存配置值，避免重复字典查找 - 动态连接池配置
-    _min_connections = 5  # 固定最小连接数为5
-    _idle_timeout = 300  # 5分钟 = 300秒，超时未使用则清理
+    _min_connections = 10
+    _idle_timeout = 180
     _connection_lifetime = POOL_CONFIG['connection_lifetime']
-    _request_timeout = 3.0  # 请求超时3秒
+    _request_timeout = 5.0
     _retry_count = POOL_CONFIG['retry_count']
     _retry_interval = POOL_CONFIG['retry_interval']
     
@@ -91,7 +88,7 @@ class DatabasePool:
                 self._initialized = True
 
     def _safe_execute(self, func, error_msg="操作失败", *args, **kwargs):
-        """统一的安全执行和错误处理 - 优化版"""
+        """统一的安全执行和错误处理"""
         try:
             return func(*args, **kwargs)
         except Exception as e:
@@ -99,7 +96,7 @@ class DatabasePool:
             return None
 
     def _retry_with_backoff(self, func, max_retries=None, base_delay=None, error_msg="操作"):
-        """统一的重试逻辑 - 高性能优化版"""
+        """统一的重试逻辑"""
         max_retries = max_retries or self._retry_count
         delay = base_delay or self._retry_interval
         
@@ -113,7 +110,7 @@ class DatabasePool:
                 if i < max_retries - 1:
                     logger.warning(f"{error_msg}失败(尝试 {i+1}/{max_retries}): {str(e)}")
                     time.sleep(delay)
-                    delay = min(delay * 1.5, 10)  # 优化退避算法，设置上限
+                    delay = min(delay * 1.5, 10)
         
         logger.error(f"{error_msg}失败，已达到最大重试次数: {str(last_error)}")
         return None
@@ -221,7 +218,7 @@ class DatabasePool:
         return self._get_connection_internal()
     
     def get_connection_async(self, timeout=None):
-        """获取数据库连接 - 异步版本"""
+        """获取数据库连接（异步）"""
         if timeout is None:
             timeout = self._request_timeout
             
@@ -238,7 +235,7 @@ class DatabasePool:
         return future
     
     def _get_connection_internal(self, max_wait_time=None):
-        """内部方法：获取数据库连接 - 高性能优化版"""
+        """获取数据库连接"""
         max_wait_time = max_wait_time or self._request_timeout
         connection_id = threading.get_ident()
         
@@ -271,64 +268,46 @@ class DatabasePool:
         return self._create_and_register_connection(connection_id)
     
     def _get_pooled_connection(self, connection_id):
-        """从连接池获取连接 - 智能选择策略（优先使用剩余时间最多的连接）"""
+        """从连接池获取连接"""
+        current_time = time.time()
+        
         with self._pool_lock:
             if not self._pool:
                 return None
-            
-            current_time = time.time()
-            best_conn_info = None
-            best_index = -1
-            max_remaining_time = -1
-            
-            # 遍历所有连接，找到剩余时间最多的健康连接
-            for i, conn_info in enumerate(self._pool):
-                connection = conn_info['connection']
-                
-                # 先做健康检查
-                if not self._check_connection_health(connection, conn_info['created_at']):
-                    # 不健康的连接直接移除
-                    self._close_connection_safely(connection)
-                    self._pool.pop(i)
-                    continue
-                
-                # 计算连接剩余生命时间
-                created_at = conn_info.get('created_at', current_time)
-                used_time = current_time - created_at
-                remaining_time = self._connection_lifetime - used_time
-                
-                # 选择剩余时间最多的连接
-                if remaining_time > max_remaining_time:
-                    max_remaining_time = remaining_time
-                    best_conn_info = conn_info
-                    best_index = i
-            
-            # 如果找到合适的连接
-            if best_conn_info and best_index >= 0:
-                # 移除选中的连接
-                self._pool.pop(best_index)
-                connection = best_conn_info['connection']
-                
-                # 注册为忙碌连接需要使用忙碌连接锁
-                with self._busy_lock:
-                    self._busy_connections[connection_id] = {
-                        'connection': connection,
-                        'acquired_at': current_time,
-                        'created_at': best_conn_info.get('created_at', current_time)
-                    }
-                
-                return connection
-            
-            return None
+            while self._pool:
+                try:
+                    conn_info = self._pool.pop(0)
+                    connection = conn_info['connection']
+                    
+                    # 快速健康检查
+                    if self._check_connection_health(connection, conn_info.get('created_at')):
+                        # 在pool_lock保护下获取busy_lock，符合锁顺序约定
+                        with self._busy_lock:
+                            self._busy_connections[connection_id] = {
+                                'connection': connection,
+                                'acquired_at': current_time,
+                                'created_at': conn_info.get('created_at', current_time)
+                            }
+                        return connection
+                    else:
+                        # 不健康连接直接关闭
+                        self._close_connection_safely(connection)
+                        
+                except IndexError:
+                    # 池为空，跳出循环
+                    break
+        
+        return None
     
     def _create_and_register_connection(self, connection_id):
-        """创建并注册新连接 - 动态扩展"""
+        """创建并注册新连接 - 使用颗粒锁保护"""
         connection = self._create_connection()
         if not connection:
             logger.warning("动态创建数据库连接失败")
             return None
         
         current_time = time.time()
+        # 使用busy_lock保护忙碌连接映射
         with self._busy_lock:
             self._busy_connections[connection_id] = {
                 'connection': connection,
@@ -354,29 +333,31 @@ class DatabasePool:
                     del self._busy_connections[conn_id]
     
     def release_connection(self, connection=None):
-        """释放数据库连接回连接池 - 高性能优化版"""
+        """释放数据库连接回连接池"""
         connection_id = threading.get_ident()
         
         try:
-            # 优化：直接处理指定连接的情况
+            # 处理指定连接的情况
             if connection is not None:
+                # 使用锁保护查找连接ID
                 with self._busy_lock:
                     connection_id = self._find_connection_id(connection)
                     if connection_id is None:
                         self._close_connection_safely(connection)
                         return
             
+            # 使用busy_lock移除忙碌连接
             with self._busy_lock:
-                conn_info = self._busy_connections.get(connection_id)
+                conn_info = self._busy_connections.pop(connection_id, None)
                 if not conn_info:
                     return
-                
-                connection = conn_info['connection']
-                del self._busy_connections[connection_id]
             
-            # 批量检查连接状态
+            connection = conn_info['connection']
+            
+            # 检查连接是否应该回收
             if self._should_recycle_connection(conn_info):
                 conn_info['last_used'] = time.time()
+                # 使用pool_lock保护池操作
                 with self._pool_lock:
                     self._pool.append(conn_info)
             else:
@@ -393,14 +374,19 @@ class DatabasePool:
         return None
     
     def _should_recycle_connection(self, conn_info):
-        """检查连接是否应该回收到池中 - 动态回收策略"""
+        """检查连接是否应该回收到池中"""
         current_time = time.time()
-        max_usage_time = 30  # 单次连接最长使用30秒
+        max_usage_time = 120
         
-        # 动态回收策略：不限制池大小，只检查连接质量
-        return (current_time - conn_info.get('acquired_at', current_time) <= max_usage_time and
-                current_time - conn_info.get('created_at', current_time) <= self._connection_lifetime and
-                self._check_connection_health(conn_info['connection'], conn_info.get('created_at')))
+        connection_age = current_time - conn_info.get('created_at', current_time)
+        usage_time = current_time - conn_info.get('acquired_at', current_time)
+        
+        # 只有在连接确实不健康或生命周期结束时才不回收
+        is_healthy = self._check_connection_health(conn_info['connection'], conn_info.get('created_at'))
+        is_within_lifetime = connection_age <= self._connection_lifetime
+        is_reasonable_usage = usage_time <= max_usage_time
+        
+        return is_healthy and is_within_lifetime and is_reasonable_usage
     
     def execute_query(self, sql, params=None, fetchall=False):
         """执行查询SQL"""
@@ -447,16 +433,15 @@ class DatabasePool:
         return futures
     
     def _maintain_pool(self):
-        """维护动态连接池 - 智能资源管理"""
-        sleep_interval = 15  # 连接池维护间隔15秒
+        """维护连接池"""
+        sleep_interval = 15
         
-        # 维护任务分组，减少锁竞争
         maintenance_tasks = [
             ('cleanup', self._cleanup_expired_connections, 1),
             ('ensure_min', self._ensure_min_connections, 1),
             ('check_long_running', self._check_long_running_connections, 2),
-            ('gc', self._perform_gc_if_needed, 10),  # 每10个周期执行一次GC
-            ('stats', self._log_pool_stats, 20)  # 每20个周期记录一次统计信息
+            ('gc', self._perform_gc_if_needed, 10),
+            ('stats', self._log_pool_stats, 20)
         ]
         
         cycle_count = 0
@@ -544,7 +529,7 @@ class DatabasePool:
                 # 静默补充连接，不记录日志
     
     def _check_long_running_connections(self, current_time):
-        """检查长时间运行的连接 - 批量检查优化"""
+        """检查长时间运行的连接"""
         long_query_warning_time = 60  # 查询超过60秒发出警告
         
         with self._busy_lock:

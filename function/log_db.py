@@ -16,6 +16,7 @@ import logging
 import datetime
 import traceback
 import pymysql
+from decimal import Decimal
 from pymysql.cursors import DictCursor
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -25,6 +26,12 @@ from config import LOG_DB_CONFIG, DB_CONFIG
 logging.basicConfig(level=logging.INFO, 
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('log_db')
+
+def decimal_converter(obj):
+    """处理Decimal类型的JSON序列化转换器"""
+    if isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 # 内置默认配置
 DEFAULT_LOG_CONFIG = {
@@ -53,25 +60,24 @@ TABLE_SUFFIX = {
 }
 
 class LogDatabasePool:
-    """日志数据库动态连接池"""
+    """日志数据库连接池"""
     _instance = None
-    _lock = threading.Lock()
+    _init_lock = threading.Lock()  # 仅用于初始化
     _pool = []
     _busy_connections = {}
     _initialized = False
     
-    # 动态连接池配置
-    _min_connections = MERGED_LOG_CONFIG['min_pool_size']  # 日志库最少连接数
+    _min_connections = max(2, MERGED_LOG_CONFIG['min_pool_size'] // 3)
     _idle_timeout = 300   # 5分钟未使用则清理
     
     def __new__(cls):
-        with cls._lock:
+        with cls._init_lock:
             if cls._instance is None:
                 cls._instance = super(LogDatabasePool, cls).__new__(cls)
             return cls._instance
     
     def __init__(self):
-        with self._lock:
+        with self._init_lock:
             if not self._initialized:
                 self._thread_pool = ThreadPoolExecutor(
                     max_workers=MERGED_LOG_CONFIG['pool_size'],
@@ -160,109 +166,100 @@ class LogDatabasePool:
         self._safe_execute(lambda: connection.close(), "关闭连接失败")
     
     def get_connection(self):
-        """获取数据库连接 - 动态智能选择"""
+        """获取数据库连接"""
         connection_id = threading.get_ident()
         
+        # 快速检查是否已有连接（无锁读取）
         if connection_id in self._busy_connections:
             return self._busy_connections[connection_id]['connection']
         
-        with self._lock:
-            # 优先从池中获取最优连接
-            connection = self._get_best_pooled_connection(connection_id)
-            if connection:
-                return connection
-            
-            # 动态创建新连接
-            connection = self._create_connection()
-            if connection:
-                self._busy_connections[connection_id] = {
-                    'connection': connection,
-                    'acquired_at': time.time(),
-                    'created_at': time.time()
-                }
-                
-                return connection
+        # 尝试从池中获取连接（原子操作）
+        connection = self._get_pooled_connection_atomic(connection_id)
+        if connection:
+            return connection
         
-        return None
-    
-    def _get_best_pooled_connection(self, connection_id):
-        """获取最优的池化连接"""
-        if not self._pool:
-            return None
-        
-        current_time = time.time()
-        best_conn_info = None
-        best_index = -1
-        max_remaining_time = -1
-        
-        # 寻找剩余时间最多的健康连接
-        for i, conn_info in enumerate(self._pool):
-            connection = conn_info['connection']
-            
-            if not self._check_connection(connection):
-                # 不健康连接直接移除
-                self._close_connection_safely(connection)
-                self._pool.pop(i)
-                continue
-            
-            # 计算剩余生命时间
-            created_at = conn_info.get('created_at', current_time)
-            used_time = current_time - created_at
-            remaining_time = 3600 - used_time  # 假设1小时生命周期
-            
-            if remaining_time > max_remaining_time:
-                max_remaining_time = remaining_time
-                best_conn_info = conn_info
-                best_index = i
-        
-        if best_conn_info and best_index >= 0:
-            self._pool.pop(best_index)
-            connection = best_conn_info['connection']
-            
+        # 动态创建新连接（无锁创建）
+        connection = self._create_connection()
+        if connection:
+            # 原子性记录忙碌连接
             self._busy_connections[connection_id] = {
                 'connection': connection,
-                'acquired_at': current_time,
-                'created_at': best_conn_info.get('created_at', current_time)
+                'acquired_at': time.time(),
+                'created_at': time.time()
             }
-            
             return connection
         
         return None
     
+    def _get_pooled_connection_atomic(self, connection_id):
+        """从池中获取连接"""
+        if not self._pool:
+            return None
+        
+        current_time = time.time()
+        
+        # 简单策略：取第一个健康的连接（避免复杂的遍历比较）
+        while self._pool:
+            try:
+                # 原子性弹出连接（列表的pop是原子操作）
+                conn_info = self._pool.pop(0)
+                connection = conn_info['connection']
+                
+                # 快速健康检查
+                if self._check_connection(connection):
+                    # 原子性记录忙碌连接
+                    self._busy_connections[connection_id] = {
+                        'connection': connection,
+                        'acquired_at': current_time,
+                        'created_at': conn_info.get('created_at', current_time)
+                    }
+                    return connection
+                else:
+                    # 不健康连接直接关闭，继续下一个
+                    self._close_connection_safely(connection)
+                    
+            except IndexError:
+                # 池为空，跳出循环
+                break
+        
+        return None
+    
     def release_connection(self, connection=None):
-        """释放连接回池 - 动态回收策略"""
+        """释放连接回池"""
         connection_id = threading.get_ident()
         
-        with self._lock:
-            if connection is not None:
-                found_id = None
-                for conn_id, conn_info in list(self._busy_connections.items()):
-                    if conn_info['connection'] is connection:
-                        found_id = conn_id
-                        break
-                
-                if found_id:
-                    connection_id = found_id
-                else:
-                    self._close_connection_safely(connection)
-                    return
+        # 处理指定连接的情况
+        if connection is not None:
+            found_id = None
+            # 无锁查找连接ID
+            for conn_id, conn_info in list(self._busy_connections.items()):
+                if conn_info['connection'] is connection:
+                    found_id = conn_id
+                    break
             
-            conn_info = self._busy_connections.get(connection_id)
-            if not conn_info:
-                return
-            
-            connection = conn_info['connection']
-            del self._busy_connections[connection_id]
-            
-            # 动态回收：只要连接健康就回收，不限制池大小
-            if self._check_connection(connection):
-                self._pool.append({
-                    'connection': connection,
-                    'created_at': conn_info.get('created_at', time.time()),
-                    'last_used': time.time()
-                })
+            if found_id:
+                connection_id = found_id
             else:
                 self._close_connection_safely(connection)
+                return
+        
+        # 原子性获取和移除忙碌连接
+        conn_info = self._busy_connections.pop(connection_id, None)
+        if not conn_info:
+            return
+        
+        connection = conn_info['connection']
+        
+        # 动态回收：只要连接健康就回收，不限制池大小
+        if self._check_connection(connection):
+            # 原子性添加回池中（append是原子操作）
+            self._pool.append({
+                'connection': connection,
+                'created_at': conn_info.get('created_at', time.time()),
+                'last_used': time.time()
+            })
+        else:
+            self._close_connection_safely(connection)
     
     def _maintain_pool(self):
         """维护动态日志连接池"""
@@ -274,16 +271,15 @@ class LogDatabasePool:
                 maintenance_cycle += 1
                 current_time = time.time()
                 
-                with self._lock:
-                    # 清理5分钟未使用的连接，但保持最少3个
-                    self._cleanup_idle_connections(current_time)
-                    
-                    # 确保最小连接数
-                    self._ensure_min_log_connections()
-                    
-                    # 每10个周期记录一次统计信息
-                    if maintenance_cycle % 10 == 0:
-                        self._log_stats(current_time)
+                # 无锁维护操作 - 原子操作保证线程安全
+                self._cleanup_idle_connections(current_time)
+                
+                # 确保最小连接数
+                self._ensure_min_log_connections()
+                
+                # 每10个周期记录一次统计信息（可选）
+                if maintenance_cycle % 10 == 0:
+                    self._log_stats(current_time)
                         
             except Exception as e:
                 logger.error(f"动态日志连接池维护失败: {str(e)}")
@@ -455,11 +451,10 @@ class LogDatabaseManager:
             'default': lambda log: (log.get('timestamp'), log.get('content'))
         }
         
-        # 批量优化标记
         self._batch_optimized_types = {'received', 'unmatched', 'plugin', 'error', 'id', 'default'}
 
     def _extract_log_data_optimized(self, log_type, logs):
-        """统一的高性能数据提取方法"""
+        """统一的数据提取方法"""
         if log_type == 'dau':
             return self._process_dau_data(logs)
         
@@ -473,13 +468,12 @@ class LogDatabaseManager:
         return [extractor(log) for log in logs]
         
     def _process_dau_data(self, logs):
-        """处理DAU统计数据 - 高性能批量处理"""
+        """处理DAU统计数据"""
         if not logs:
             return []
         
         # 预分配内存，局部化函数引用
         values = []
-        json_dumps = json.dumps
         log_get = lambda log, key, default=0: log.get(key, default)
         
         for log in logs:
@@ -500,9 +494,9 @@ class LogDatabaseManager:
                 log_get(log, 'friend_add_count'),
                 log_get(log, 'friend_remove_count'),
                 log_get(log, 'friend_count_change'),
-                json_dumps(message_detail, ensure_ascii=False) if message_detail else None,
-                json_dumps(user_detail, ensure_ascii=False) if user_detail else None,
-                json_dumps(command_detail, ensure_ascii=False) if command_detail else None
+                json.dumps(message_detail, default=decimal_converter, ensure_ascii=False) if message_detail else None,
+                json.dumps(user_detail, default=decimal_converter, ensure_ascii=False) if user_detail else None,
+                json.dumps(command_detail, default=decimal_converter, ensure_ascii=False) if command_detail else None
             ))
         return values
         
@@ -646,7 +640,7 @@ class LogDatabaseManager:
         }
     
     def _get_create_table_sql(self, table_name, log_type):
-        """获取创建表SQL - 优化版本，使用配置驱动"""
+        """获取创建表SQL"""
         schema = self._table_schemas.get(log_type, self._table_schemas['default'])
         
         # 基础结构
@@ -790,12 +784,11 @@ class LogDatabaseManager:
             self._save_log_type_to_db(log_type)
 
     def _build_insert_sql_and_values(self, log_type, table_name, logs):
-        """构建插入SQL和数据 - 高性能优化版本"""
+        """构建插入SQL和数据"""
         # 使用预定义的SQL模板，避免重复构建
         sql_template = self._sql_templates.get(log_type, self._sql_templates['default'])
         sql = sql_template.format(table_name=table_name)
         
-        # 使用统一的高性能数据提取器
         values = self._extract_log_data_optimized(log_type, logs)
         
         return sql, values
@@ -1099,16 +1092,3 @@ def add_sent_message_to_db(chat_type, chat_id, content, raw_message=None, timest
         log_db_manager._save_log_type_to_db('received')
         return True
     return False
-
-
-def cleanup_yesterday_ids():
-    """手动清理昨天的ID记录
-    
-    Returns:
-        bool: 清理是否成功
-    """
-    if not log_db_manager:
-        return False
-    
-    log_db_manager._cleanup_yesterday_ids()
-    return True

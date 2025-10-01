@@ -9,11 +9,10 @@ ElainaBot 是一个基于 Python 的 QQ 官方机器人框架，支持WH WS连�
 
 ## ElainaBot 特性
 
-- ✨ **插件化架构**：动态加载与卸载插件，支持热更新
-- 🚀 **高性能优化**：内置连接池和内存优化，提升运行效率  
+- ✨ **插件化架构**：动态加载与卸载插件，热更新
+- 🚀 **高性能优化**：内置连接池和内存优化，提升运行效率
 - 📊 **Web控制面板**：实时监控系统状态、内存使用和日志
-- 🔒 **多级权限系统**：主人命令、管理员权限细粒度控制
-- 🖼 **多图床支持**：集成QQ官方和QQShare两种图片上传方案
+- 🖼 **多图床支持**：集成B站和QQ频道和cos桶三种图片上传方案
 - 💾 **数据持久化**：MySQL数据库支持，完整的用户数据管理
 - 🔄 **内存管理**：自动垃圾回收机制，优化长期稳定性
 
@@ -73,12 +72,11 @@ DB_CONFIG = {
 ```bash
 python main.py
 ```
-
-</details>
+details>
 
 ## 使用教程
 
-1. 启动机器人后，访问Web控制面板
+1. 启动机器人后，访问Web控制面板，可视化配置
 
 ```
 http://localhost:端口/web/?token=自己设置的access_token
@@ -86,30 +84,39 @@ http://localhost:端口/web/?token=自己设置的access_token
 
 2. 通过Web面板可以：
    - 实时监控机器人状态
-   - 查看系统日志和错误信息
-   - 管理插件的加载与卸载
    - 监控内存使用情况
+   等等
 
 ## 框架结构
 
 ```
 ElainaBot/
-├── config.py             # 全局配置文件
-├── core/                 # 核心功能模块
-│   ├── event/            # 事件处理系统
-│   └── plugin/           # 插件管理系统
-├── function/             # 工具函数库
-│   ├── database.py       # 数据库操作
-│   ├── httpx_pool.py     # HTTP连接池
-│   └── ...              # 其他工具函数
-├── plugins/              # 插件目录
-│   ├── example/          # 示例插件
-│   ├── system/           # 系统插件
-│   └── alone/            # 独立插件
-├── web/                  # Web控制面板
-│   ├── app.py           # Web应用主文件
-│   └── templates/       # 页面模板
-└── main.py               # 主程序入口
+├── config.py                    # 全局配置文件
+├── main.py                      # 主程序入口
+├── requirements.txt             # 项目依赖包
+├── core/                        # 核心功能模块
+│   ├── event/                   # 事件处理系统
+│   │   ├── MessageEvent.py      # 消息事件处理
+│   │   └── markdown_templates.py # Markdown模板定义
+│   └── plugin/                  # 插件管理系统
+│       ├── PluginManager.py     # 插件管理器
+│       └── message_templates.py # 消息模板系统
+├── function/                    # 工具函数库
+│   ├── cos_uploader.py          # 腾讯云COS上传
+│   ├── database.py              # 用户数据库操作
+│   ├── dau_analytics.py         # DAU数据统计
+│   ├── db_pool.py               # 数据库连接池
+│   ├── httpx_pool.py            # HTTP连接池
+│   ├── log_db.py                # 日志数据库
+│    ws_client.py             # WebSocket客户端
+├── plugins/                     # 插件目录
+│   ├── example/                 # 示例插件
+│   │   └── 测试插件.py          # 示例：测试开发插件
+│   └── system/                  # 系统功能插件
+│       ├── 用户统计.py          # 用户数据统计
+│       └── 黑名单.py            # 黑名单管理
+├── web/                         # Web控制面板
+│   └── app.py                   # Flask应用主文件
 ```
 
 

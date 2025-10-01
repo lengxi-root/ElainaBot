@@ -23,12 +23,8 @@
 
 {% block scripts %}
 <script>
-// =====================
-// 插件页面相关功能
-// =====================
 let pluginsData = [];
 
-// 加载插件信息
 function loadPlugins() {
     const container = document.getElementById('plugins-container');
     const loading = document.getElementById('plugins-loading');
@@ -36,17 +32,14 @@ function loadPlugins() {
     loading.style.display = 'block';
     container.innerHTML = '';
     
-    // 通过Socket获取插件信息
     if (window.socket) {
         window.socket.emit('get_plugins_info');
     } else {
-        // 如果没有Socket连接，显示错误
         loading.style.display = 'none';
         container.innerHTML = '<div class="alert alert-warning">无法连接到服务器获取插件信息</div>';
     }
 }
 
-// 更新插件信息显示（完全照抄老版本实现）
 function updatePluginsInfo(plugins) {
     const pluginsContainer = document.getElementById('plugins-container');
     const pluginsLoading = document.getElementById('plugins-loading');
@@ -58,7 +51,6 @@ function updatePluginsInfo(plugins) {
         return;
     }
     
-    // 按目录分组插件
     const pluginsByDirectory = {};
     plugins.forEach(plugin => {
         const directory = plugin.directory || (plugin.name.startsWith('example/') ? 'example' : 
@@ -69,7 +61,6 @@ function updatePluginsInfo(plugins) {
         pluginsByDirectory[directory].push(plugin);
     });
     
-    // 按组顺序排序
     const directoryOrder = ['system', 'example', 'alone'];
     const sortedDirectories = Object.keys(pluginsByDirectory).sort((a, b) => {
         const indexA = directoryOrder.indexOf(a);
@@ -84,7 +75,6 @@ function updatePluginsInfo(plugins) {
     sortedDirectories.forEach(directory => {
         const directoryPlugins = pluginsByDirectory[directory];
         if (directoryPlugins && directoryPlugins.length > 0) {
-            // 获取目录中文名
             const directoryNames = {
                 'system': '系统插件',
                 'example': '示例插件', 
@@ -93,7 +83,6 @@ function updatePluginsInfo(plugins) {
             };
             const dirDisplayName = directoryNames[directory] || directory.toUpperCase();
             
-            // 添加目录标题
             html += `
             <div class="mb-4">
                 <div class="directory-title" onclick="togglePluginFolder('${directory}')">
@@ -106,7 +95,6 @@ function updatePluginsInfo(plugins) {
                 </div>
                 <div class="directory-plugins" id="directory-plugins-${directory}">`;
             
-            // 添加该目录的所有插件
             directoryPlugins.forEach(plugin => {
                 const statusClass = plugin.status === 'loaded' ? 'loaded' : 'error';
                 let statusBadge = plugin.status === 'loaded' 
@@ -208,127 +196,6 @@ function updatePluginsInfo(plugins) {
     pluginsContainer.innerHTML = html;
 }
 
-// 创建插件卡片
-function createPluginCard(plugin) {
-    const statusClass = plugin.status === 'loaded' ? 'loaded' : 'error';
-    let statusBadge = plugin.status === 'loaded' 
-        ? `<span class="badge bg-success plugin-badge"><i class="bi bi-check-circle-fill"></i> 已加载</span>` 
-        : `<span class="badge bg-danger plugin-badge"><i class="bi bi-exclamation-triangle-fill"></i> 错误</span>`;
-    
-    let handlerCountBadge = '';
-    if (plugin.status === 'loaded') {
-        const handlerCount = plugin.handlers || 0;
-        handlerCountBadge = `<span class="badge bg-secondary plugin-badge"><i class="bi bi-code-slash"></i> ${handlerCount}个处理器</span>`;
-    }
-    
-    let errorHtml = '';
-    if (plugin.status === 'error' && plugin.error) {
-        errorHtml = `<div class="plugin-error">${escapeHtml(plugin.error)}</div>`;
-        if (plugin.traceback) {
-            errorHtml += `<div class="plugin-error mt-2">${escapeHtml(plugin.traceback)}</div>`;
-        }
-    }
-    
-    let handlersHtml = '';
-    if (plugin.status === 'loaded' && plugin.handlers_list && plugin.handlers_list.length > 0) {
-        const handlers_owner_only = plugin.handlers_owner_only || {};
-        const handlers_group_only = plugin.handlers_group_only || {};
-        handlersHtml = `
-        <div class="plugin-handlers">
-            <div class="handlers-container">
-                ${plugin.handlers_list.map(handler => {
-                    const isOwnerOnly = handlers_owner_only[handler] === true;
-                    const isGroupOnly = handlers_group_only[handler] === true;
-                    let handlerClass = 'handler-item handler-item-public';
-                    let handlerIcon = '';
-                    if (isOwnerOnly) {
-                        handlerClass = 'handler-item handler-item-owner';
-                        handlerIcon = '<i class="bi bi-shield-lock-fill"></i> ';
-                    }
-                    if (isGroupOnly) {
-                        handlerClass = 'handler-item handler-item-group';
-                        handlerIcon = '<i class="bi bi-people-fill"></i> ';
-                    }
-                    if (isOwnerOnly && isGroupOnly) {
-                        handlerIcon = '<i class="bi bi-shield-lock-fill"></i> <i class="bi bi-people-fill"></i> ';
-                    }
-                    let titleText = '所有人可用';
-                    if (isOwnerOnly && isGroupOnly) {
-                        titleText = '主人专属且仅限群聊';
-                    } else if (isOwnerOnly) {
-                        titleText = '主人专属命令';
-                    } else if (isGroupOnly) {
-                        titleText = '仅限群聊使用';
-                    }
-                    return `<span class="${handlerClass}" title="${titleText}">${handlerIcon}${handler}</span>`;
-                }).join('')}
-            </div>
-        </div>`;
-    }
-    
-    let displayName = plugin.name;
-    if (displayName && displayName.includes('/')) {
-        const parts = displayName.split('/');
-        if (parts.length >= 3) {
-            displayName = `${parts[1]} <span class="text-secondary">(${parts[2]})</span>`;
-        } else {
-            displayName = parts[parts.length - 1];
-        }
-    }
-    
-    let priorityDisplay = '';
-    if (plugin.status === 'loaded') {
-        const priority = plugin.priority !== undefined ? plugin.priority : 10;
-        priorityDisplay = `<span class="plugin-priority"><i class="bi bi-sort-numeric-down"></i> ${priority}</span>`;
-    }
-    
-    let pathDisplay = '';
-    if (plugin.path) {
-        pathDisplay = `<span class="plugin-path" title="${plugin.path}">${plugin.path.split('/').slice(-3).join('/')}</span>`;
-    }
-    
-    let timeDisplay = '';
-    if (plugin.last_modified) {
-        timeDisplay = `<span class="plugin-path text-muted ms-2"><i class="bi bi-clock-history"></i> ${plugin.last_modified}</span>`;
-    }
-    
-    return `
-        <div class="card plugin-card ${statusClass}">
-            <div class="plugin-content">
-                <div class="plugin-info">
-                    <div class="plugin-name-container">
-                        <h6 class="mb-0 me-2">${displayName || '未知插件'}</h6>
-                        ${priorityDisplay}
-                        ${pathDisplay}
-                        ${timeDisplay}
-                    </div>
-                    <div class="plugin-badges">
-                        ${statusBadge}
-                        ${handlerCountBadge}
-                    </div>
-                </div>
-                ${handlersHtml}
-                ${errorHtml}
-            </div>
-        </div>`;
-}
-
-// 切换目录展开/折叠
-function toggleDirectory(dirId) {
-    const pluginsDiv = document.getElementById(`${dirId}-plugins`);
-    const chevron = document.getElementById(`${dirId}-chevron`);
-    const title = chevron.closest('.directory-title');
-    
-    if (pluginsDiv.classList.contains('expanded')) {
-        pluginsDiv.classList.remove('expanded');
-        title.classList.remove('expanded');
-        } else {
-        pluginsDiv.classList.add('expanded');
-        title.classList.add('expanded');
-    }
-}
-
-// 文件夹展开/折叠功能（照抄老版本）
 function togglePluginFolder(directory) {
     const header = document.querySelector(`[onclick="togglePluginFolder('${directory}')"]`);
     const content = document.getElementById(`directory-plugins-${directory}`);
@@ -338,13 +205,11 @@ function togglePluginFolder(directory) {
         const isExpanded = content.classList.contains('expanded');
         
         if (isExpanded) {
-            // 折叠
             content.classList.remove('expanded');
             header.classList.remove('expanded');
             chevron.classList.remove('bi-chevron-down');
             chevron.classList.add('bi-chevron-right');
         } else {
-            // 展开
             content.classList.add('expanded');
             header.classList.add('expanded');
             chevron.classList.remove('bi-chevron-right');
@@ -353,19 +218,14 @@ function togglePluginFolder(directory) {
     }
 }
 
-// HTML转义
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-// 页面初始化（删除第一界面的立即加载，改为WebSocket自动获取）
 document.addEventListener('DOMContentLoaded', function() {
-    // 注册为全局函数，供common.js调用
     window.updatePluginsInfo = updatePluginsInfo;
-    
-    // 初始化插件页面的WebSocket连接，会自动获取插件信息
     initSocket('plugins');
 });
 </script>

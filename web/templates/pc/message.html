@@ -4,20 +4,20 @@
 <div class="container-fluid mt-4">
     <div class="row">
         <!-- 左侧：聊天列表 -->
-        <div class="col-md-3">
+        <div class="chat-list-col">
             <div class="card h-100">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">
+                <div class="card-header">
+                    <div class="d-flex align-items-center chat-list-header">
                         <i class="bi bi-people me-2"></i>
-                        <span id="chat-list-title">聊天列表</span>
-                    </h5>
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn btn-outline-primary active" id="btn-users" onclick="switchChatType('user')">
-                            <i class="bi bi-person"></i> 好友
-                        </button>
-                        <button type="button" class="btn btn-outline-primary" id="btn-groups" onclick="switchChatType('group')">
-                            <i class="bi bi-people"></i> 群聊
-                        </button>
+                        <div class="btn-group btn-group-sm chat-type-buttons me-1" role="group">
+                            <button type="button" class="btn btn-outline-primary active" id="btn-users" onclick="switchChatType('user')">
+                                <i class="bi bi-person"></i> 好友
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" id="btn-groups" onclick="switchChatType('group')">
+                                <i class="bi bi-people"></i> 群聊
+                            </button>
+                        </div>
+                        <span id="chat-list-title">列表</span>
                     </div>
                 </div>
                 <div class="card-body p-0">
@@ -49,7 +49,7 @@
         </div>
         
         <!-- 右侧：聊天窗口 -->
-        <div class="col-md-9">
+        <div class="chat-window-col">
             <div class="card h-100">
                 <div class="card-header" id="chat-header">
                     <div class="d-flex align-items-center">
@@ -105,7 +105,7 @@
                         <div id="text-input-area" class="send-input-area">
                             <div class="row g-2">
                                 <div class="col">
-                                    <textarea class="form-control" id="message-input" rows="3" placeholder="输入消息内容..." style="resize: none;"></textarea>
+                                    <textarea class="form-control" id="message-input" rows="2" placeholder="输入消息内容..." style="resize: none;"></textarea>
                                 </div>
                                 <div class="col-auto d-flex flex-column justify-content-end">
                                     <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
@@ -118,7 +118,7 @@
                         <!-- 模板markdown输入 -->
                         <div id="template-markdown-input-area" class="send-input-area" style="display: none;">
                             <div class="row g-2 mb-2">
-                                <div class="col-4">
+                                <div class="col-6">
                                     <label class="form-label">模板选择:</label>
                                     <select class="form-select" id="markdown-template" onchange="updateTemplateHelp()">
                                         <option value="">请选择模板</option>
@@ -129,20 +129,20 @@
                                         <option value="5">模板5 - 单图文本</option>
                                     </select>
                                 </div>
-                                <div class="col-4">
+                                <div class="col-6">
                                     <label class="form-label">按钮ID (可选):</label>
                                     <input type="text" class="form-control" id="markdown-keyboard" placeholder="如: 102321943_1752737844">
-                                </div>
-                                <div class="col-4 d-flex align-items-end">
-                                    <button class="btn btn-primary w-100" onclick="sendMessage()">
-                                        <i class="bi bi-send"></i> 发送模板
-                                    </button>
                                 </div>
                             </div>
                             <div class="row g-2">
                                 <div class="col">
                                     <label class="form-label">模板参数 (用逗号分隔):</label>
-                                    <textarea class="form-control" id="markdown-params" rows="2" placeholder="参数1,参数2,参数3..." style="resize: none;"></textarea>
+                                    <textarea class="form-control" id="markdown-params" rows="1" placeholder="参数1,参数2,参数3..." style="resize: none;"></textarea>
+                                </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <button class="btn btn-primary" onclick="sendMessage()">
+                                        <i class="bi bi-send"></i> 发送模板
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -150,19 +150,17 @@
                         <!-- 图片输入 -->
                         <div id="image-input-area" class="send-input-area" style="display: none;">
                             <div class="row g-2">
-                                <div class="col-8">
+                                <div class="col">
                                     <label class="form-label">图片URL:</label>
                                     <input type="url" class="form-control" id="image-url" placeholder="https://example.com/image.jpg">
                                 </div>
-                                <div class="col-4">
-                                    <label class="form-label">描述文本:</label>
+                                <div class="col">
+                                    <label class="form-label">文本:</label>
                                     <input type="text" class="form-control" id="image-text" placeholder="图片描述">
                                 </div>
-                            </div>
-                            <div class="row g-2 mt-2">
-                                <div class="col d-flex justify-content-end">
+                                <div class="col-auto d-flex align-items-end">
                                     <button class="btn btn-primary" onclick="sendMessage()">
-                                        <i class="bi bi-image"></i> 发送图片
+                                        <i class="bi bi-send"></i> 发送
                                     </button>
                                 </div>
                             </div>
@@ -200,8 +198,8 @@
                         
                         <!-- ARK卡片输入 -->
                         <div id="ark-input-area" class="send-input-area" style="display: none;">
-                            <div class="row g-2 mb-2">
-                                <div class="col-4">
+                            <div class="row g-2">
+                                <div class="col-3">
                                     <label class="form-label">ARK类型:</label>
                                     <select class="form-select" id="ark-type" onchange="updateArkHelp()">
                                         <option value="">请选择类型</option>
@@ -210,16 +208,14 @@
                                         <option value="37">通知卡片 (37)</option>
                                     </select>
                                 </div>
-                                <div class="col-8 d-flex align-items-end">
-                                    <button class="btn btn-primary w-100" onclick="sendMessage()">
-                                        <i class="bi bi-card-text"></i> 发送卡片
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="row g-2">
                                 <div class="col">
                                     <label class="form-label">卡片参数 (用逗号分隔):</label>
-                                    <textarea class="form-control" id="ark-params" rows="3" placeholder="参数1,参数2,参数3..." style="resize: none;"></textarea>
+                                    <input type="text" class="form-control" id="ark-params" placeholder="参数1,参数2,参数3...">
+                                </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <button class="btn btn-primary" onclick="sendMessage()">
+                                        <i class="bi bi-send"></i> 发送
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -243,6 +239,47 @@
 
 <!-- 自定义样式 -->
 <style>
+/* 聊天列表和窗口的自定义宽度 */
+.chat-list-col {
+    flex: 0 0 20%;
+    max-width: 20%;
+    padding-right: 15px;
+    padding-left: 15px;
+}
+
+.chat-window-col {
+    flex: 0 0 80%;
+    max-width: 80%;
+    padding-right: 15px;
+    padding-left: 15px;
+}
+
+/* 响应式：小屏幕上调整 */
+@media (max-width: 768px) {
+    .chat-list-col {
+        flex: 0 0 30%;
+        max-width: 30%;
+    }
+    .chat-window-col {
+        flex: 0 0 70%;
+        max-width: 70%;
+    }
+}
+
+/* 缩小聊天列表标题和按钮文字 */
+.chat-list-header {
+    font-size: 0.85rem;
+}
+
+.chat-list-header #chat-list-title {
+    font-weight: normal;
+}
+
+.chat-type-buttons .btn {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
 .chat-item {
     cursor: pointer;
     transition: background-color 0.2s;
@@ -326,10 +363,50 @@ let currentSendMethod = 'text';
 let chatRefreshTimer = null;  // 聊天记录刷新定时器
 let isRefreshing = false;     // 防止重复刷新
 let lastMessageSignature = '';  // 上次消息的签名，用于避免不必要的重新渲染
+let markdownTemplates = {};  // 存储模板信息
+
+// 时间和昵称处理函数
+const formatTimeWithoutYear = (t) => t ? t.replace(/^\d{4}[-\/年]/, '').replace(/^\d{4}\s+/, '') : '';
+const getDatePart = (t) => t ? (formatTimeWithoutYear(t).match(/^(\d{1,2}[-\/月]\d{1,2}[日]?)/) || [])[1] || '' : '';
+const getTimePart = (t) => t ? (t.match(/(\d{1,2}:\d{2})(:\d{2})?/) || [])[1] || '' : '';
+const truncateNickname = (n) => n && n.length > 4 ? n.substring(0, 4) + '***' : n || '';
+
+// 加载模板列表
+function loadMarkdownTemplates() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    if (!token) return;
+    
+    fetch(`/web/api/message/get_templates?token=${encodeURIComponent(token)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const templates = data.data.templates;
+                const selectElement = document.getElementById('markdown-template');
+                
+                // 清空现有选项（保留第一个"请选择模板"）
+                selectElement.innerHTML = '<option value="">请选择模板</option>';
+                
+                // 动态添加模板选项
+                templates.forEach(template => {
+                    markdownTemplates[template.id] = template;
+                    const option = document.createElement('option');
+                    option.value = template.id;
+                    option.textContent = `模板${template.id} - ${template.param_count}个参数`;
+                    selectElement.appendChild(option);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('加载模板列表失败:', error);
+        });
+}
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
     loadChatList();
+    loadMarkdownTemplates();
     
     // 确保发送方法选择器与全局变量同步
     document.getElementById('send-method').value = currentSendMethod;
@@ -358,32 +435,19 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// 页面卸载时清理定时器
-window.addEventListener('beforeunload', function() {
-    stopChatRefresh();
-});
+// 聊天记录刷新管理
+window.addEventListener('beforeunload', () => stopChatRefresh());
 
-// 启动聊天记录实时刷新
-function startChatRefresh() {
-    // 先停止之前的定时器
-    stopChatRefresh();
-    
-    if (currentChatId) {
-        // 每1秒刷新一次聊天记录
-        chatRefreshTimer = setInterval(() => {
-            refreshChatHistory();
-        }, 1000);
-    }
-}
-
-// 停止聊天记录实时刷新
-function stopChatRefresh() {
-    if (chatRefreshTimer) {
-        clearInterval(chatRefreshTimer);
-        chatRefreshTimer = null;
-    }
+const stopChatRefresh = () => {
+    if (chatRefreshTimer) clearInterval(chatRefreshTimer);
+    chatRefreshTimer = null;
     isRefreshing = false;
-}
+};
+
+const startChatRefresh = () => {
+    stopChatRefresh();
+    if (currentChatId) chatRefreshTimer = setInterval(refreshChatHistory, 1000);
+};
 
 // 刷新聊天记录（静默刷新，不显示加载状态）
 function refreshChatHistory() {
@@ -450,9 +514,6 @@ function switchChatType(type) {
     document.getElementById('btn-users').classList.toggle('active', type === 'user');
     document.getElementById('btn-groups').classList.toggle('active', type === 'group');
     
-    // 更新标题
-    document.getElementById('chat-list-title').textContent = type === 'user' ? '好友列表' : '群聊列表';
-    
     // 隐藏发送区域
     document.getElementById('send-area').style.display = 'none';
     
@@ -463,32 +524,14 @@ function switchChatType(type) {
 }
 
 // 重置聊天窗口
-function resetChatWindow() {
-    // 重置聊天窗口头部
-    const avatarElement = document.getElementById('current-chat-avatar');
-    const nameElement = document.getElementById('current-chat-name');
-    const infoElement = document.getElementById('current-chat-info');
-    
-    avatarElement.innerHTML = '<i class="bi bi-chat-square-dots text-muted" style="font-size: 2rem;"></i>';
-    nameElement.textContent = '选择一个聊天';
-    infoElement.textContent = '点击左侧列表选择聊天对象';
-    
-    // 重置消息区域
-    const messageArea = document.getElementById('message-area');
-    messageArea.innerHTML = `
-        <div class="text-center text-muted">
-            <i class="bi bi-chat-text" style="font-size: 3rem;"></i>
-            <p class="mt-2">选择聊天对象开始对话</p>
-        </div>
-    `;
-    
-    // 重置ID状态
-    const expireInfo = document.getElementById('id-expire-info');
-    expireInfo.textContent = '请选择聊天对象';
-    
-    // 重置消息签名
+const resetChatWindow = () => {
+    document.getElementById('current-chat-avatar').innerHTML = '<i class="bi bi-chat-square-dots text-muted" style="font-size: 2rem;"></i>';
+    document.getElementById('current-chat-name').textContent = '选择一个聊天';
+    document.getElementById('current-chat-info').textContent = '点击左侧列表选择聊天对象';
+    document.getElementById('message-area').innerHTML = '<div class="text-center text-muted"><i class="bi bi-chat-text" style="font-size: 3rem;"></i><p class="mt-2">选择聊天对象开始对话</p></div>';
+    document.getElementById('id-expire-info').textContent = '请选择聊天对象';
     lastMessageSignature = '';
-}
+};
 
 // 切换发送方法
 function changeSendMethod() {
@@ -571,16 +614,10 @@ function updateTemplateHelp() {
     const helpArea = document.getElementById('send-help');
     const helpContent = document.getElementById('help-content');
     
-    const templateHelp = {
-        '1': '参数: text,size,url,size2,url2,size3,url3,size4,url4,text2 (多图文本)',
-        '2': '参数: img,url,text,text1,text2 (图片按钮)',
-        '3': '参数: text,text2,text3 (代码块)',
-        '4': '参数: text (纯文本)',
-        '5': '参数: px,url,text (单图文本)'
-    };
-    
-    if (template && templateHelp[template]) {
-        helpContent.textContent = templateHelp[template];
+    if (template && markdownTemplates[template]) {
+        const templateInfo = markdownTemplates[template];
+        const params = templateInfo.params.join(', ');
+        helpContent.textContent = `参数 (${templateInfo.param_count}个): ${params}`;
         helpArea.style.display = 'block';
     } else {
         updateHelpInfo();
@@ -608,10 +645,10 @@ function updateArkHelp() {
 }
 
 // 搜索聊天
-function searchChats() {
+const searchChats = () => {
     searchQuery = document.getElementById('search-input').value.trim();
     loadChatList();
-}
+};
 
 // 加载聊天列表
 function loadChatList() {
@@ -673,11 +710,14 @@ function renderChatList(chats) {
                         ${avatar}
                     </div>
                     <div class="flex-grow-1">
-                        <div class="d-flex justify-content-between">
-                            <h6 class="mb-1" data-user-id="${chat.chat_id}">Loading...</h6>
-                            <small class="text-muted">${chat.last_time}</small>
-                        </div>
-                        <small class="text-muted">ID: ${chat.chat_id.slice(0, 6)}***</small>
+                        <h6 class="mb-1">
+                            <span data-user-id="${chat.chat_id}">Loading...</span>
+                            <small class="text-muted ms-2">${getDatePart(chat.last_time)}</small>
+                        </h6>
+                        <small class="text-muted">
+                            ID: ${chat.chat_id.slice(0, 6)}***
+                            <span class="ms-2">${getTimePart(chat.last_time)}</span>
+                        </small>
                     </div>
                 </div>
             </div>
@@ -686,132 +726,61 @@ function renderChatList(chats) {
     
     chatList.innerHTML = html;
     
-    // 异步加载昵称
+    // 批量加载昵称
     if (currentChatType === 'user') {
-        chats.forEach(chat => {
-            loadNickname(chat.chat_id);
+        const userIds = chats.map(chat => chat.chat_id);
+        loadNicknamesBatch(userIds).then(nicknames => {
+            chats.forEach(chat => {
+                const el = document.querySelector(`[data-user-id="${chat.chat_id}"]`);
+                if (el) {
+                    el.textContent = truncateNickname(nicknames[chat.chat_id] || `用户${chat.chat_id.slice(-6)}`);
+                }
+            });
         });
     } else {
-        // 群聊直接显示群ID（缩短显示）
         chats.forEach(chat => {
-            const nameElement = document.querySelector(`[data-user-id="${chat.chat_id}"]`);
-            if (nameElement) {
-                nameElement.textContent = `群聊 ${chat.chat_id.slice(0, 6)}***`;
-            }
+            const el = document.querySelector(`[data-user-id="${chat.chat_id}"]`);
+            if (el) el.textContent = `${chat.chat_id.slice(0, 6)}***`;
         });
     }
 }
 
-// 加载用户昵称
-function loadNickname(userId) {
-    // 获取token
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    
-    if (!token) {
-        console.error('未找到访问token');
-        return;
-    }
-    
-    fetch(`/web/api/message/get_nickname?token=${encodeURIComponent(token)}`, {
+// 通用API调用函数
+const apiCall = (endpoint, data) => {
+    const token = new URLSearchParams(window.location.search).get('token');
+    return fetch(`/web/api/${endpoint}?token=${encodeURIComponent(token)}`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            user_id: userId
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            const nameElement = document.querySelector(`[data-user-id="${userId}"]`);
-            if (nameElement) {
-                nameElement.textContent = data.data.nickname;
-            }
-        }
-    })
-    .catch(error => {
-        console.error('加载昵称失败:', error);
-    });
-}
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).then(r => r.json());
+};
 
-// 为聊天窗口头部加载用户昵称
-function loadNicknameForHeader(userId) {
-    // 获取token
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+// 批量加载昵称 - 从数据库获取
+const loadNicknamesBatch = (userIds) => {
+    if (!userIds || userIds.length === 0) return Promise.resolve({});
     
-    if (!token) {
-        console.error('未找到访问token');
-        const nameElement = document.getElementById('current-chat-name');
-        if (nameElement && currentChatId === userId) {
-            nameElement.textContent = `用户 ${userId.slice(-6)}`;
-        }
-        return;
-    }
-    
-    fetch(`/web/api/message/get_nickname?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            user_id: userId
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            const nameElement = document.getElementById('current-chat-name');
-            if (nameElement && currentChatId === userId) {
-                nameElement.textContent = data.data.nickname;
+    return apiCall('message/get_nicknames_batch', {user_ids: userIds})
+        .then(d => {
+            if (d.success) {
+                return d.data.nicknames;
             }
-        }
-    })
-    .catch(error => {
-        console.error('加载昵称失败:', error);
-        const nameElement = document.getElementById('current-chat-name');
-        if (nameElement && currentChatId === userId) {
-            nameElement.textContent = `用户 ${userId.slice(-6)}`;
-        }
-    });
-}
-
-// 为聊天记录中的消息加载用户昵称
-function loadNicknameForMessage(userId) {
-    // 获取token
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    
-    if (!token) {
-        console.error('未找到访问token');
-        return;
-    }
-    
-    fetch(`/web/api/message/get_nickname?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            user_id: userId
+            return {};
         })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // 更新聊天记录中该用户的所有昵称显示
-            const nicknameElements = document.querySelectorAll(`[data-nickname-user-id="${userId}"]`);
-            nicknameElements.forEach(element => {
-                element.textContent = data.data.nickname;
-            });
+        .catch(e => {
+            console.error('批量加载昵称失败:', e);
+            return {};
+        });
+};
+
+// 单个加载昵称（用于聊天头部）
+const loadNicknameForHeader = (userId) => {
+    loadNicknamesBatch([userId]).then(nicknames => {
+        const el = document.getElementById('current-chat-name');
+        if (el && currentChatId === userId) {
+            el.textContent = nicknames[userId] || `用户 ${userId.slice(-6)}`;
         }
-    })
-    .catch(error => {
-        console.error('加载消息昵称失败:', error);
     });
-}
+};
 
 
 
@@ -837,13 +806,9 @@ function selectChat(chatId, chatType) {
     // 显示发送区域
     document.getElementById('send-area').style.display = 'block';
     
-    // 更新ID状态
+    // 更新ID状态并启动实时刷新
     updateIdStatus(chatType);
-    
-    // 启动实时刷新（延迟启动，确保初始加载完成）
-    setTimeout(() => {
-        startChatRefresh();
-    }, 1000);
+    setTimeout(startChatRefresh, 1000);
 }
 
 // 更新聊天窗口头部
@@ -861,17 +826,15 @@ function updateChatHeader(chatId, chatType) {
         loadNicknameForHeader(chatId);
     } else {
         avatarElement.innerHTML = `<div class="chat-avatar-placeholder">${chatId[0].toUpperCase()}</div>`;
-        nameElement.textContent = `群聊 ${chatId}`;
-        infoElement.textContent = `群聊 ID: ${chatId}`;
+        nameElement.textContent = `${chatId}`;
+        infoElement.textContent = `ID: ${chatId}`;
     }
 }
 
 // 更新ID状态信息
-function updateIdStatus(chatType) {
-    const expireInfo = document.getElementById('id-expire-info');
-            const expireTime = chatType === 'group' ? '5分钟' : '1小时';
-    expireInfo.textContent = `ID有效期：${expireTime}，超时后无法发送消息`;
-}
+const updateIdStatus = (type) => {
+    document.getElementById('id-expire-info').textContent = `ID有效期：${type === 'group' ? '5分钟' : '1小时'}，超时后无法发送消息`;
+};
 
 // 加载聊天记录
 function loadChatHistory(chatId, chatType) {
@@ -911,6 +874,15 @@ function loadChatHistory(chatId, chatType) {
     });
 }
 
+// 生成头像HTML
+const getAvatarHtml = (isSelf, userId, avatarUrl) => {
+    if (isSelf) {
+        return `<img src="https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background-color: #0d6efd;"><i class="bi bi-robot" style="color: white;"></i></div>`;
+    }
+    const placeholder = userId.slice(-2).toUpperCase() || userId.toUpperCase();
+    return `<img src="${avatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none;">${placeholder}</div>`;
+};
+
 // 渲染聊天记录
 function renderChatHistory(messages) {
     const messageArea = document.getElementById('message-area');
@@ -921,36 +893,16 @@ function renderChatHistory(messages) {
         return;
     }
     
-    // 生成消息签名，用于检测是否需要重新渲染
-    const messageSignature = messages.map(msg => `${msg.user_id}-${msg.content}-${msg.timestamp}`).join('|');
-    
-    // 如果消息没有变化，则不重新渲染
-    if (messageSignature === lastMessageSignature) {
-        return;
-    }
-    
-    lastMessageSignature = messageSignature;
+    const signature = messages.map(m => `${m.user_id}-${m.content}-${m.timestamp}`).join('|');
+    if (signature === lastMessageSignature) return;
+    lastMessageSignature = signature;
     
     const html = messages.map(msg => {
         const isSelf = msg.is_self;
-        
-        // 优化头像显示逻辑
-        let avatarHtml;
-        if (isSelf) {
-            // 机器人头像 - 使用真实QQ头像
-            const robotAvatarUrl = `https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140`;
-            avatarHtml = `<img src="${robotAvatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background-color: #0d6efd;"><i class="bi bi-robot" style="color: white;"></i></div>`;
-        } else {
-            // 用户头像
-            const placeholderText = msg.user_id.length >= 2 ? msg.user_id.slice(-2).toUpperCase() : msg.user_id.toUpperCase();
-            avatarHtml = `<img src="${msg.avatar}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none;">${placeholderText}</div>`;
-        }
-        
-        // 优化昵称显示（只有非自己发送的群聊消息才显示昵称）
-        let nicknameHtml = '';
-        if (!isSelf && currentChatType === 'group') {
-            nicknameHtml = `<div class="small text-primary mb-1" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</div>`;
-        }
+        const avatarHtml = getAvatarHtml(isSelf, msg.user_id, msg.avatar);
+        const nicknameHtml = !isSelf && currentChatType === 'group' 
+            ? `<div class="small text-primary mb-1" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</div>` 
+            : '';
         
         return `
             <div class="message-bubble ${isSelf ? 'self' : 'other'}">
@@ -959,7 +911,7 @@ function renderChatHistory(messages) {
                     <div class="message-content">
                         ${nicknameHtml}
                         ${msg.content}
-                        <div class="small text-muted mt-1">${msg.timestamp}</div>
+                        <div class="small text-muted mt-1">${formatTimeWithoutYear(msg.timestamp)}</div>
                     </div>
                     ${isSelf ? avatarHtml : ''}
                 </div>
@@ -969,12 +921,18 @@ function renderChatHistory(messages) {
     
     messageArea.innerHTML = html;
     
-    // 异步加载群聊中的用户昵称
+    // 批量加载群聊中的用户昵称
     if (currentChatType === 'group') {
         const uniqueUsers = [...new Set(messages.filter(msg => !msg.is_self).map(msg => msg.user_id))];
-        uniqueUsers.forEach(userId => {
-            loadNicknameForMessage(userId);
-        });
+        if (uniqueUsers.length > 0) {
+            loadNicknamesBatch(uniqueUsers).then(nicknames => {
+                uniqueUsers.forEach(userId => {
+                    document.querySelectorAll(`[data-nickname-user-id="${userId}"]`).forEach(el => {
+                        el.textContent = nicknames[userId] || `用户${userId.slice(-6)}`;
+                    });
+                });
+            });
+        }
     }
     
     // 滚动到底部
@@ -1028,30 +986,16 @@ function sendMessage() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // 检查message_id是否包含错误信息
-            const messageId = data.data.message_id;
-            const isActualError = messageId && (
-                messageId.includes('消息发送失败') || 
-                messageId.includes('code:') ||
-                messageId.includes('错误') ||
-                messageId.includes('失败')
-            );
+            const msgId = data.data.message_id;
+            const isError = msgId && /消息发送失败|code:|错误|失败/.test(msgId);
             
-            if (isActualError) {
-                // 虽然返回success=true，但实际是发送了错误消息
-                const apiErrorMsg = getApiErrorMessage(messageId);
-                showSendStatus('发送失败: ' + apiErrorMsg, false);
+            if (isError) {
+                showSendStatus('发送失败: ' + getApiErrorMessage(msgId), false);
             } else {
-                // 真正发送成功
                 clearCurrentInputs();
-                // 添加消息到聊天记录
                 appendMessage(getDisplayContent(sendData), true, data.data.timestamp);
                 showSendStatus('消息发送成功', true);
-                
-                // 立即刷新聊天记录以获取最新消息（包括发送的消息）
-                setTimeout(() => {
-                    refreshChatHistory();
-                }, 200);
+                setTimeout(refreshChatHistory, 200);
             }
         } else {
             showSendStatus('发送失败: ' + data.message, false);
@@ -1073,94 +1017,51 @@ function sendMessage() {
     });
 }
 
+// 获取元素值的辅助函数
+const getVal = (id) => document.getElementById(id)?.value.trim() || '';
+
+// 验证并提示
+const validate = (value, msg) => {
+    if (!value) { alert(msg); return false; }
+    return true;
+};
+
 // 收集发送数据
 function collectSendData() {
-    switch (currentSendMethod) {
-        case 'text':
-        case 'markdown':
-            const content = document.getElementById('message-input').value.trim();
-            if (!content) {
-                alert('请输入消息内容');
-                return null;
-            }
-            return { content: content };
-            
-        case 'template_markdown':
+    const handlers = {
+        text: () => {
+            const content = getVal('message-input');
+            return validate(content, '请输入消息内容') ? { content } : null;
+        },
+        markdown: () => handlers.text(),
+        template_markdown: () => {
             const template = document.getElementById('markdown-template').value;
-            const params = document.getElementById('markdown-params').value.trim();
-            const keyboard = document.getElementById('markdown-keyboard').value.trim();
-            
-            if (!template) {
-                alert('请选择模板');
-                return null;
-            }
-            if (!params) {
-                alert('请输入模板参数');
-                return null;
-            }
-            
-            return {
-                template: template,
-                params: params.split(',').map(p => p.trim()),
-                keyboard_id: keyboard || null
-            };
-            
-        case 'image':
-            const imageUrl = document.getElementById('image-url').value.trim();
-            const imageText = document.getElementById('image-text').value.trim();
-            
-            if (!imageUrl) {
-                alert('请输入图片URL');
-                return null;
-            }
-            
-            return {
-                image_url: imageUrl,
-                image_text: imageText || ''
-            };
-            
-        case 'voice':
-            const voiceUrl = document.getElementById('voice-url').value.trim();
-            
-            if (!voiceUrl) {
-                alert('请输入语音文件URL');
-                return null;
-            }
-            
-            return { voice_url: voiceUrl };
-            
-        case 'video':
-            const videoUrl = document.getElementById('video-url').value.trim();
-            
-            if (!videoUrl) {
-                alert('请输入视频文件URL');
-                return null;
-            }
-            
-            return { video_url: videoUrl };
-            
-        case 'ark':
+            const params = getVal('markdown-params');
+            const keyboard = getVal('markdown-keyboard');
+            if (!validate(template, '请选择模板') || !validate(params, '请输入模板参数')) return null;
+            return { template, params: params.split(',').map(p => p.trim()), keyboard_id: keyboard || null };
+        },
+        image: () => {
+            const imageUrl = getVal('image-url');
+            if (!validate(imageUrl, '请输入图片URL')) return null;
+            return { image_url: imageUrl, image_text: getVal('image-text') };
+        },
+        voice: () => {
+            const voiceUrl = getVal('voice-url');
+            return validate(voiceUrl, '请输入语音文件URL') ? { voice_url: voiceUrl } : null;
+        },
+        video: () => {
+            const videoUrl = getVal('video-url');
+            return validate(videoUrl, '请输入视频文件URL') ? { video_url: videoUrl } : null;
+        },
+        ark: () => {
             const arkType = document.getElementById('ark-type').value;
-            const arkParams = document.getElementById('ark-params').value.trim();
-            
-            if (!arkType) {
-                alert('请选择ARK卡片类型');
-                return null;
-            }
-            if (!arkParams) {
-                alert('请输入卡片参数');
-                return null;
-            }
-            
-            return {
-                ark_type: parseInt(arkType),
-                ark_params: arkParams.split(',').map(p => p.trim())
-            };
-            
-        default:
-            alert('未知的发送方法');
-            return null;
-    }
+            const arkParams = getVal('ark-params');
+            if (!validate(arkType, '请选择ARK卡片类型') || !validate(arkParams, '请输入卡片参数')) return null;
+            return { ark_type: parseInt(arkType), ark_params: arkParams.split(',').map(p => p.trim()) };
+        }
+    };
+    return handlers[currentSendMethod]?.() || (alert('未知的发送方法'), null);
 }
 
 // 清空当前输入 - 只清空输入内容，保持选择的发送方法
@@ -1171,7 +1072,6 @@ function clearCurrentInputs() {
             document.getElementById('message-input').value = '';
             break;
         case 'template_markdown':
-            // 保持模板选择，只清空参数
             document.getElementById('markdown-params').value = '';
             document.getElementById('markdown-keyboard').value = '';
             break;
@@ -1186,32 +1086,19 @@ function clearCurrentInputs() {
             document.getElementById('video-url').value = '';
             break;
         case 'ark':
-            // 保持ARK类型选择，只清空参数
             document.getElementById('ark-params').value = '';
             break;
     }
 }
 
 // 获取显示内容
-function getDisplayContent(sendData) {
-    switch (currentSendMethod) {
-        case 'text':
-        case 'markdown':
-            return sendData.content;
-        case 'template_markdown':
-            return `[模板消息: ${sendData.template}]`;
-        case 'image':
-            return `[图片消息: ${sendData.image_text || '图片'}]`;
-        case 'voice':
-            return '[语音消息]';
-        case 'video':
-            return '[视频消息]';
-        case 'ark':
-            return `[ARK卡片: 类型${sendData.ark_type}]`;
-        default:
-            return '[消息]';
-    }
-}
+const getDisplayContent = (d) => ({
+    text: d.content, markdown: d.content,
+    template_markdown: `[模板消息: ${d.template}]`,
+    image: `[图片消息: ${d.image_text || '图片'}]`,
+    voice: '[语音消息]', video: '[视频消息]',
+    ark: `[ARK卡片: 类型${d.ark_type}]`
+}[currentSendMethod] || '[消息]');
 
 // 重置发送按钮
 function resetSendButtons() {
@@ -1225,13 +1112,13 @@ function resetSendButtons() {
         } else if (btn.closest('#template-markdown-input-area')) {
             btn.innerHTML = '<i class="bi bi-send"></i> 发送模板';
         } else if (btn.closest('#image-input-area')) {
-            btn.innerHTML = '<i class="bi bi-image"></i> 发送图片';
+            btn.innerHTML = '<i class="bi bi-send"></i> 发送';
         } else if (btn.closest('#voice-input-area')) {
             btn.innerHTML = '<i class="bi bi-mic"></i> 发送语音';
         } else if (btn.closest('#video-input-area')) {
             btn.innerHTML = '<i class="bi bi-camera-video"></i> 发送视频';
         } else if (btn.closest('#ark-input-area')) {
-            btn.innerHTML = '<i class="bi bi-card-text"></i> 发送卡片';
+            btn.innerHTML = '<i class="bi bi-send"></i> 发送';
         } else {
             btn.innerHTML = '<i class="bi bi-send"></i> 发送';
         }
@@ -1239,87 +1126,43 @@ function resetSendButtons() {
 }
 
 // 添加消息到聊天记录
-function appendMessage(content, isSelf, timestamp) {
-    const messageArea = document.getElementById('message-area');
+const appendMessage = (content, isSelf, timestamp) => {
+    const area = document.getElementById('message-area');
+    const avatarHtml = isSelf ? getAvatarHtml(true, '', '') : `<div class="chat-avatar-placeholder me-2">U</div>`;
     
-    // 头像显示逻辑（与renderChatHistory保持一致）
-    let avatarHtml;
-    if (isSelf) {
-        // 机器人头像 - 使用真实QQ头像
-        const robotAvatarUrl = `https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140`;
-        avatarHtml = `<img src="${robotAvatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background-color: #0d6efd;"><i class="bi bi-robot" style="color: white;"></i></div>`;
-    } else {
-        // 用户头像（这种情况在appendMessage中通常不会出现，但保持完整性）
-        avatarHtml = `<div class="chat-avatar-placeholder me-2">U</div>`;
-    }
-    
-    const messageHtml = `
+    area.insertAdjacentHTML('beforeend', `
         <div class="message-bubble ${isSelf ? 'self' : 'other'}">
             <div class="d-flex ${isSelf ? 'justify-content-end' : ''}">
                 ${!isSelf ? avatarHtml : ''}
                 <div class="message-content">
                     ${content}
-                    <div class="small text-muted mt-1">${timestamp}</div>
+                    <div class="small text-muted mt-1">${formatTimeWithoutYear(timestamp)}</div>
                 </div>
                 ${isSelf ? avatarHtml : ''}
             </div>
         </div>
-    `;
-    
-    messageArea.insertAdjacentHTML('beforeend', messageHtml);
-    messageArea.scrollTop = messageArea.scrollHeight;
-}
+    `);
+    area.scrollTop = area.scrollHeight;
+};
 
-// 提取API原始错误信息
-function getApiErrorMessage(errorMsg) {
-    if (!errorMsg) return '未知错误';
-    
-    // 提取错误码
-    const codeMatch = errorMsg.match(/code:(\d+)/);
-    const errorCode = codeMatch ? codeMatch[1] : null;
-    
-    // 提取trace_id
-    const traceMatch = errorMsg.match(/trace_id:([a-f0-9]+)/);
-    const traceId = traceMatch ? traceMatch[1] : null;
-    
-    // 构建原始API错误格式
-    let apiError = '';
-    if (errorCode) {
-        apiError += `code:${errorCode}`;
-    }
-    if (traceId) {
-        apiError += apiError ? ` trace_id:${traceId}` : `trace_id:${traceId}`;
-    }
-    
-    // 如果没有提取到错误码和trace_id，返回清理后的原始消息（去掉提示文本）
-    if (!apiError) {
-        apiError = errorMsg
-            .replace(/消息发送失败\s*/g, '')
-            .replace(/>\s*/g, '')
-            .replace(/注：出现错误，请截图进行反馈\s*/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-    }
-    
-    return apiError || '未知错误';
-}
+// 提取API错误信息
+const getApiErrorMessage = (msg) => {
+    if (!msg) return '未知错误';
+    const code = (msg.match(/code:(\d+)/) || [])[1];
+    const trace = (msg.match(/trace_id:([a-f0-9]+)/) || [])[1];
+    return code || trace ? `${code ? 'code:'+code : ''}${trace ? ' trace_id:'+trace : ''}`.trim() 
+        : msg.replace(/消息发送失败\s*/g, '').replace(/>\s*/g, '').replace(/注：出现错误，请截图进行反馈\s*/g, '').replace(/\s+/g, ' ').trim() || '未知错误';
+};
 
 // 显示发送状态
-function showSendStatus(message, isSuccess) {
-    const statusDiv = document.getElementById('send-status');
-    const statusContent = document.getElementById('send-status-content');
-    
-    if (statusDiv && statusContent) {
-        statusContent.innerHTML = isSuccess 
-            ? `<span class="text-success"><i class="bi bi-check-circle"></i> ${message}</span>`
-            : `<span class="text-danger"><i class="bi bi-x-circle"></i> ${message}</span>`;
-        statusDiv.style.display = 'block';
-        
-        // 5秒后自动隐藏
-        setTimeout(() => {
-            statusDiv.style.display = 'none';
-        }, 5000);
+const showSendStatus = (msg, success) => {
+    const div = document.getElementById('send-status');
+    const content = document.getElementById('send-status-content');
+    if (div && content) {
+        content.innerHTML = `<span class="text-${success ? 'success' : 'danger'}"><i class="bi bi-${success ? 'check' : 'x'}-circle"></i> ${msg}</span>`;
+        div.style.display = 'block';
+        setTimeout(() => div.style.display = 'none', 5000);
     }
-}
+};
 </script>
 {% endblock %}

@@ -1,5 +1,4 @@
 {% set page = request.args.get('page', 'dashboard') %}
-
 {% if page == 'dashboard' %}
     {% set title = '仪表盘' %}
     {% include 'pc/dashboard.html' %}
@@ -21,6 +20,9 @@
 {% elif page == 'message' %}
     {% set title = '消息发送' %}
     {% include 'pc/message.html' %}
+{% elif page == 'config' %}
+    {% set title = '配置管理' %}
+    {% include 'pc/config.html' %}
 {% elif page == 'changelog' %}
     {% set title = '更新日志' %}
     {% include 'pc/changelog.html' %}

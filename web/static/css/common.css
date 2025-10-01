@@ -288,7 +288,7 @@ body {
 }
 
 .logs-container {
-    height: 450px;
+    height: 650px;
     overflow-y: auto;
     background-color: #fff;
     border: 1px solid #e9ecef;
@@ -960,7 +960,8 @@ body {
     margin-left: 8px;
 }
 
-.log-entry:hover .log-copy-btn {
+.log-entry:hover .log-copy-btn,
+tr:hover .log-copy-btn {
     opacity: 1;
 }
 
@@ -980,6 +981,85 @@ body {
 
 .auto-scroll-toggle input {
     margin-right: 5px;
+}
+
+/* 日志表格样式 */
+.log-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.log-table thead {
+    position: sticky;
+    top: 0;
+    background-color: #f8f9fa;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.log-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 13px;
+    color: #495057;
+    border-bottom: 2px solid #dee2e6;
+    white-space: nowrap;
+}
+
+.log-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #f1f1f1;
+    font-size: 14px;
+    line-height: 1.5;
+    vertical-align: middle;
+}
+
+.log-table tbody tr {
+    transition: background-color 0.2s;
+}
+
+.log-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.log-table .col-time {
+    width: 180px;
+    color: #6c757d;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.log-table .col-group-id {
+    width: 150px;
+    font-family: monospace;
+    color: #0066cc;
+}
+
+.log-table .col-user-id {
+    width: 150px;
+    font-family: monospace;
+    color: #28a745;
+}
+
+.log-table .col-content {
+    word-break: break-word;
+    max-width: 500px;
+}
+
+.log-table .col-action {
+    width: 40px;
+    text-align: center;
+}
+
+/* 非表格日志样式保留 */
+.log-entry-list {
+    padding: 0;
+}
+
+.log-entry-list .log-entry {
+    padding: 8px 16px;
+    border-bottom: 1px solid #f1f1f1;
 }
 
 /* 内存信息卡片在插件页面的样式 */

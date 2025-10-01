@@ -13,33 +13,26 @@
     <link href="{{ url_for('web.static', filename='css/vendor/bootstrap-icons.css') }}" rel="stylesheet">
     
     <script>
-        // 全局配置将由后端API提供
-        window.websocketEnabled = false; // 将由API更新
-        // 从URL参数获取当前页面
+        window.websocketEnabled = false;
         const urlParams = new URLSearchParams(window.location.search);
         const currentPage = urlParams.get('page') || 'dashboard';
     </script>
     
-    <!-- 共同的CSS样式 -->
     <link rel="stylesheet" href="{{ url_for('web.static', filename='css/common.css') }}">
 </head>
 <body>
-    <!-- 顶部导航栏 -->
     <div class="page-header">
         <div class="container-fluid">
             <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center;">
-                <!-- 左侧：侧边栏切换按钮 -->
                 <button class="toggle-sidebar" id="toggle-sidebar" style="position: absolute; left: 15px;">
                     <i class="bi bi-list"></i>
                 </button>
                 
-                <!-- 标题：位于1/3处 -->
                 <h1 class="page-title d-flex align-items-center mb-0" style="position: absolute; left: 10%; transform: translateX(0);">
                     <i class="bi bi-laptop me-2"></i>
                     {{ web_interface.framework_name }}{{ web_interface.pc_title_suffix }}
                 </h1>
                 
-                <!-- 右侧：状态信息 -->
                 <div class="d-flex align-items-center" style="margin-left: auto;">
                     <div class="me-3">
                         <span class="connection-status disconnected" id="connection-indicator"></span>
@@ -47,19 +40,15 @@
                     </div>
 
                     <span class="text-light me-3"><i class="bi bi-clock"></i> <span id="current-time"></span></span>
-                    <button class="btn btn-sm btn-outline-danger me-2" onclick="restartBot()" id="restart-btn">
+                    <button class="btn btn-sm btn-outline-danger" onclick="restartBot()" id="restart-btn">
                         <i class="bi bi-power"></i> 重启
                     </button>
-                    <a href="#" id="mobile-switch-btn" class="btn btn-sm btn-outline-light me-2">
-                        <i class="bi bi-phone"></i> 切换手机版
-                    </a>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="wrapper">
-        <!-- 侧边栏 -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-menu">
                 {% set current_token = request.args.get('token', '') %}
@@ -91,6 +80,10 @@
                     <i class="bi bi-chat-dots"></i>
                     <span class="item-text">消息发送</span>
                 </a>
+                <a class="sidebar-item" href="?token={{ current_token }}&page=config" data-page="config">
+                    <i class="bi bi-gear-fill"></i>
+                    <span class="item-text">配置管理</span>
+                </a>
                 <a class="sidebar-item" href="?token={{ current_token }}&page=changelog" data-page="changelog">
                     <i class="bi bi-clock-history"></i>
                     <span class="item-text">更新日志</span>
@@ -98,7 +91,6 @@
             </div>
         </div>
 
-        <!-- 主内容区域 -->
         <div class="content" id="main-content">
             <div class="container-fluid main-content">
                 {% block content %}{% endblock %}
@@ -106,23 +98,14 @@
         </div>
     </div>
     
-
-
-    <!-- Bootstrap JS -->
     <script src="{{ url_for('web.static', filename='js/vendor/bootstrap.bundle.min.js') }}"></script>
-    <!-- Socket.IO Client -->
     <script src="{{ url_for('web.static', filename='js/vendor/socket.io.min.js') }}"></script>
-    <!-- Chart.js (照抄老版本) -->
     <script src="{{ url_for('web.static', filename='js/vendor/chart.min.js') }}"></script>
-    <!-- Chart.js DataLabels插件 -->
     <script src="{{ url_for('web.static', filename='js/vendor/chartjs-plugin-datalabels.min.js') }}"></script>
-    <!-- 共同的JavaScript -->
     <script src="{{ url_for('web.static', filename='js/common.js') }}"></script>
-    <!-- 页面特定的JavaScript -->
     {% block scripts %}{% endblock %}
     
     <script>
-        // 设置当前页面高亮并优化页面切换性能
         document.addEventListener('DOMContentLoaded', function() {
             const sidebarItems = document.querySelectorAll('.sidebar-item');
             sidebarItems.forEach(item => {
@@ -131,39 +114,32 @@
                     item.classList.add('active');
                 }
                 
-                // 为每个导航链接添加页面切换优化
                 item.addEventListener('click', function(e) {
                     const targetPage = this.dataset.page;
                     if (targetPage && window.pageLoadOptimizer) {
-                        // 使用页面优化器处理切换
                         window.pageLoadOptimizer.switchPage(targetPage);
                     }
                 });
             });
             
-            // 通知优化器当前页面
             if (window.pageLoadOptimizer && currentPage) {
                 window.pageLoadOptimizer.currentPage = currentPage;
             }
         });
         
-        // 重启机器人功能
         async function restartBot() {
             const restartBtn = document.getElementById('restart-btn');
             const originalText = restartBtn.innerHTML;
             
-            // 确认对话框
             if (!confirm('⚠️ 确定要重启机器人吗？\n\n这将临时中断服务，重启完成后页面会自动刷新。')) {
                 return;
             }
             
             try {
-                // 禁用按钮并显示重启状态
                 restartBtn.disabled = true;
                 restartBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 重启中...';
                 restartBtn.className = 'btn btn-warning btn-sm';
                 
-                // 发送重启请求
                 const response = await fetch('/web/api/restart', {
                     method: 'POST',
                     headers: {
@@ -174,10 +150,7 @@
                 if (response.ok) {
                     const result = await response.json();
                     if (result.success) {
-                        // 显示重启成功消息
                         restartBtn.innerHTML = '<i class="bi bi-check-circle"></i> 重启中...';
-                        
-                        // 开始检测服务器状态
                         showRestartStatus();
                         checkServerStatus();
                     } else {
@@ -189,20 +162,14 @@
                 
             } catch (error) {
                 console.error('重启失败:', error);
-                
-                // 恢复按钮状态
                 restartBtn.disabled = false;
                 restartBtn.innerHTML = originalText;
                 restartBtn.className = 'btn btn-outline-danger btn-sm';
-                
-                // 显示错误消息
                 showToast('重启失败: ' + error.message, 'error');
             }
         }
 
-        // 显示重启状态界面
         function showRestartStatus() {
-            // 创建遮罩层
             const overlay = document.createElement('div');
             overlay.id = 'restart-overlay';
             overlay.style.cssText = `
@@ -218,7 +185,6 @@
                 align-items: center;
             `;
             
-            // 创建状态卡片
             const statusCard = document.createElement('div');
             statusCard.style.cssText = `
                 background: white;
@@ -251,7 +217,6 @@
             document.body.appendChild(overlay);
         }
 
-        // 检测服务器状态
         let checkAttempts = 0;
         async function checkServerStatus() {
             checkAttempts++;
@@ -263,9 +228,8 @@
             }
             
             try {
-                // 检测当前端口是否响应
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒超时
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
                 
                 const response = await fetch('/web/api/status', {
                     method: 'GET',
@@ -277,12 +241,10 @@
                 if (response.ok) {
                     const result = await response.json();
                     if (result.status === 'ok') {
-                        // 服务器已恢复
                         if (statusText) {
                             statusText.textContent = '✅ 服务器已恢复，正在刷新页面...';
                         }
                         
-                        // 延迟1秒后刷新页面
                         setTimeout(() => {
                             window.location.reload();
                         }, 1000);
@@ -290,19 +252,15 @@
                     }
                 }
             } catch (error) {
-                // 服务器还未恢复，继续检测
                 if (statusText) {
                     statusText.textContent = `⏳ 等待服务器恢复... (${Math.floor(checkAttempts * 0.3)}s)`;
                 }
             }
             
-            // 每0.3秒检测一次
             setTimeout(checkServerStatus, 300);
         }
 
-        // 显示提示消息
         function showToast(message, type = 'info') {
-            // 创建toast元素
             const toast = document.createElement('div');
             toast.className = `toast align-items-center text-white bg-${type === 'error' ? 'danger' : 'success'} border-0`;
             toast.style.cssText = `
@@ -327,11 +285,9 @@
             
             document.body.appendChild(toast);
             
-            // 使用Bootstrap的Toast
             const bsToast = new bootstrap.Toast(toast);
             bsToast.show();
             
-            // 3秒后自动移除
             setTimeout(() => {
                 if (toast.parentNode) {
                     toast.parentNode.removeChild(toast);

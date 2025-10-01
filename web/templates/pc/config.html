@@ -1,0 +1,576 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<!-- 配置文件编辑 -->
+<div class="row">
+    <div class="col-12">
+        <!-- 待应用配置提示 -->
+        <div id="pending-config-alert" class="alert alert-warning" style="display: none;">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <strong>有待应用的配置文件</strong>
+                    <span id="pending-time"></span>
+                    <br>
+                    <small>重启框架后，新配置将自动应用</small>
+                </div>
+                <button class="btn btn-sm btn-outline-danger" onclick="cancelPendingConfig()">
+                    <i class="bi bi-x-circle"></i> 取消待应用配置
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-3">
+                        <h5 class="mb-0">
+                            <i class="bi bi-gear-fill"></i> 配置文件管理
+                        </h5>
+                        <!-- 配置来源标签 -->
+                        <span id="config-source-badge" class="config-source-badge" style="display: none;">
+                            <i class="bi bi-file-earmark-text-fill"></i>
+                            <span id="config-source-badge-text"></span>
+                        </span>
+                    </div>
+                    <div>
+                        <button class="btn btn-secondary btn-sm me-2" onclick="loadConfigData()">
+                            <i class="bi bi-arrow-clockwise"></i> 重新加载
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="saveCurrentMode()">
+                            <i class="bi bi-save"></i> 保存配置
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 模式切换标签 -->
+            <div class="card-body p-0">
+                <div class="d-flex justify-content-between align-items-center px-3 pt-3">
+                    <ul class="nav nav-tabs mb-0" id="configModeTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="simple-mode-tab" data-bs-toggle="tab" data-bs-target="#simple-mode" type="button" role="tab" data-hint="点击配置组快速切换，修改后点击&quot;保存配置&quot;，重启框架后生效" data-hint-class="">
+                                <i class="bi bi-ui-checks"></i> 简单模式
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="advanced-mode-tab" data-bs-toggle="tab" data-bs-target="#advanced-mode" type="button" role="tab" data-hint="直接编辑配置文件，请确保语法正确，否则框架可能无法启动！" data-hint-class="warning">
+                                <i class="bi bi-code-square"></i> 高级模式
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <!-- 模式提示 -->
+                    <div id="mode-hint" class="mode-hint">
+                        <i class="bi bi-info-circle"></i>
+                        <span>点击配置组快速切换，修改后点击"保存配置"，重启框架后生效</span>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="configModeTabContent">
+                    <!-- 简单模式 -->
+                    <div class="tab-pane fade show active" id="simple-mode" role="tabpanel">
+                        <div id="simple-loading-container" class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status"><span class="visually-hidden">加载中...</span></div>
+                            <p class="mt-3 text-muted">正在加载配置项...</p>
+                        </div>
+                        <div id="simple-error-container" class="alert alert-danger m-3" style="display: none;">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            <span id="simple-error-message">加载失败</span>
+                            <button class="btn btn-sm btn-outline-danger ms-2" onclick="loadConfigData()">重试</button>
+                        </div>
+                        <div id="simple-form-container" style="display: none; padding-top: 15px;">
+                            <div class="config-selector-wrapper">
+                                <div class="config-selector-title"><i class="bi bi-grid-3x3-gap-fill"></i> 配置分组</div>
+                                <div id="config-groups-selector" class="p-3"></div>
+                            </div>
+                            <div id="config-form-wrapper" style="display: none;">
+                                <div class="config-form-container">
+                                    <div class="config-form-header">
+                                        <h5 class="mb-0"><i class="bi bi-pencil-square"></i> <span id="current-group-name"></span></h5>
+                                    </div>
+                                    <div id="config-form" class="config-form-content"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 高级模式 -->
+                    <div class="tab-pane fade" id="advanced-mode" role="tabpanel">
+                        <div id="advanced-loading-container" class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status"><span class="visually-hidden">加载中...</span></div>
+                            <p class="mt-3 text-muted">正在加载配置文件...</p>
+                        </div>
+                        <div id="advanced-error-container" class="alert alert-danger m-3" style="display: none;">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            <span id="advanced-error-message">加载失败</span>
+                            <button class="btn btn-sm btn-outline-danger ms-2" onclick="loadConfigData()">重试</button>
+                        </div>
+                        <div id="editor-container" style="display: none;">
+                            <div id="config-editor" style="border: 1px solid #dee2e6; border-radius: 0; margin-top: 15px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* 编辑器样式 */
+#config-editor { min-height: 400px; }
+#config-editor .CodeMirror { height: auto; min-height: 400px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 14px; border: none; }
+#config-editor .CodeMirror-scroll { overflow-y: hidden; overflow-x: auto; }
+#config-editor .CodeMirror-linenumber { color: #75715e; padding: 0 10px 0 5px; }
+#config-editor .CodeMirror-activeline-background { background: rgba(255, 255, 255, 0.05); }
+
+/* 模式提示 */
+.mode-hint { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); border-radius: 6px; font-size: 0.85rem; color: #1565c0; transition: all 0.3s ease; }
+.mode-hint i { font-size: 1rem; flex-shrink: 0; }
+.mode-hint.warning { background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); color: #e65100; }
+.mode-hint.warning i { color: #f57c00; }
+
+/* 配置来源标签 */
+.config-source-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; transition: all 0.2s ease; }
+.config-source-badge.current { background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); border: 1px solid #4caf50; color: #2e7d32; }
+.config-source-badge.pending { background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%); border: 1px solid #ff9800; color: #e65100; }
+.config-source-badge i { font-size: 0.9rem; }
+
+/* 配置选择器 */
+.config-selector-wrapper { background: #f8f9fa; border-radius: 12px; margin: 0 16px 20px 16px; overflow: hidden; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }
+.config-selector-title { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 8px 16px; font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 6px; }
+#config-groups-selector { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px !important; }
+.config-group-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; background: white; color: #495057; border: 2px solid #e0e0e0; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; font-size: 0.9rem; font-weight: 500; white-space: nowrap; }
+.config-group-btn:hover { border-color: #667eea; color: #667eea; transform: translateY(-1px); box-shadow: 0 3px 8px rgba(102, 126, 234, 0.2); }
+.config-group-btn.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-color: #667eea; box-shadow: 0 3px 12px rgba(102, 126, 234, 0.4); }
+.config-group-btn i.bi-folder { font-size: 1.1rem; }
+.config-group-btn .item-count { font-size: 0.75rem; background: #e9ecef; color: #6c757d; padding: 2px 8px; border-radius: 10px; margin-left: 4px; font-weight: 600; }
+.config-group-btn.active .item-count { background: rgba(255, 255, 255, 0.25); color: white; }
+
+/* 配置表单 */
+.config-form-container { margin: 0 16px 20px 16px; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1); }
+.config-form-header { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 10px 20px; border-bottom: 2px solid rgba(255, 255, 255, 0.2); }
+.config-form-header h5 { display: flex; align-items: center; gap: 8px; font-size: 0.95rem; }
+.config-form-content { padding-bottom: 8px; }
+.config-item { border-bottom: 1px solid #f0f0f0; padding: 8px 20px; transition: all 0.2s ease; }
+.config-item:last-child { border-bottom: none; }
+.config-item:hover { background: linear-gradient(90deg, #f8f9ff 0%, #ffffff 100%); }
+.config-item:has(.config-label-with-switch) { padding: 8px 20px; }
+.config-label { font-weight: 600; color: #2d3748; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+.config-label .label-name { flex-shrink: 0; font-size: 0.95rem; color: #667eea; }
+.config-label .label-comment { font-size: 0.85rem; color: #718096; font-weight: 400; flex-grow: 1; }
+.config-label-with-switch { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.config-label-text { flex: 1; display: flex; align-items: center; gap: 10px; }
+.config-label-text .label-name { flex-shrink: 0; font-size: 0.95rem; color: #667eea; font-weight: 600; }
+.config-label-text .label-comment { font-size: 0.85rem; color: #718096; font-weight: 400; flex: 1; }
+.form-control, .form-select { border: 2px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; transition: all 0.2s ease; font-size: 0.9rem; }
+.form-control:focus, .form-select:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+.form-check { display: flex; align-items: center; gap: 10px; margin-bottom: 0; padding-left: 0; }
+.form-check-input { cursor: pointer; width: 3rem; height: 1.5rem; border: 2px solid #cbd5e0; margin: 0; flex-shrink: 0; }
+.form-check-input:checked { background-color: #667eea; border-color: #667eea; }
+.form-check-label { cursor: pointer; font-weight: 500; color: #4a5568; margin: 0; white-space: nowrap; flex-shrink: 0; }
+textarea.form-control { resize: vertical; min-height: 80px; }
+.text-muted { font-size: 0.8rem; color: #a0aec0 !important; margin-top: 2px; display: block; }
+
+/* 提示框 */
+.alert-info { background: linear-gradient(135deg, #e0f7fa 0%, #e1f5fe 100%); border: none; border-left: 4px solid #00acc1; color: #00838f; }
+.alert-info i { color: #00acc1; margin-right: 8px; }
+.alert-success { background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); border: none; border-left: 4px solid #4caf50; color: #2e7d32; }
+.alert-success i { color: #4caf50; margin-right: 8px; }
+.alert-warning { background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%); border: none; border-left: 4px solid #ff9800; color: #e65100; }
+.alert-warning i { color: #ff9800; margin-right: 8px; }
+.alert code { background: rgba(0, 0, 0, 0.1); padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .config-label-with-switch { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .config-label-text { width: 100%; }
+    .form-check { align-self: flex-end; }
+    .d-flex.justify-content-between.align-items-center.px-3.pt-3 { flex-direction: column; align-items: flex-start !important; gap: 10px; }
+    .mode-hint { width: 100%; font-size: 0.8rem; }
+}
+</style>
+
+<script>
+const CONFIG = {
+    groupOrder: {
+        '基础配置': '基础配置',
+        'SERVER_CONFIG': '服务器配置',
+        'LOG_CONFIG': '日志配置',
+        'WEBSOCKET_CONFIG': 'WebSocket配置',
+        'WEB_SECURITY': 'Web面板安全配置',
+        'WEB_INTERFACE': 'Web界面外观配置',
+        'DB_CONFIG': '主数据库配置',
+        'LOG_DB_CONFIG': '日志数据库配置',
+        'COS_CONFIG': '腾讯云COS配置',
+        'BILIBILI_IMAGE_BED_CONFIG': 'Bilibili图床配置'
+    },
+    modeHints: {
+        simple: { icon: 'bi-info-circle', class: '', text: '点击配置组快速切换，修改后点击"保存配置"，重启框架后生效' },
+        advanced: { icon: 'bi-exclamation-triangle-fill', class: 'warning', text: '直接编辑配置文件，请确保语法正确，否则框架可能无法启动！' }
+    }
+};
+
+let currentConfig = '', configItems = [], configGroups = {}, currentGroupKey = '', codeMirrorEditor = null;
+
+const getToken = () => new URLSearchParams(window.location.search).get('token') || '';
+const showElement = (el, show = true) => el && (el.style.display = show ? 'block' : 'none');
+const setHTML = (id, html) => document.getElementById(id) && (document.getElementById(id).innerHTML = html);
+
+// 更新配置来源标签
+function updateConfigSourceBadge(source, isNew) {
+    const badge = document.getElementById('config-source-badge');
+    const badgeText = document.getElementById('config-source-badge-text');
+    if (source) {
+        badge.className = `config-source-badge ${isNew ? 'pending' : 'current'}`;
+        badgeText.textContent = `${source} (${isNew ? '待应用' : '当前生效'})`;
+        badge.style.display = 'inline-flex';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+// 更新模式提示
+function updateModeHint(mode) {
+    const hint = CONFIG.modeHints[mode];
+    const modeHint = document.getElementById('mode-hint');
+    if (modeHint && hint) {
+        modeHint.className = `mode-hint ${hint.class}`;
+        modeHint.innerHTML = `<i class="bi ${hint.icon}"></i><span>${hint.text}</span>`;
+    }
+}
+
+// 初始化 CodeMirror
+function initCodeMirror() {
+    const editorElement = document.getElementById('config-editor');
+    if (editorElement && typeof CodeMirror !== 'undefined') {
+        codeMirrorEditor = CodeMirror(editorElement, {
+            mode: 'python', theme: 'monokai', lineNumbers: true, lineWrapping: true,
+            indentUnit: 4, tabSize: 4, indentWithTabs: false, matchBrackets: true,
+            autoCloseBrackets: true, styleActiveLine: true, viewportMargin: Infinity
+        });
+    }
+}
+
+// 页面初始化
+document.addEventListener('DOMContentLoaded', function() {
+    initCodeMirror();
+    loadConfigData();
+    checkPendingConfig();
+    
+    // 标签页切换事件
+    ['simple-mode-tab', 'advanced-mode-tab'].forEach(id => {
+        const tab = document.getElementById(id);
+        if (tab) {
+            tab.addEventListener('shown.bs.tab', function() {
+                const mode = id.includes('simple') ? 'simple' : 'advanced';
+                updateModeHint(mode);
+                if (mode === 'advanced' && codeMirrorEditor) setTimeout(() => codeMirrorEditor.refresh(), 50);
+            });
+        }
+    });
+});
+
+// 加载配置数据
+async function loadConfigData() {
+    await Promise.all([loadSimpleMode(), loadAdvancedMode()]);
+}
+
+// 加载简单模式
+async function loadSimpleMode() {
+    const containers = {
+        loading: document.getElementById('simple-loading-container'),
+        error: document.getElementById('simple-error-container'),
+        form: document.getElementById('simple-form-container')
+    };
+    
+    showElement(containers.loading); showElement(containers.error, false); showElement(containers.form, false);
+
+    try {
+        const response = await fetch(`/web/api/config/parse?token=${getToken()}`);
+        const data = await response.json();
+
+        if (data.success) {
+            configItems = data.items;
+            configGroups = {};
+            
+            // 分类配置项
+            data.items.forEach((item, index) => {
+                item.index = index;
+                const groupName = item.is_dict_item ? item.dict_name : '基础配置';
+                (configGroups[groupName] || (configGroups[groupName] = [])).push(item);
+            });
+            
+            // 生成配置组按钮
+            const groupsSelector = document.getElementById('config-groups-selector');
+            groupsSelector.innerHTML = '';
+            let firstGroup = null;
+
+            Object.keys(CONFIG.groupOrder).forEach((key, i) => {
+                if (!configGroups[key]) return;
+                if (i === 0) firstGroup = { key, title: CONFIG.groupOrder[key] };
+                
+                const btn = document.createElement('button');
+                btn.className = 'config-group-btn';
+                btn.setAttribute('data-group-key', key);
+                btn.onclick = (e) => { e.preventDefault(); showConfigGroup(key, CONFIG.groupOrder[key], btn); };
+                btn.innerHTML = `<i class="bi bi-folder"></i><span class="group-name">${CONFIG.groupOrder[key]}</span><span class="item-count">${configGroups[key].length}</span>`;
+                groupsSelector.appendChild(btn);
+            });
+            
+            showElement(containers.loading, false); showElement(containers.form);
+            updateConfigSourceBadge(data.source, data.is_new);
+            
+            if (firstGroup) {
+                const firstBtn = document.querySelector(`[data-group-key="${firstGroup.key}"]`);
+                if (firstBtn) {
+                    firstBtn.classList.add('active');
+                    showConfigGroupInternal(firstGroup.key, firstGroup.title);
+                }
+            }
+        } else {
+            throw new Error(data.message || '加载配置失败');
+        }
+    } catch (error) {
+        showElement(containers.loading, false); showElement(containers.error);
+        document.getElementById('simple-error-message').textContent = error.message;
+    }
+}
+
+// 显示配置组
+function showConfigGroup(groupKey, groupTitle, btnElement) {
+    if (currentGroupKey && currentGroupKey !== groupKey) saveCurrentFormData();
+    document.querySelectorAll('.config-group-btn').forEach(btn => btn.classList.remove('active'));
+    if (btnElement) btnElement.classList.add('active');
+    showConfigGroupInternal(groupKey, groupTitle);
+}
+
+// 保存当前表单数据
+function saveCurrentFormData() {
+    if (!currentGroupKey) return;
+    const items = configGroups[currentGroupKey];
+    if (!items) return;
+    
+    items.forEach(item => {
+        const input = document.getElementById(`config-${item.index}`);
+        if (!input) return;
+        
+        if (item.type === 'boolean') item.value = input.checked;
+        else if (item.type === 'list') item.value = input.value.trim() ? input.value.split('\n').filter(line => line.trim()) : [];
+        else if (item.type === 'number') item.value = parseFloat(input.value) || 0;
+        else item.value = input.value;
+        
+        const originalItem = configItems.find(ci => ci.index === item.index);
+        if (originalItem) originalItem.value = item.value;
+    });
+}
+
+// 内部函数：显示配置组内容
+function showConfigGroupInternal(groupKey, groupTitle) {
+    currentGroupKey = groupKey;
+    document.getElementById('config-form-wrapper').style.display = 'block';
+    document.getElementById('current-group-name').textContent = groupTitle;
+    
+    const configForm = document.getElementById('config-form');
+    configForm.innerHTML = '';
+    
+    configGroups[groupKey].forEach(item => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'config-item';
+        const displayName = item.is_dict_item ? item.key_name : item.name;
+        const labelHtml = item.comment ? `<span class="label-name">${displayName}:</span><span class="label-comment">${item.comment}</span>` : `<span class="label-name">${displayName}</span>`;
+        
+        if (item.type === 'boolean') {
+            itemDiv.innerHTML = `<div class="config-label-with-switch"><div class="config-label-text">${labelHtml}</div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="config-${item.index}" data-index="${item.index}" ${item.value ? 'checked' : ''}><label class="form-check-label" for="config-${item.index}">${item.value ? '启用' : '禁用'}</label></div></div>`;
+            const checkbox = itemDiv.querySelector('input[type="checkbox"]');
+            checkbox.addEventListener('change', function() {
+                this.nextElementSibling.textContent = this.checked ? '启用' : '禁用';
+            });
+        } else if (item.type === 'number') {
+            itemDiv.innerHTML = `<div class="config-label">${labelHtml}</div><input type="number" class="form-control" id="config-${item.index}" data-index="${item.index}" value="${item.value}">`;
+        } else if (item.type === 'list') {
+            const listValue = Array.isArray(item.value) ? item.value.join('\n') : '';
+            itemDiv.innerHTML = `<div class="config-label">${labelHtml}</div><textarea class="form-control" id="config-${item.index}" data-index="${item.index}" rows="3" placeholder="每行输入一个项目">${listValue}</textarea><small class="text-muted">每行一个项目，空行将被忽略</small>`;
+        } else {
+            const escapedValue = String(item.value).replace(/"/g, '&quot;');
+            itemDiv.innerHTML = `<div class="config-label">${labelHtml}</div><input type="text" class="form-control" id="config-${item.index}" data-index="${item.index}" value="${escapedValue}">`;
+        }
+        
+        configForm.appendChild(itemDiv);
+    });
+}
+
+// 加载高级模式
+async function loadAdvancedMode() {
+    const containers = {
+        loading: document.getElementById('advanced-loading-container'),
+        error: document.getElementById('advanced-error-container'),
+        editor: document.getElementById('editor-container')
+    };
+
+    showElement(containers.loading); showElement(containers.error, false); showElement(containers.editor, false);
+
+    try {
+        const response = await fetch(`/web/api/config/get?token=${getToken()}`);
+        const data = await response.json();
+
+        if (data.success) {
+            currentConfig = data.content;
+            if (codeMirrorEditor) {
+                codeMirrorEditor.setValue(data.content);
+                codeMirrorEditor.refresh();
+            }
+            
+            updateConfigSourceBadge(data.source, data.is_new);
+            showElement(containers.loading, false); showElement(containers.editor);
+            
+            if (codeMirrorEditor) setTimeout(() => codeMirrorEditor.refresh(), 100);
+        } else {
+            throw new Error(data.message || '加载配置失败');
+        }
+    } catch (error) {
+        showElement(containers.loading, false); showElement(containers.error);
+        document.getElementById('advanced-error-message').textContent = error.message;
+    }
+}
+
+// 保存当前模式
+async function saveCurrentMode() {
+    const activeTab = document.querySelector('#configModeTabs .nav-link.active');
+    activeTab.id === 'simple-mode-tab' ? await saveSimpleMode() : await saveAdvancedMode();
+}
+
+// 保存简单模式
+async function saveSimpleMode() {
+    saveCurrentFormData();
+    
+    const updatedItems = configItems.map(item => ({
+        name: item.name, value: item.value, type: item.type, is_dict_item: item.is_dict_item || false,
+        ...(item.is_dict_item && { dict_name: item.dict_name, key_name: item.key_name })
+    }));
+
+    if (!updatedItems.length) return alert('没有可保存的配置项');
+    if (!confirm('确定要保存配置文件吗？\n\n保存后需要重启框架才能应用新配置。')) return;
+
+    try {
+        const response = await fetch(`/web/api/config/update_items?token=${getToken()}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: updatedItems })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('配置文件已保存成功！\n\n' + data.message);
+            checkPendingConfig();
+        } else {
+            alert('保存失败：\n\n' + data.message);
+        }
+    } catch (error) {
+        alert('保存失败：' + error.message);
+    }
+}
+
+// 保存高级模式
+async function saveAdvancedMode() {
+    const content = codeMirrorEditor ? codeMirrorEditor.getValue() : '';
+    if (!content.trim()) return alert('配置内容不能为空');
+    if (!confirm('确定要保存配置文件吗？\n\n⚠️ 高级模式会直接替换整个配置文件！\n保存后需要重启框架才能应用新配置。')) return;
+
+    try {
+        const response = await fetch(`/web/api/config/save?token=${getToken()}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('配置文件已保存成功！\n\n' + data.message);
+            currentConfig = content;
+            checkPendingConfig();
+        } else {
+            alert('保存失败：\n\n' + data.message);
+        }
+    } catch (error) {
+        alert('保存失败：' + error.message);
+    }
+}
+
+// 检查待应用配置
+async function checkPendingConfig() {
+    try {
+        const response = await fetch(`/web/api/config/check_pending?token=${getToken()}`);
+        const data = await response.json();
+        const alertDiv = document.getElementById('pending-config-alert');
+        const timeSpan = document.getElementById('pending-time');
+
+        if (data.success && data.pending) {
+            alertDiv.style.display = 'block';
+            if (data.modified_time) timeSpan.textContent = `(保存于 ${data.modified_time})`;
+        } else {
+            alertDiv.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('检查待应用配置失败:', error);
+    }
+}
+
+// 取消待应用配置
+async function cancelPendingConfig() {
+    if (!confirm('确定要取消待应用的配置吗？\n\n这将删除 web/config_new.py 文件。')) return;
+
+    try {
+        const response = await fetch(`/web/api/config/cancel_pending?token=${getToken()}`, { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(data.message);
+            checkPendingConfig();
+        } else {
+            alert('取消失败：' + data.message);
+        }
+    } catch (error) {
+        alert('取消失败：' + error.message);
+    }
+}
+
+// 检测配置变更
+window.addEventListener('beforeunload', function(e) {
+    const activeTab = document.querySelector('#configModeTabs .nav-link.active');
+    
+    if (activeTab.id === 'advanced-mode-tab') {
+        const currentContent = codeMirrorEditor ? codeMirrorEditor.getValue() : '';
+        if (currentContent !== currentConfig) {
+            e.preventDefault();
+            e.returnValue = '配置文件已修改但未保存，确定要离开吗？';
+        }
+    } else {
+        let hasChanges = false;
+        configItems.forEach((item, index) => {
+            const input = document.getElementById(`config-${index}`);
+            if (input) {
+                let currentValue = item.type === 'boolean' ? input.checked : 
+                                 item.type === 'number' ? parseFloat(input.value) :
+                                 item.type === 'list' ? JSON.stringify(input.value.split('\n').map(line => line.trim()).filter(line => line.length > 0)) :
+                                 input.value;
+                const originalValue = item.type === 'list' ? JSON.stringify(item.value) : item.value;
+                if (currentValue !== originalValue) hasChanges = true;
+            }
+        });
+        
+        if (hasChanges) {
+            e.preventDefault();
+            e.returnValue = '配置已修改但未保存，确定要离开吗？';
+        }
+    }
+});
+</script>
+
+<!-- CodeMirror 代码编辑器 -->
+<link rel="stylesheet" href="{{ url_for('web.static', filename='css/vendor/codemirror.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('web.static', filename='css/vendor/codemirror-monokai.min.css') }}">
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-python.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-matchbrackets.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-closebrackets.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-active-line.min.js') }}"></script>
+{% endblock %}

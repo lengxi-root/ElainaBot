@@ -47,6 +47,8 @@ class PluginManager:
     _unloaded_modules = []
     _regex_cache = {}
     _sorted_handlers = []
+    _handler_patterns_cache = {}  # 预编译的处理器模式缓存
+    _permission_cache = {}  # 权限检查缓存
 
     # === 通用辅助方法 ===
     @classmethod
@@ -170,9 +172,9 @@ class PluginManager:
         
         current_time = time.time()
         
-        # 快速检查避免频繁扫描
+        # 快速检查避免频繁扫描（增加检查间隔到0.5秒）
         if (_plugins_loaded and 
-            current_time - _last_quick_check_time < 0.1):
+            current_time - _last_quick_check_time < 0.5):
             return len(cls._plugins)
         
         _last_quick_check_time = current_time
@@ -568,7 +570,7 @@ class PluginManager:
         except Exception as e:
             add_error_log(f"清理模块时出错: {str(e)}", traceback.format_exc())
 
-    # === 处理器优化 ===
+    # === 处理器管理 ===
     @classmethod 
     def _rebuild_sorted_handlers(cls):
         """重建排序的处理器列表"""
@@ -585,6 +587,32 @@ class PluginManager:
             })
         
         cls._sorted_handlers = sorted(handlers_with_priority, key=lambda x: x['priority'])
+    
+    @classmethod
+    def _rebuild_handler_patterns_cache(cls):
+        """重建处理器模式缓存以提升匹配性能"""
+        cls._handler_patterns_cache.clear()
+        cls._permission_cache.clear()  # 清空权限缓存
+        
+        for i, handler_data in enumerate(cls._sorted_handlers):
+            pattern = handler_data['pattern']
+            handler_info = handler_data['handler_info']
+            priority = handler_data['priority']
+            
+            # 预编译正则表达式
+            compiled_regex = cls._regex_cache.get(pattern)
+            if not compiled_regex:
+                compiled_regex = cls._compile_and_cache_regex(pattern)
+                if not compiled_regex:
+                    continue
+            
+            handler_key = f"{priority}_{i}_{pattern}"
+            cls._handler_patterns_cache[handler_key] = {
+                'regex': compiled_regex,
+                'handler_info': handler_info,
+                'priority': priority,
+                'pattern': pattern
+            }
 
     # === 插件注册 ===
     @classmethod
@@ -619,6 +647,7 @@ class PluginManager:
             handlers_count += 1
         
         cls._rebuild_sorted_handlers()
+        cls._handler_patterns_cache.clear()  # 清空缓存，下次使用时重建
         return handlers_count
 
     # === 维护模式 ===
@@ -721,26 +750,29 @@ class PluginManager:
         """查找匹配内容的所有处理器"""
         matched_handlers = []
         
-        for handler_data in cls._sorted_handlers:
-            pattern = handler_data['pattern'] 
-            handler_info = handler_data['handler_info']
+        # 使用预编译的处理器缓存提升性能
+        if not cls._handler_patterns_cache:
+            cls._rebuild_handler_patterns_cache()
+        
+        for handler_key, handler_cache in cls._handler_patterns_cache.items():
+            compiled_regex = handler_cache['regex']
+            handler_info = handler_cache['handler_info']
+            priority = handler_cache['priority']
+            pattern = handler_cache['pattern']
             
-            # 匹配正则
-            compiled_regex = cls._regex_cache.get(pattern)
-            if not compiled_regex:
-                compiled_regex = cls._compile_and_cache_regex(pattern)
-                if not compiled_regex:
-                    continue
-                    
+            # 快速正则匹配
             match = compiled_regex.search(event_content)
             if not match:
                 continue
             
-            # 权限检查
-            plugin_class = handler_info.get('class')
-            handler_name = handler_info.get('handler')
+            # 权限缓存检查
+            permission_key = (handler_key, is_owner, is_group)
+            if permission_key in cls._permission_cache:
+                has_permission, deny_reason = cls._permission_cache[permission_key]
+            else:
+                has_permission, deny_reason = cls._check_permissions(handler_info, is_owner, is_group)
+                cls._permission_cache[permission_key] = (has_permission, deny_reason)
             
-            has_permission, deny_reason = cls._check_permissions(handler_info, is_owner, is_group)
             if not has_permission:
                 if permission_denied is not None:
                     permission_denied[deny_reason] = True
@@ -749,9 +781,9 @@ class PluginManager:
             matched_handlers.append({
                 'pattern': pattern,
                 'match': match,
-                'plugin_class': plugin_class,
-                'handler_name': handler_name,
-                'priority': handler_data['priority']
+                'plugin_class': handler_info.get('class'),
+                'handler_name': handler_info.get('handler'),
+                'priority': priority
             })
             
         return matched_handlers

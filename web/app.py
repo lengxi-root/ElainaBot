@@ -200,131 +200,58 @@ def record_ip_access(ip_address, access_type='token_success', device_info=None):
     
     save_ip_data()
 
-def cleanup_old_password_fails(ip_address):
-    """清理24小时前的密码失败记录"""
-    if ip_address not in ip_access_data:
-        return
-    
-    current_time = datetime.now()
-    ip_data = ip_access_data[ip_address]
-    ip_data['password_fail_times'] = [
-        t for t in ip_data['password_fail_times']
-        if (current_time - datetime.fromisoformat(t)).total_seconds() < 24 * 3600
-    ]
-
-def cleanup_old_password_success(ip_address):
-    """清理超过30天的密码成功记录"""
-    if ip_address not in ip_access_data:
-        return
-    
-    current_time = datetime.now()
-    ip_data = ip_access_data[ip_address]
-    ip_data['password_success_times'] = [
-        t for t in ip_data['password_success_times']
-        if (current_time - datetime.fromisoformat(t)).total_seconds() < 30 * 24 * 3600
-    ]
+cleanup_old_password_fails = lambda ip: ip_access_data[ip].update({'password_fail_times': [t for t in ip_access_data[ip]['password_fail_times'] if (datetime.now() - datetime.fromisoformat(t)).total_seconds() < 86400]}) if ip in ip_access_data else None
+cleanup_old_password_success = lambda ip: ip_access_data[ip].update({'password_success_times': [t for t in ip_access_data[ip]['password_success_times'] if (datetime.now() - datetime.fromisoformat(t)).total_seconds() < 2592000]}) if ip in ip_access_data else None
 
 def is_ip_banned(ip_address):
-    """检查IP是否被封禁"""
-    global ip_access_data
-    
-    if ip_address not in ip_access_data:
+    if ip_address not in ip_access_data or not (ip_data := ip_access_data[ip_address]).get('is_banned'):
         return False
-    
-    ip_data = ip_access_data[ip_address]
-    
-    if not ip_data.get('is_banned', False):
-        return False
-    
-    ban_time_str = ip_data.get('ban_time')
-    if not ban_time_str:
+    if not (ban_time_str := ip_data.get('ban_time')):
         return True
-    
     try:
-        ban_time = datetime.fromisoformat(ban_time_str)
-        current_time = datetime.now()
-        
-        if (current_time - ban_time).total_seconds() >= 24 * 3600:
-            ip_data['is_banned'] = False
-            ip_data['ban_time'] = None
-            ip_data['password_fail_times'] = []
+        if (datetime.now() - datetime.fromisoformat(ban_time_str)).total_seconds() >= 86400:
+            ip_data.update({'is_banned': False, 'ban_time': None, 'password_fail_times': []})
             save_ip_data()
             return False
-        else:
             return True
-    except Exception:
+    except:
         return True
 
 def cleanup_expired_ip_bans():
-    """清理过期的IP封禁记录"""
     global ip_access_data, _last_ip_cleanup
-    
-    current_time = time.time()
-    if current_time - _last_ip_cleanup < 3600:
+    if (current_time := time.time()) - _last_ip_cleanup < 3600:
         return
-    
-    _last_ip_cleanup = current_time
-    current_datetime = datetime.now()
-    
-    cleaned_count = 0
-    for ip_address in list(ip_access_data.keys()):
-        ip_data = ip_access_data[ip_address]
-        
+    _last_ip_cleanup, current_datetime, cleaned = current_time, datetime.now(), 0
+    for ip_address, ip_data in list(ip_access_data.items()):
         cleanup_old_password_fails(ip_address)
-        
-        if ip_data.get('is_banned', False):
-            ban_time_str = ip_data.get('ban_time')
-            if ban_time_str:
-                try:
-                    ban_time = datetime.fromisoformat(ban_time_str)
-                    if (current_datetime - ban_time).total_seconds() >= 24 * 3600:
-                        ip_data['is_banned'] = False
-                        ip_data['ban_time'] = None
-                        ip_data['password_fail_times'] = []
-                        cleaned_count += 1
-                except Exception:
-                    pass
-    
-    if cleaned_count > 0:
+        if ip_data.get('is_banned') and (ban_time_str := ip_data.get('ban_time')):
+            try:
+                if (current_datetime - datetime.fromisoformat(ban_time_str)).total_seconds() >= 86400:
+                    ip_data.update({'is_banned': False, 'ban_time': None, 'password_fail_times': []})
+                    cleaned += 1
+            except:
+                pass
+    if cleaned:
         save_ip_data()
 
 load_ip_data()
 
-# ===== 统一响应处理系统 =====
-def create_response(success=True, data=None, error=None, status_code=200, response_type='api', **extra_data):
-    """统一响应创建函数"""
-    response_data = {'success': success}
-    
+def create_response(success=True, data=None, error=None, status_code=200, response_type='api', **extra):
     if success:
-        if data is not None:
-            response_data.update(data if isinstance(data, dict) else {'data': data})
-        response_data.update(extra_data)
+        result = {'success': True}
+        if data:
+            result.update(data if isinstance(data, dict) else {'data': data})
+        result.update(extra)
     else:
-        error_field = 'message' if response_type == 'openapi' else 'error'
-        response_data[error_field] = str(error) if error else 'Unknown error'
-        response_data.update(extra_data)
-    
-    return jsonify(response_data), status_code
+        result = {'success': False, ('message' if response_type == 'openapi' else 'error'): str(error) if error else 'Unknown error'}
+        result.update(extra)
+    return jsonify(result), status_code
 
-def api_error_response(error_msg, status_code=500, **extra_data):
-    """API错误响应"""
-    return create_response(False, error=error_msg, status_code=status_code, response_type='api', **extra_data)
-
-def api_success_response(data=None, **extra_data):
-    """API成功响应"""
-    return create_response(True, data=data, response_type='api', **extra_data)
-
-def openapi_error_response(error_msg, status_code=200):
-    """OpenAPI错误响应"""
-    return create_response(False, error=error_msg, status_code=status_code, response_type='openapi')
-
-def openapi_success_response(data=None, **extra_data):
-    """OpenAPI成功响应"""
-    return create_response(True, data=data, response_type='openapi', **extra_data)
-
-def check_openapi_login(user_id):
-    """检查OpenAPI用户登录状态"""
-    return openapi_user_data.get(user_id)
+api_error_response = lambda error_msg, status_code=500, **extra: create_response(False, error=error_msg, status_code=status_code, **extra)
+api_success_response = lambda data=None, **extra: create_response(True, data=data, **extra)
+openapi_error_response = lambda error_msg, status_code=200: create_response(False, error=error_msg, status_code=status_code, response_type='openapi')
+openapi_success_response = lambda data=None, **extra: create_response(True, data=data, response_type='openapi', **extra)
+check_openapi_login = lambda user_id: openapi_user_data.get(user_id)
 
 def catch_error(func):
     @functools.wraps(func)
@@ -332,52 +259,29 @@ def catch_error(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            error_msg = f"{func.__name__} 错误: {str(e)}"
-            
             try:
-                add_log_to_db('error', {
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'content': error_msg
-                })
+                add_log_to_db('error', {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'content': f"{func.__name__} 错误: {str(e)}"})
             except:
                 pass
-                
             return api_error_response(str(e))
     return wrapper
 
-def generate_session_token():
-    return base64.urlsafe_b64encode(uuid.uuid4().bytes).decode('utf-8').rstrip('=')
-
-def sign_cookie_value(value, secret):
-    signature = hmac.new(
-        secret.encode('utf-8'),
-        value.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    return f"{value}.{signature}"
+generate_session_token = lambda: base64.urlsafe_b64encode(uuid.uuid4().bytes).decode('utf-8').rstrip('=')
+sign_cookie_value = lambda value, secret: f"{value}.{hmac.new(secret.encode('utf-8'), value.encode('utf-8'), hashlib.sha256).hexdigest()}"
 
 def verify_cookie_value(signed_value, secret):
     try:
         value, signature = signed_value.rsplit('.', 1)
-        expected_signature = hmac.new(
-            secret.encode('utf-8'),
-            value.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(signature, expected_signature), value
+        return hmac.compare_digest(signature, hmac.new(secret.encode('utf-8'), value.encode('utf-8'), hashlib.sha256).hexdigest()), value
     except:
         return False, None
 
 def require_token(f):
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
-        token = request.args.get('token') or request.form.get('token')
-        if not token or token != WEB_SECURITY['access_token']:
+        if not (token := request.args.get('token') or request.form.get('token')) or token != WEB_SECURITY['access_token']:
             return '', 403
-        
-        device_info = extract_device_info(request)
-        record_ip_access(request.remote_addr, access_type='token_success', device_info=device_info)
-        
+        record_ip_access(request.remote_addr, 'token_success', extract_device_info(request))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -385,25 +289,15 @@ def require_auth(f):
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         cleanup_expired_sessions()
-        cookie_value = request.cookies.get('elaina_admin_session')  # 固定Cookie名称
-        if cookie_value:
-            is_valid, session_token = verify_cookie_value(cookie_value, 'elaina_cookie_secret_key_2024_v1')  # 固定Cookie密钥
-            if is_valid and session_token in valid_sessions:
-                session_info = valid_sessions[session_token]
-
-                if datetime.now() < session_info['expires']:
-                    if WEB_SECURITY.get('production_mode', False):
-                        if (session_info.get('ip') != request.remote_addr or 
-                            session_info.get('user_agent', '')[:200] != request.headers.get('User-Agent', '')[:200]):
-                            del valid_sessions[session_token]
-                        else:
-                            return f(*args, **kwargs)
-                    else:
-                        return f(*args, **kwargs)
-                else:
-                    del valid_sessions[session_token]
-        token = request.args.get('token', '')
-        return render_template('login.html', token=token, web_interface=WEB_INTERFACE)
+        if (cookie_value := request.cookies.get('elaina_admin_session')):
+            is_valid, session_token = verify_cookie_value(cookie_value, 'elaina_cookie_secret_key_2024_v1')
+            if is_valid and session_token in valid_sessions and datetime.now() < (session_info := valid_sessions[session_token])['expires']:
+                if not WEB_SECURITY.get('production_mode', False) or (session_info.get('ip') == request.remote_addr and session_info.get('user_agent', '')[:200] == request.headers.get('User-Agent', '')[:200]):
+                    return f(*args, **kwargs)
+                del valid_sessions[session_token]
+            elif session_token in valid_sessions:
+                del valid_sessions[session_token]
+        return render_template('login.html', token=request.args.get('token', ''), web_interface=WEB_INTERFACE)
     return decorated_function
 
 def require_socketio_token(f):
@@ -420,11 +314,11 @@ def require_socketio_token(f):
         if not token or token != WEB_SECURITY['access_token']:
             return False
         
-        cookie_value = request.cookies.get('elaina_admin_session')  # 固定Cookie名称
+        cookie_value = request.cookies.get('elaina_admin_session')
         if not cookie_value:
             return False
         
-        is_valid, session_token = verify_cookie_value(cookie_value, 'elaina_cookie_secret_key_2024_v1')  # 固定Cookie密钥
+        is_valid, session_token = verify_cookie_value(cookie_value, 'elaina_cookie_secret_key_2024_v1')
         if not is_valid or session_token not in valid_sessions:
             return False
         
@@ -446,227 +340,98 @@ def require_socketio_token(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def check_ip_ban(f):
-    """检查IP是否被封禁的装饰器"""
-    @functools.wraps(f)
-    def decorated_function(*args, **kwargs):
-        cleanup_expired_ip_bans()
-        
-        client_ip = request.remote_addr
-        if is_ip_banned(client_ip):
-            return '', 403
-        
-        return f(*args, **kwargs)
-    return decorated_function
+check_ip_ban = lambda f: functools.wraps(f)(lambda *args, **kwargs: (cleanup_expired_ip_bans(), '', 403)[1] if is_ip_banned(request.remote_addr) else f(*args, **kwargs))
 
 def cleanup_expired_sessions():
-    """清理过期的会话"""
     global valid_sessions, _last_session_cleanup
-    
-    current_time = time.time()
-    if current_time - _last_session_cleanup < 300:
+    if (current_time := time.time()) - _last_session_cleanup < 300:
         return
-    
-    _last_session_cleanup = current_time
-    current_datetime = datetime.now()
-    
-    expired_sessions = []
-    for session_token, session_info in valid_sessions.items():
-        if current_datetime >= session_info['expires']:
-            expired_sessions.append(session_token)
-    
-    for session_token in expired_sessions:
+    _last_session_cleanup, current_datetime = current_time, datetime.now()
+    for session_token in [s for s, info in valid_sessions.items() if current_datetime >= info['expires']]:
         del valid_sessions[session_token]
 
-def limit_session_count():
-    """限制同时活跃的会话数量"""
-    max_sessions = 10
-    if len(valid_sessions) > max_sessions:
-        sorted_sessions = sorted(valid_sessions.items(), 
-                               key=lambda x: x[1]['created'])
-        while len(valid_sessions) > max_sessions:
-            oldest_session = sorted_sessions.pop(0)
-            del valid_sessions[oldest_session[0]]
+limit_session_count = lambda: [valid_sessions.pop(sorted(valid_sessions.items(), key=lambda x: x[1]['created'])[i][0]) for i in range(len(valid_sessions) - 10)] if len(valid_sessions) > 10 else None
 
-# ===== 日志处理类 =====
 class LogHandler:
-    """统一日志处理基类"""
     def __init__(self, log_type, max_logs=MAX_LOGS):
-        self.log_type = log_type
-        self.logs = deque(maxlen=max_logs)
-        if log_type == 'received':
-            self.global_logs = received_messages
-        elif log_type == 'plugin':
-            self.global_logs = plugin_logs
-        elif log_type == 'framework':
-            self.global_logs = framework_logs
-        elif log_type == 'error':
-            self.global_logs = error_logs
+        self.log_type, self.logs = log_type, deque(maxlen=max_logs)
+        self.global_logs = {'received': received_messages, 'plugin': plugin_logs, 'framework': framework_logs, 'error': error_logs}[log_type]
             
     def add(self, content, traceback_info=None, skip_db=False):
-        global socketio
-        
-        # 如果content是字典（包含完整日志数据），直接使用
-        if isinstance(content, dict):
-            entry = content.copy()
-            # 确保有timestamp字段
-            if 'timestamp' not in entry:
-                entry['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            # 如果是字符串，创建基本日志结构
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            entry = {'timestamp': timestamp, 'content': content}
-        
+        entry = content.copy() if isinstance(content, dict) else {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'content': content}
+        if 'timestamp' not in entry:
+            entry['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if traceback_info:
             entry['traceback'] = traceback_info
-            
         self.logs.append(entry)
         self.global_logs.append(entry)
-        
-        if not skip_db and LOG_DB_CONFIG.get('enabled', False):
+        if not skip_db and LOG_DB_CONFIG.get('enabled'):
             try:
                 add_log_to_db(self.log_type, entry)
-            except Exception:
+            except:
                 pass
-        
-        if socketio is not None:
+        if socketio:
             try:
-                # 只发送显示必要的字段到前端
-                display_entry = {
-                    'timestamp': entry['timestamp'],
-                    'content': entry.get('content', ''),
-                }
-                if 'traceback' in entry:
-                    display_entry['traceback'] = entry['traceback']
-                
-                socketio.emit('new_message', {
-                    'type': self.log_type,
-                    'data': display_entry
-                }, namespace=PREFIX)
-            except Exception:
+                socketio.emit('new_message', {'type': self.log_type, 'data': {k: entry[k] for k in ['timestamp', 'content'] + (['traceback'] if 'traceback' in entry else [])}}, namespace=PREFIX)
+            except:
                 pass
-                
         return entry
 
-# ===== 日志处理器实例 =====
-received_handler = LogHandler('received')
-plugin_handler = LogHandler('plugin')
-framework_handler = LogHandler('framework')
-error_handler = LogHandler('error')
+received_handler, plugin_handler, framework_handler, error_handler = (LogHandler(t) for t in ['received', 'plugin', 'framework', 'error'])
 
-# ===== 日志与消息相关API =====
 @catch_error
-def add_display_message(formatted_message, timestamp=None):
-    """添加消息到web面板显示（仅用于显示，不存储到数据库）
-    
-    Args:
-        formatted_message: 格式化后的显示消息
-        timestamp: 时间戳，如果为None则使用当前时间
-    """
-    if timestamp:
-        # 使用传入的时间戳创建显示条目
+def add_display_message(formatted_message, timestamp=None, user_id=None, group_id=None, message_content=None):
+    # 支持结构化数据和旧的字符串格式
+    if user_id is not None and message_content is not None:
+        # 新格式：结构化数据
         entry = {
-            'timestamp': timestamp,
-            'content': formatted_message
+            'timestamp': timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'content': formatted_message,  # 保留格式化字符串用于兼容
+            'user_id': user_id,
+            'group_id': group_id or '-',
+            'message': message_content
         }
-        received_handler.logs.append(entry)
-        received_handler.global_logs.append(entry)
-        
-        # 发送到Socket.IO
-        if socketio is not None:
-            try:
-                socketio.emit('new_message', {
-                    'type': 'received',
-                    'data': entry
-                }, namespace=PREFIX)
-            except Exception:
-                pass
-        return entry
     else:
-        # 使用LogHandler的正常流程（会生成新的时间戳）
-        return received_handler.add(formatted_message, skip_db=True)
-
-
-
+        # 旧格式：纯字符串
+        entry = {'timestamp': timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'content': formatted_message}
+    
+    received_handler.logs.append(entry)
+    received_handler.global_logs.append(entry)
+    if socketio:
+        try:
+            socketio.emit('new_message', {'type': 'received', 'data': entry}, namespace=PREFIX)
+        except:
+            pass
+    return entry
 
 @catch_error
 def add_plugin_log(log, user_id=None, group_id=None, plugin_name=None):
-    """添加插件日志"""
-    if isinstance(log, str):
-        # 如果是字符串，创建完整的日志数据
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        log_data = {
-            'timestamp': timestamp,
-            'content': log,
-            'user_id': user_id or '',
-            'group_id': group_id or 'c2c',
-            'plugin_name': plugin_name or ''
-        }
-    else:
-        # 如果已经是字典，添加缺失的字段
-        log_data = log.copy() if isinstance(log, dict) else {'content': str(log)}
-        log_data.setdefault('user_id', user_id or '')
-        log_data.setdefault('group_id', group_id or 'c2c')
-        log_data.setdefault('plugin_name', plugin_name or '')
-    
+    log_data = ({'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'content': log, 'user_id': user_id or '', 
+        'group_id': group_id or 'c2c', 'plugin_name': plugin_name or ''} if isinstance(log, str) 
+        else {**({'content': str(log)} if not isinstance(log, dict) else log.copy()), 
+        'user_id': user_id or '', 'group_id': group_id or 'c2c', 'plugin_name': plugin_name or ''})
     return plugin_handler.add(log_data)
 
-@catch_error
-def add_framework_log(log):
-    """添加框架日志"""
-    return framework_handler.add(log)
+add_framework_log = catch_error(lambda log: framework_handler.add(log))
+add_error_log = catch_error(lambda log, traceback_info=None: error_handler.add(log, traceback_info))
 
-@catch_error
-def add_error_log(log, traceback_info=None):
-    """添加错误日志"""
-    return error_handler.add(log, traceback_info)
-
-# ===== 路由 =====
 @web.route('/login', methods=['POST'])
 @check_ip_ban
 @require_token
 @catch_error
 def login():
-    """处理密码验证"""
-    password = request.form.get('password')
-    token = request.form.get('token')
-    
+    password, token = request.form.get('password'), request.form.get('token')
     if password == WEB_SECURITY['admin_password']:
         cleanup_expired_sessions()
         limit_session_count()
-        
-        device_info = extract_device_info(request)
-        record_ip_access(request.remote_addr, access_type='password_success', device_info=device_info)
-        
-        session_token = generate_session_token()
-        expires = datetime.now() + timedelta(days=7)  # 固定7天过期
-        
-        valid_sessions[session_token] = {
-            'created': datetime.now(),
-            'expires': expires,
-            'ip': request.remote_addr,
-            'user_agent': request.headers.get('User-Agent', '')[:200]
-        }
-        
-        signed_token = sign_cookie_value(session_token, 'elaina_cookie_secret_key_2024_v1')  # 固定Cookie密钥
-        
-        response = make_response(f'''
-        <script>
-            window.location.href = "/web/?token={token}";
-        </script>
-        ''')
-        response.set_cookie(
-            'elaina_admin_session',  # 固定Cookie名称
-            signed_token,
-            max_age=7 * 24 * 60 * 60,  # 固定7天过期(秒)
-            httponly=True,
-            secure=False,
-            samesite='Lax'
-        )
+        record_ip_access(request.remote_addr, 'password_success', extract_device_info(request))
+        session_token, expires = generate_session_token(), datetime.now() + timedelta(days=7)
+        valid_sessions[session_token] = {'created': datetime.now(), 'expires': expires, 'ip': request.remote_addr, 'user_agent': request.headers.get('User-Agent', '')[:200]}
+        response = make_response(f'<script>window.location.href = "/web/?token={token}";</script>')
+        response.set_cookie('elaina_admin_session', sign_cookie_value(session_token, 'elaina_cookie_secret_key_2024_v1'), max_age=604800, httponly=True, secure=False, samesite='Lax', path='/')
         return response
-    else:
-        record_ip_access(request.remote_addr, access_type='password_fail')
-        return render_template('login.html', token=token, error='密码错误，请重试', web_interface=WEB_INTERFACE)
+    record_ip_access(request.remote_addr, 'password_fail')
+    return render_template('login.html', token=token, error='密码错误，请重试', web_interface=WEB_INTERFACE)
 
 @web.route('/')
 @check_ip_ban
@@ -674,39 +439,12 @@ def login():
 @require_auth
 @catch_error
 def index():
-    """Web面板首页"""
-    user_agent = request.headers.get('User-Agent', '').lower()
-    device_type = request.args.get('device', None)
-    
-    if device_type is None:
-        mobile_keywords = ['android', 'iphone', 'ipad', 'mobile', 'phone', 'tablet']
-        is_mobile = any(keyword in user_agent for keyword in mobile_keywords)
-        device_type = 'mobile' if is_mobile else 'pc'
-    
-    template_name = 'mobile.html' if device_type == 'mobile' else 'index.html'
-    
-    response = make_response(render_template(template_name, 
-                                           prefix=PREFIX, 
-                                           device_type=device_type,
-                                           ROBOT_QQ=ROBOT_QQ,
-                                           appid=appid,
-                                           WEBSOCKET_CONFIG=WEBSOCKET_CONFIG,
-                                           web_interface=WEB_INTERFACE))
-    
-    # 固定启用安全响应头防护
-    if True:
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"
-        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
-        response.headers['Strict-Transport-Security'] = 'max-age=0'
-    
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-    
+    response = make_response(render_template('index.html', prefix=PREFIX, device_type='pc', ROBOT_QQ=ROBOT_QQ, appid=appid, WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_INTERFACE))
+    for header, value in [('X-Content-Type-Options', 'nosniff'), ('X-Frame-Options', 'DENY'), ('X-XSS-Protection', '1; mode=block'),
+        ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"),
+        ('Referrer-Policy', 'strict-origin-when-cross-origin'), ('Permissions-Policy', 'geolocation=(), microphone=(), camera=()'),
+        ('Strict-Transport-Security', 'max-age=0'), ('Cache-Control', 'no-cache, no-store, must-revalidate'), ('Pragma', 'no-cache'), ('Expires', '0')]:
+        response.headers[header] = value
     return response
 
 @web.route('/api/logs/<log_type>')
@@ -715,28 +453,11 @@ def index():
 @require_auth
 @catch_error
 def get_logs(log_type):
-    """API端点，用于分页获取日志"""
-    page = request.args.get('page', 1, type=int)
-    page_size = request.args.get('size', 50, type=int)
-    if log_type == 'received':
-        logs = list(received_messages)
-    elif log_type == 'plugin':
-        logs = list(plugin_logs)
-    elif log_type == 'framework':
-        logs = list(framework_logs)
-    else:
-        return jsonify({'error': '无效的日志类型'}), 400
+    page, page_size = request.args.get('page', 1, type=int), request.args.get('size', 50, type=int)
+    logs = list({'received': received_messages, 'plugin': plugin_logs, 'framework': framework_logs}.get(log_type, []))
     logs.reverse()
-    start = (page - 1) * page_size
-    end = start + page_size
-    page_logs = logs[start:end]
-    return jsonify({
-        'logs': page_logs,
-        'total': len(logs),
-        'page': page,
-        'page_size': page_size,
-        'total_pages': (len(logs) + page_size - 1) // page_size
-    })
+    return jsonify({'logs': logs[(start := (page - 1) * page_size):start + page_size], 'total': len(logs), 'page': page, 
+        'page_size': page_size, 'total_pages': (len(logs) + page_size - 1) // page_size}) if log_type in ['received', 'plugin', 'framework'] else (jsonify({'error': '无效的日志类型'}), 400)
 
 @web.route('/status')
 @check_ip_ban
@@ -744,90 +465,32 @@ def get_logs(log_type):
 @require_auth
 @catch_error
 def status():
-    """状态检查接口"""
-    return jsonify({
-        'status': 'ok',
-        'version': '1.0',
-        'logs_count': {
-            'received': len(received_messages),
-            'plugin': len(plugin_logs),
-            'framework': len(framework_logs)
-        }
-    })
+    return jsonify({'status': 'ok', 'version': '1.0', 'logs_count': {'received': len(received_messages), 
+        'plugin': len(plugin_logs), 'framework': len(framework_logs)}})
 
 def run_statistics_task(task_id, force_refresh=False, selected_date=None):
-    """异步执行统计任务"""
     try:
-        statistics_tasks[task_id] = {
-            'status': 'running',
-            'progress': 0,
-            'start_time': time.time(),
-            'message': '开始统计计算...'
-        }
-        
+        statistics_tasks[task_id] = {'status': 'running', 'progress': 0, 'start_time': time.time(), 'message': '开始统计计算...'}
         if selected_date and selected_date != 'today':
-            statistics_tasks[task_id]['message'] = f'查询日期 {selected_date} 的数据...'
-            statistics_tasks[task_id]['progress'] = 50
-            
-            date_data = get_specific_date_data(selected_date)
-            if not date_data:
-                statistics_tasks[task_id] = {
-                    'status': 'failed',
-                    'error': f'未找到日期 {selected_date} 的数据',
-                    'end_time': time.time()
-                }
+            statistics_tasks[task_id].update({'message': f'查询日期 {selected_date} 的数据...', 'progress': 50})
+            if not (date_data := get_specific_date_data(selected_date)):
+                statistics_tasks[task_id] = {'status': 'failed', 'error': f'未找到日期 {selected_date} 的数据', 'end_time': time.time()}
                 return
-            
-            result = {
-                'selected_date_data': date_data,
-                'date': selected_date
-            }
+            result = {'selected_date_data': date_data, 'date': selected_date}
         else:
-            statistics_tasks[task_id]['message'] = '获取历史数据...'
-            statistics_tasks[task_id]['progress'] = 30
-            
+            statistics_tasks[task_id].update({'message': '获取历史数据...', 'progress': 30})
             data = get_statistics_data(force_refresh=force_refresh)
-            
-            statistics_tasks[task_id]['message'] = '计算性能指标...'
-            statistics_tasks[task_id]['progress'] = 80
-            
-            # 性能监控
-            end_time = time.time()
-            response_time = round((end_time - statistics_tasks[task_id]['start_time']) * 1000, 2)
-            data['performance'] = {
-                'response_time_ms': response_time,
-                'timestamp': datetime.now().isoformat(),
-                'optimized': True,
-                'async': True
-            }
-            
+            statistics_tasks[task_id].update({'message': '计算性能指标...', 'progress': 80})
+            data['performance'] = {'response_time_ms': round((time.time() - statistics_tasks[task_id]['start_time']) * 1000, 2), 
+                'timestamp': datetime.now().isoformat(), 'optimized': True, 'async': True}
             result = data
-        
-        # 任务完成
-        statistics_tasks[task_id] = {
-            'status': 'completed',
-            'progress': 100,
-            'end_time': time.time(),
-            'message': '统计计算完成'
-        }
-        
+        statistics_tasks[task_id] = {'status': 'completed', 'progress': 100, 'end_time': time.time(), 'message': '统计计算完成'}
         task_results[task_id] = result
-        
-        # 清理过期的任务结果（保留1小时）
-        current_time = time.time()
-        expired_tasks = [tid for tid, task in statistics_tasks.items() 
-                        if task.get('end_time', 0) < current_time - 3600]
-        for tid in expired_tasks:
+        for tid in [t for t, task in statistics_tasks.items() if task.get('end_time', 0) < time.time() - 3600]:
             statistics_tasks.pop(tid, None)
             task_results.pop(tid, None)
-            
     except Exception as e:
-        statistics_tasks[task_id] = {
-            'status': 'failed',
-            'error': str(e),
-            'end_time': time.time(),
-            'message': f'统计计算失败: {str(e)}'
-        }
+        statistics_tasks[task_id] = {'status': 'failed', 'error': str(e), 'end_time': time.time(), 'message': f'统计计算失败: {str(e)}'}
 
 @web.route('/api/statistics')
 @check_ip_ban
@@ -835,52 +498,18 @@ def run_statistics_task(task_id, force_refresh=False, selected_date=None):
 @require_auth
 @catch_error
 def get_statistics():
-    """获取统计数据API（异步处理）"""
-    force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
-    selected_date = request.args.get('date')
+    force_refresh, selected_date = request.args.get('force_refresh', 'false').lower() == 'true', request.args.get('date')
     async_mode = request.args.get('async', 'true').lower() == 'true'
-    
-    # 历史日期数据优先使用同步处理（通常很快）
     if selected_date and selected_date != 'today':
-        start_time = time.time()
-        date_data = get_specific_date_data(selected_date)
-        if not date_data:
-            return api_error_response(f'未找到日期 {selected_date} 的数据', 404)
-        return api_success_response({
-            'selected_date_data': date_data,
-            'date': selected_date
-        })
-    
-    # 如果不是异步模式，使用同步处理
+        return api_success_response({'selected_date_data': date_data, 'date': selected_date}) if (date_data := get_specific_date_data(selected_date)) else api_error_response(f'未找到日期 {selected_date} 的数据', 404)
     if not async_mode:
         start_time = time.time()
         data = get_statistics_data(force_refresh=force_refresh)
-        end_time = time.time()
-        response_time = round((end_time - start_time) * 1000, 2)
-        data['performance'] = {
-            'response_time_ms': response_time,
-            'timestamp': datetime.now().isoformat(),
-            'optimized': True
-        }
+        data['performance'] = {'response_time_ms': round((time.time() - start_time) * 1000, 2), 'timestamp': datetime.now().isoformat(), 'optimized': True}
         return api_success_response(data)
-    
-    # 异步模式处理
-    import uuid
     task_id = str(uuid.uuid4())
-    
-    # 启动后台任务
-    def start_task():
-        run_statistics_task(task_id, force_refresh, selected_date)
-    
-    task_thread = threading.Thread(target=start_task)
-    task_thread.daemon = True
-    task_thread.start()
-    
-    return api_success_response({
-        'task_id': task_id,
-        'status': 'started',
-        'message': '统计任务已启动，请使用task_id查询进度'
-    })
+    threading.Thread(target=lambda: run_statistics_task(task_id, force_refresh, selected_date), daemon=True).start()
+    return api_success_response({'task_id': task_id, 'status': 'started', 'message': '统计任务已启动，请使用task_id查询进度'})
 
 @web.route('/api/statistics/task/<task_id>')
 @check_ip_ban
@@ -888,32 +517,15 @@ def get_statistics():
 @require_auth
 @catch_error
 def get_statistics_task_status(task_id):
-    """查询统计任务状态"""
     if task_id not in statistics_tasks:
         return api_error_response('任务不存在或已过期', 404)
-    
     task_info = statistics_tasks[task_id].copy()
-    
-    # 如果任务完成，返回结果
     if task_info['status'] == 'completed' and task_id in task_results:
-        return api_success_response({
-            'status': 'completed',
-            'progress': 100,
-            'data': task_results[task_id],
-            'task_info': task_info
-        })
-    
-    # 如果任务失败，返回错误信息
+        return api_success_response({'status': 'completed', 'progress': 100, 'data': task_results[task_id], 'task_info': task_info})
     if task_info['status'] == 'failed':
         return api_error_response(task_info.get('error', '未知错误'), 500, task_info=task_info)
-    
-    # 如果任务运行中，返回进度
-    return api_success_response({
-        'status': task_info['status'],
-        'progress': task_info.get('progress', 0),
-        'message': task_info.get('message', ''),
-        'elapsed_time': time.time() - task_info.get('start_time', 0)
-    })
+    return api_success_response({'status': task_info['status'], 'progress': task_info.get('progress', 0), 
+        'message': task_info.get('message', ''), 'elapsed_time': time.time() - task_info.get('start_time', 0)})
 
 @web.route('/api/statistics/tasks')
 @check_ip_ban
@@ -921,30 +533,18 @@ def get_statistics_task_status(task_id):
 @require_auth
 @catch_error
 def get_all_statistics_tasks():
-    """获取所有统计任务状态"""
     current_time = time.time()
-    tasks_info = {}
-    
-    for task_id, task in statistics_tasks.items():
-        task_copy = task.copy()
-        if 'start_time' in task_copy:
-            task_copy['elapsed_time'] = current_time - task_copy['start_time']
-        tasks_info[task_id] = task_copy
-    
-    return api_success_response({
-        'tasks': tasks_info,
-        'total_tasks': len(tasks_info),
-        'active_tasks': len([t for t in tasks_info.values() if t['status'] == 'running'])
-    })
+    tasks_info = {task_id: {**task.copy(), 'elapsed_time': current_time - task['start_time']} if 'start_time' in task else task.copy() 
+        for task_id, task in statistics_tasks.items()}
+    return api_success_response({'tasks': tasks_info, 'total_tasks': len(tasks_info), 
+        'active_tasks': len([t for t in tasks_info.values() if t['status'] == 'running'])})
 
 @web.route('/api/complete_dau', methods=['POST'])
 @check_ip_ban
 @require_token
 @catch_error
 def complete_dau():
-    """补全DAU数据API"""
-    result = complete_dau_data()
-    return api_success_response(result=result)
+    return api_success_response(result=complete_dau_data())
 
 @web.route('/api/get_nickname/<user_id>')
 @check_ip_ban
@@ -952,9 +552,7 @@ def complete_dau():
 @require_auth
 @catch_error
 def get_user_nickname(user_id):
-    """获取用户昵称API"""
-    nickname = fetch_user_nickname(user_id)
-    return api_success_response(nickname=nickname, user_id=user_id)
+    return api_success_response(nickname=fetch_user_nickname(user_id), user_id=user_id)
 
 @web.route('/api/available_dates')
 @check_ip_ban
@@ -962,50 +560,16 @@ def get_user_nickname(user_id):
 @require_auth
 @catch_error
 def get_available_dates():
-    """获取可用的DAU日期列表API"""
-    dates = get_available_dau_dates()
-    return api_success_response(dates=dates)
-
-def _build_fallback_robot_info(error_msg, robot_share_url, connection_type, connection_status):
-    """构建错误情况下的机器人信息响应"""
-    return {
-        'success': False,
-        'error': error_msg,
-        'qq': ROBOT_QQ,
-        'name': '加载失败',
-        'description': '无法获取机器人信息',
-        'avatar': '',
-        'appid': appid,
-        'developer': '未知',
-        'link': robot_share_url,
-        'status': '未知',
-        'connection_type': connection_type,
-        'connection_status': connection_status,
-        'data_source': 'fallback',
-        'qr_code_api': f'/web/api/robot_qrcode?url={robot_share_url}'
-    }
+    return api_success_response(dates=get_available_dau_dates())
 
 @web.route('/api/robot_info')
 def get_robot_info():
-    """获取机器人信息API"""
     try:
-        robot_share_url = f"https://qun.qq.com/qunpro/robot/qunshare?robot_uin={ROBOT_QQ}"
-        is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-        connection_type = 'WebSocket' if is_websocket else 'WebHook'
-        connection_status = get_websocket_status() if is_websocket else 'WebHook'
-        # 使用新的API接口
-        api_url = f"https://qun.qq.com/qunpro/robot/proxy/domain/qun.qq.com/cgi-bin/group_pro/robot/manager/share_info?bkn=508459323&robot_appid={appid}"
-        
-        # 新的headers格式
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 15; PJX110 Build/UKQ1.231108.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/135.0.7049.111 Mobile Safari/537.36 V1_AND_SQ_9.1.75_10026_HDBM_T PA QQ/9.1.75.25965 NetType/WIFI WebP/0.4.1 AppId/537287845 Pixel/1080 StatusBarHeight/120 SimpleUISwitch/0 QQTheme/1000 StudyMode/0 CurrentMode/0 CurrentFontScale/0.87 GlobalDensityScale/0.9028571 AllowLandscape/false InMagicWin/0',
-            'qname-service': '976321:131072',
-            'qname-space': 'Production'
-        }
-        
-        # 发送GET请求
-        response = requests.get(api_url, headers=headers, timeout=10)
-        
+        robot_share_url, is_websocket = f"https://qun.qq.com/qunpro/robot/qunshare?robot_uin={ROBOT_QQ}", WEBSOCKET_CONFIG.get('enabled', False)
+        connection_type, connection_status = ('WebSocket', get_websocket_status()) if is_websocket else ('WebHook', 'WebHook')
+        response = requests.get(f"https://qun.qq.com/qunpro/robot/proxy/domain/qun.qq.com/cgi-bin/group_pro/robot/manager/share_info?bkn=508459323&robot_appid={appid}",
+            headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 15; PJX110 Build/UKQ1.231108.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/135.0.7049.111 Mobile Safari/537.36 V1_AND_SQ_9.1.75_10026_HDBM_T PA QQ/9.1.75.25965 NetType/WIFI WebP/0.4.1 AppId/537287845 Pixel/1080 StatusBarHeight/120 SimpleUISwitch/0 QQTheme/1000 StudyMode/0 CurrentMode/0 CurrentFontScale/0.87 GlobalDensityScale/0.9028571 AllowLandscape/false InMagicWin/0',
+                'qname-service': '976321:131072', 'qname-space': 'Production'}, timeout=10)
         response.raise_for_status()
         api_response = response.json()
         
@@ -1013,14 +577,12 @@ def get_robot_info():
             error_msg = api_response.get('msg', 'Unknown error')
             raise Exception(f"API返回错误: {error_msg}")
         
-        # 新API的数据结构：data.robot_data
         robot_data = api_response.get('data', {}).get('robot_data', {})
         commands = api_response.get('data', {}).get('commands', [])
         
         avatar_url = robot_data.get('robot_avatar', '')
         if avatar_url and 'myqcloud.com' in avatar_url:
             avatar_url += '&imageMogr2/format/png' if '?' in avatar_url else '?imageMogr2/format/png'
-        
         return jsonify({
             'success': True,
             'qq': robot_data.get('robot_uin', ROBOT_QQ),
@@ -1061,85 +623,429 @@ def get_robot_info():
             is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
             connection_status_safe = get_websocket_status() if is_websocket else 'WebHook'
         
-        return jsonify(_build_fallback_robot_info(str(e), robot_share_url_safe, connection_type_safe, connection_status_safe))
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'qq': ROBOT_QQ,
+            'name': '加载失败',
+            'description': '无法获取机器人信息',
+            'avatar': '',
+            'appid': appid,
+            'developer': '未知',
+            'link': robot_share_url_safe,
+            'status': '未知',
+            'connection_type': connection_type_safe,
+            'connection_status': connection_status_safe,
+            'data_source': 'fallback',
+            'qr_code_api': f'/web/api/robot_qrcode?url={robot_share_url_safe}'
+        })
 
 @web.route('/api/robot_qrcode')
 @catch_error
 def get_robot_qrcode():
-    """生成机器人分享链接的二维码"""
-    url = request.args.get('url')
-    if not url:
+    if not (url := request.args.get('url')):
         return api_error_response('缺少URL参数', 400)
-    
-    qr_api_url = f"https://api.2dcode.biz/v1/create-qr-code?data={url}"
-    
-    response = requests.get(qr_api_url, timeout=10)
+    response = requests.get(f"https://api.2dcode.biz/v1/create-qr-code?data={url}", timeout=10)
     response.raise_for_status()
-    
-    return response.content, 200, {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=3600'
-    }
+    return response.content, 200, {'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600'}
 
 @web.route('/api/changelog')
 @catch_error
 def get_changelog():
-    """获取更新日志API"""
     try:
-        # 从指定的API获取更新日志数据
-        api_url = "https://i.elaina.vin/api/elainabot/"
+        commits = requests.get("https://i.elaina.vin/api/elainabot/", timeout=10).json()
+        return jsonify({'success': True, 'data': [{'sha': commit.get('sha', '')[:8], 'message': commit_info.get('message', '').strip(),
+            'author': author.get('name', '未知作者'), 'date': (dt := datetime.fromisoformat(date_str.replace('Z', '+00:00'))).strftime('%Y-%m-%d %H:%M:%S') if (date_str := author.get('date', '')) else '未知时间',
+            'url': commit.get('html_url', ''), 'full_sha': commit.get('sha', '')} 
+            for commit in commits if (commit_info := commit.get('commit')) and (author := commit_info.get('author', {}))], 'total': len(commits)})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取更新日志失败: {str(e)}'}), 500
+
+@web.route('/api/config/get')
+@require_token
+@require_auth
+@catch_error
+def get_config():
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_new_path, config_path = os.path.join(base_dir, 'web', 'config_new.py'), os.path.join(base_dir, 'config.py')
+    if os.path.exists(config_new_path):
+        target_path, is_new = config_new_path, True
+    elif os.path.exists(config_path):
+        target_path, is_new = config_path, False
+    else:
+        return jsonify({'success': False, 'message': '配置文件不存在'}), 404
+    with open(target_path, 'r', encoding='utf-8') as f:
+        return jsonify({'success': True, 'content': f.read(), 'is_new': is_new, 'source': 'config_new.py' if is_new else 'config.py'})
+
+@web.route('/api/config/parse')
+@require_token
+@require_auth
+@catch_error
+def parse_config():
+    """解析配置文件，提取配置项（优先读取 config_new.py）"""
+    try:
+        import os
+        import re
+        import ast
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
-        response = requests.get(api_url, timeout=10)
-        response.raise_for_status()
+        # 优先读取 web/config_new.py，如果不存在则读取 config.py
+        config_new_path = os.path.join(base_dir, 'web', 'config_new.py')
+        config_path = os.path.join(base_dir, 'config.py')
         
-        commits = response.json()
+        if os.path.exists(config_new_path):
+            target_path = config_new_path
+        elif os.path.exists(config_path):
+            target_path = config_path
+        else:
+            return jsonify({
+                'success': False,
+                'message': '配置文件不存在'
+            }), 404
         
-        # 处理数据格式，转换为前端需要的格式
-        changelog_data = []
-        for commit in commits:
-            if commit.get('commit'):
-                commit_info = commit['commit']
-                author = commit_info.get('author', {})
+        with open(target_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 解析配置项
+        config_items = []
+        lines = content.split('\n')
+        current_dict = None  # 当前正在解析的字典名称
+        dict_indent = 0      # 字典的缩进级别
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            # 跳过空行、导入语句和文档字符串
+            if not stripped or stripped.startswith('"""') or stripped.startswith("'''") or stripped.startswith('import ') or stripped.startswith('from '):
+                continue
+            
+            # 如果是注释行，只处理作为section标题的注释（后面会有相关配置）
+            if stripped.startswith('#'):
+                continue
+            
+            # 检测字典的开始: VAR_NAME = {
+            dict_start_pattern = r'^([A-Z_][A-Z0-9_]*)\s*=\s*\{(.*)$'
+            dict_match = re.match(dict_start_pattern, stripped)
+            if dict_match:
+                current_dict = dict_match.group(1)
+                dict_indent = len(line) - len(line.lstrip())
+                # 如果是单行字典定义（如 VAR = {}），则不进入字典解析模式
+                if dict_match.group(2).strip() == '}':
+                    current_dict = None
+                continue
+            
+            # 检测字典的结束: }
+            if current_dict and stripped == '}':
+                current_dict = None
+                continue
+            
+            # 在字典内部，解析键值对
+            if current_dict:
+                # 匹配字典内的键值对: 'key': value,  # 可选注释
+                dict_item_pattern = r"^['\"]?([a-zA-Z_][a-zA-Z0-9_]*)['\"]?\s*:\s*(.+?)(?:,\s*)?(?:#\s*(.+))?$"
+                dict_item_match = re.match(dict_item_pattern, stripped)
+                if dict_item_match:
+                    key_name = dict_item_match.group(1)
+                    value_str = dict_item_match.group(2).strip().rstrip(',').strip()
+                    inline_comment = dict_item_match.group(3).strip() if dict_item_match.group(3) else ''
+                    
+                    # 解析值
+                    try:
+                        parsed_value = ast.literal_eval(value_str)
+                        
+                        # 确定类型
+                        if isinstance(parsed_value, bool):
+                            value_type = 'boolean'
+                            value = parsed_value
+                        elif isinstance(parsed_value, (int, float)):
+                            value_type = 'number'
+                            value = parsed_value
+                        elif isinstance(parsed_value, str):
+                            value_type = 'string'
+                            value = parsed_value
+                        elif isinstance(parsed_value, list):
+                            if all(isinstance(item, str) for item in parsed_value):
+                                value_type = 'list'
+                                value = parsed_value
+                            else:
+                                continue
+                        else:
+                            continue
+                        
+                        config_items.append({
+                            'name': f"{current_dict}.{key_name}",
+                            'dict_name': current_dict,
+                            'key_name': key_name,
+                            'value': value,
+                            'type': value_type,
+                            'comment': inline_comment,
+                            'line': i,
+                            'is_dict_item': True
+                        })
+                    except (ValueError, SyntaxError):
+                        continue
+                continue
+            
+            # 识别简单赋值（字符串、数字、布尔值）
+            # 匹配: VAR_NAME = value  # 可选注释
+            simple_pattern = r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+?)(?:\s*#\s*(.+))?$'
+            match = re.match(simple_pattern, stripped)
+            
+            if match:
+                var_name = match.group(1)
+                value_str = match.group(2).strip()
+                inline_comment = match.group(3).strip() if match.group(3) else ''
                 
-                # 格式化日期
-                date_str = author.get('date', '')
+                # 跳过字典和列表的开始
+                if value_str.endswith('{') or value_str.endswith('[') or value_str == '{' or value_str == '[':
+                    continue
+                
+                # 使用ast安全解析值
                 try:
-                    if date_str:
-                        # 解析ISO格式日期并转换为本地时间格式
-                        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                        formatted_date = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    # 尝试使用ast.literal_eval解析值
+                    parsed_value = ast.literal_eval(value_str)
+                    
+                    # 确定类型
+                    if isinstance(parsed_value, bool):
+                        value_type = 'boolean'
+                        value = parsed_value
+                    elif isinstance(parsed_value, (int, float)):
+                        value_type = 'number'
+                        value = parsed_value
+                    elif isinstance(parsed_value, str):
+                        value_type = 'string'
+                        value = parsed_value
+                    elif isinstance(parsed_value, list):
+                        # 只处理简单的字符串列表
+                        if all(isinstance(item, str) for item in parsed_value):
+                            value_type = 'list'
+                            value = parsed_value
+                        else:
+                            continue
                     else:
-                        formatted_date = '未知时间'
-                except Exception:
-                    formatted_date = date_str or '未知时间'
-                
-                changelog_data.append({
-                    'sha': commit.get('sha', '')[:8],  # 短SHA
-                    'message': commit_info.get('message', '').strip(),
-                    'author': author.get('name', '未知作者'),
-                    'date': formatted_date,
-                    'url': commit.get('html_url', ''),
-                    'full_sha': commit.get('sha', '')
-                })
+                        continue
+                    
+                    config_items.append({
+                        'name': var_name,
+                        'value': value,
+                        'type': value_type,
+                        'comment': inline_comment,
+                        'line': i,
+                        'is_dict_item': False
+                    })
+                except (ValueError, SyntaxError):
+                    # 如果ast解析失败，尝试简单处理
+                    # 可能是f-string或其他复杂表达式，跳过
+                    continue
+        
+        # 确定配置文件来源
+        is_new = os.path.exists(config_new_path) and target_path == config_new_path
+        source = 'config_new.py' if is_new else 'config.py'
         
         return jsonify({
             'success': True,
-            'data': changelog_data,
-            'total': len(changelog_data)
+            'items': config_items,
+            'is_new': is_new,
+            'source': source
         })
-        
-    except requests.exceptions.RequestException as e:
-        return jsonify({
-            'success': False,
-            'error': f'获取更新日志失败: {str(e)}',
-            'data': []
-        }), 500
     except Exception as e:
         return jsonify({
             'success': False,
-            'error': f'处理更新日志数据失败: {str(e)}',
-            'data': []
+            'message': f'解析配置文件失败: {str(e)}'
         }), 500
+
+@web.route('/api/config/update_items', methods=['POST'])
+@require_token
+@require_auth
+@catch_error
+def update_config_items():
+    """根据表单更新配置项"""
+    try:
+        import os
+        import re
+        
+        data = request.get_json()
+        if not data or 'items' not in data:
+            return jsonify({
+                'success': False,
+                'message': '缺少配置项数据'
+            }), 400
+        
+        items = data['items']
+        
+        # 读取配置文件（优先读取 config_new.py）
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        config_new_path = os.path.join(base_dir, 'web', 'config_new.py')
+        config_path = os.path.join(base_dir, 'config.py')
+        
+        if os.path.exists(config_new_path):
+            target_path = config_new_path
+        else:
+            target_path = config_path
+        
+        with open(target_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # 更新配置项
+        for item in items:
+            var_name = item['name']
+            new_value = item['value']
+            value_type = item['type']
+            is_dict_item = item.get('is_dict_item', False)
+            
+            # 格式化新值
+            formatted_value = (f'"{new_value}"' if value_type == 'string' else
+                             'True' if (value_type == 'boolean' and new_value) else 'False' if value_type == 'boolean' else
+                             str(new_value) if value_type == 'number' else
+                             '[' + ', '.join([f'"{item}"' for item in new_value]) + ']' if (value_type == 'list' and isinstance(new_value, list)) else
+                             '[]' if value_type == 'list' else str(new_value))
+            
+            # 在文件中查找并替换，保留行尾注释
+            if is_dict_item:
+                # 字典项：需要在正确的字典内匹配
+                dict_name = item.get('dict_name', '')
+                key_name = item.get('key_name', '')
+                
+                # 先找到字典的定义行
+                dict_start_pattern = rf'^({re.escape(dict_name)})\s*=\s*\{{'
+                in_target_dict = False
+                dict_depth = 0
+                
+                for i, line in enumerate(lines):
+                    # 检测目标字典的开始
+                    if re.match(dict_start_pattern, line.strip()):
+                        in_target_dict = True
+                        dict_depth = 1
+                        continue
+                    
+                    # 如果在目标字典内
+                    if in_target_dict:
+                        # 跟踪嵌套层级
+                        dict_depth += line.count('{')
+                        dict_depth -= line.count('}')
+                        
+                        # 如果字典已经结束
+                        if dict_depth == 0:
+                            in_target_dict = False
+                            break
+                        
+                        # 在字典内匹配键值对
+                        pattern = rf"^(\s*)['\"]?({re.escape(key_name)})['\"]?\s*:\s*(.+?)(?:,\s*)?(\s*#.+)?$"
+                        match = re.match(pattern, line)
+                        if match:
+                            indent = match.group(1)
+                            comment = match.group(4) if match.group(4) else ''
+                            
+                            # 计算对齐空格
+                            if comment:
+                                value_part = f"'{key_name}': {formatted_value},"
+                                original_value_part = f"'{match.group(2)}': {match.group(3)},"
+                                spaces_count = len(original_value_part) - len(value_part)
+                                if spaces_count < 2:
+                                    spaces_count = 2
+                                spacing = ' ' * spaces_count
+                                # 保留注释，确保有至少一个空格分隔
+                                clean_comment = comment.strip()
+                                if not clean_comment.startswith('#'):
+                                    clean_comment = '# ' + clean_comment
+                                lines[i] = f'{indent}{value_part}{spacing}{clean_comment}\n'
+                            else:
+                                lines[i] = f"{indent}'{key_name}': {formatted_value},\n"
+                            break
+            else:
+                # 简单变量：匹配 VAR_NAME = value
+                pattern = rf'^(\s*)({re.escape(var_name)})\s*=\s*(.+?)(\s*#.+)?$'
+                for i, line in enumerate(lines):
+                    match = re.match(pattern, line)
+                    if match:
+                        indent = match.group(1)
+                        comment = match.group(4) if match.group(4) else ''
+                        
+                        # 计算对齐空格（保持美观）
+                        if comment:
+                            # 保持原有的空格数量，或者至少20个字符的对齐
+                            value_part = f'{var_name} = {formatted_value}'
+                            # 计算需要的空格数量以保持对齐
+                            original_value_part = match.group(2) + ' = ' + match.group(3)
+                            spaces_count = len(original_value_part) - len(value_part)
+                            if spaces_count < 2:
+                                spaces_count = 2  # 至少2个空格
+                            spacing = ' ' * spaces_count
+                            # 保留注释，确保有至少一个空格分隔
+                            clean_comment = comment.strip()
+                            if not clean_comment.startswith('#'):
+                                clean_comment = '# ' + clean_comment
+                            lines[i] = f'{indent}{value_part}{spacing}{clean_comment}\n'
+                        else:
+                            lines[i] = f'{indent}{var_name} = {formatted_value}\n'
+                        break
+        
+        # 生成新配置内容
+        new_content = ''.join(lines)
+        
+        # 验证语法
+        try:
+            compile(new_content, '<string>', 'exec')
+        except SyntaxError as e:
+            return jsonify({
+                'success': False,
+                'message': f'配置文件语法错误: 第{e.lineno}行 - {e.msg}'
+            }), 400
+        
+        # 保存到 web/config_new.py
+        web_dir = os.path.dirname(os.path.abspath(__file__))
+        config_new_path = os.path.join(web_dir, 'config_new.py')
+        
+        with open(config_new_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        
+        return jsonify({
+            'success': True,
+            'message': '配置已保存，请重启框架以应用更改',
+            'file_path': config_new_path
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'更新配置失败: {str(e)}'
+        }), 500
+
+@web.route('/api/config/save', methods=['POST'])
+@require_token
+@require_auth
+@catch_error
+def save_config():
+    if not (data := request.get_json()) or 'content' not in data:
+        return jsonify({'success': False, 'message': '缺少配置内容'}), 400
+    try:
+        compile(data['content'], '<string>', 'exec')
+    except SyntaxError as e:
+        return jsonify({'success': False, 'message': f'配置文件语法错误: 第{e.lineno}行 - {e.msg}'}), 400
+    config_new_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config_new.py')
+    with open(config_new_path, 'w', encoding='utf-8') as f:
+        f.write(data['content'])
+    return jsonify({'success': True, 'message': '配置文件已保存，请重启框架以应用更改', 'file_path': config_new_path})
+
+@web.route('/api/config/check_pending')
+@require_token
+@require_auth
+@catch_error
+def check_pending_config():
+    config_new_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config_new.py')
+    exists = os.path.exists(config_new_path)
+    modified_time = datetime.fromtimestamp(os.path.getmtime(config_new_path)).strftime('%Y-%m-%d %H:%M:%S') if exists else None
+    return jsonify({'success': True, 'pending': exists, 'modified_time': modified_time})
+
+@web.route('/api/config/cancel_pending', methods=['POST'])
+@require_token
+@require_auth
+@catch_error
+def cancel_pending_config():
+    config_new_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config_new.py')
+    if os.path.exists(config_new_path):
+        os.remove(config_new_path)
+        return jsonify({'success': True, 'message': '已取消待应用的配置'})
+    return jsonify({'success': False, 'message': '没有待应用的配置文件'}), 404
 
 @catch_error
 def get_system_info():
@@ -1203,6 +1109,35 @@ def get_system_info():
         except Exception:
             system_version = "未知"
         
+        # 获取CPU型号
+        cpu_model = "未知处理器"
+        try:
+            import platform
+            system_type = platform.system()
+            
+            if system_type == 'Windows':
+                # Windows系统：从注册表读取
+                try:
+                    import winreg
+                    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+                    cpu_model = winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
+                    winreg.CloseKey(key)
+                except:
+                    pass
+                        
+            elif system_type == 'Linux':
+                # Linux系统：从/proc/cpuinfo读取
+                try:
+                    with open('/proc/cpuinfo', 'r') as f:
+                        for line in f:
+                            if 'model name' in line.lower():
+                                cpu_model = line.split(':', 1)[1].strip()
+                                break
+                except:
+                    pass
+        except:
+            pass
+        
         try:
             disk_path = os.path.abspath(os.getcwd())
             disk_usage = psutil.disk_usage(disk_path)
@@ -1239,6 +1174,7 @@ def get_system_info():
             'cpu_percent': float(system_cpu_percent),
             'framework_cpu_percent': float(cpu_percent),
             'cpu_cores': cpu_cores,
+            'cpu_model': cpu_model,
             
             'memory_percent': float(system_memory_percent),
             'memory_used': float(system_memory_used),
@@ -1269,6 +1205,7 @@ def get_system_info():
             'cpu_percent': 5.0,
             'framework_cpu_percent': 1.0,
             'cpu_cores': 4,
+            'cpu_model': '未知处理器',
             'memory_percent': 50.0,
             'memory_used': 400.0,
             'memory_total': 8192.0,
@@ -1288,127 +1225,50 @@ def get_system_info():
             'uptime': 3600,
             'system_uptime': 86400,
             'start_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'boot_time': (datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S'),
+            'boot_time': (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S'),
             'system_version': 'Windows 10 64-bit'
         }
 
 @catch_error
 def process_plugin_module(module, plugin_path, module_name, is_system=False, dir_name=None):
-    """处理单个插件模块，提取插件信息"""
-    plugin_info_list = []
-    plugin_classes_found = False
-    
-    last_modified_str = ""
-    try:
-        last_modified = os.path.getmtime(plugin_path)
-        last_modified_str = datetime.fromtimestamp(last_modified).strftime('%Y-%m-%d %H:%M:%S')
-    except Exception:
-        pass
-        
+    plugin_info_list, plugin_classes_found = [], False
+    last_modified_str = datetime.fromtimestamp(os.path.getmtime(plugin_path)).strftime('%Y-%m-%d %H:%M:%S') if os.path.exists(plugin_path) else ""
     for attr_name in dir(module):
-        if attr_name.startswith('__') or not hasattr(getattr(module, attr_name), '__class__'):
+        if attr_name.startswith('__') or not hasattr((attr := getattr(module, attr_name)), '__class__'):
             continue
-            
-        attr = getattr(module, attr_name)
-        if isinstance(attr, type) and attr.__module__ == module.__name__:
-            if hasattr(attr, 'get_regex_handlers'):
-                plugin_classes_found = True
-                
-                if is_system:
-                    name = f"system/{module_name}/{attr_name}"
-                else:
-                    name = f"{dir_name}/{module_name}/{attr_name}"
-                
-                plugin_info = {
-                    'name': name,
-                    'class_name': attr_name,
-                    'status': 'loaded',
-                    'error': '',
-                    'path': plugin_path,
-                    'is_system': is_system,
-                    'directory': dir_name,
-                    'last_modified': last_modified_str
-                }
-                
-                try:
-                    handlers = attr.get_regex_handlers()
-                    plugin_info['handlers'] = len(handlers) if handlers else 0
-                    plugin_info['handlers_list'] = list(handlers.keys()) if handlers else []
-                    
-                    plugin_info['priority'] = getattr(attr, 'priority', 10)
-                    
-                    handlers_owner_only = {}
-                    handlers_group_only = {}
-                    for pattern, handler_info in handlers.items():
-                        if isinstance(handler_info, dict):
-                            handlers_owner_only[pattern] = handler_info.get('owner_only', False)
-                            handlers_group_only[pattern] = handler_info.get('group_only', False)
-                        else:
-                            handlers_owner_only[pattern] = False
-                            handlers_group_only[pattern] = False
-                            
-                    plugin_info['handlers_owner_only'] = handlers_owner_only
-                    plugin_info['handlers_group_only'] = handlers_group_only
-                        
-                except Exception as e:
-                    plugin_info['status'] = 'error'
-                    plugin_info['error'] = f"获取处理器失败: {str(e)}"
-                    plugin_info['traceback'] = traceback.format_exc()
-                
-                plugin_info_list.append(plugin_info)
-    
+        if isinstance(attr, type) and attr.__module__ == module.__name__ and hasattr(attr, 'get_regex_handlers'):
+            plugin_classes_found = True
+            name = f"{'system' if is_system else dir_name}/{module_name}/{attr_name}"
+            plugin_info = {'name': name, 'class_name': attr_name, 'status': 'loaded', 'error': '', 'path': plugin_path,
+                'is_system': is_system, 'directory': dir_name, 'last_modified': last_modified_str}
+            try:
+                handlers = attr.get_regex_handlers()
+                plugin_info.update({'handlers': len(handlers) if handlers else 0, 'handlers_list': list(handlers.keys()) if handlers else [],
+                    'priority': getattr(attr, 'priority', 10), 
+                    'handlers_owner_only': {p: (h.get('owner_only', False) if isinstance(h, dict) else False) for p, h in handlers.items()},
+                    'handlers_group_only': {p: (h.get('group_only', False) if isinstance(h, dict) else False) for p, h in handlers.items()}})
+            except Exception as e:
+                plugin_info.update({'status': 'error', 'error': f"获取处理器失败: {str(e)}", 'traceback': traceback.format_exc()})
+            plugin_info_list.append(plugin_info)
     if not plugin_classes_found:
-        name_prefix = "system/" if is_system else ""
-        plugin_info = {
-            'name': f"{name_prefix}{dir_name}/{module_name}",
-            'class_name': 'unknown',
-            'status': 'error',
-            'error': '未在模块中找到有效的插件类',
-            'path': plugin_path,
-            'directory': dir_name,
-            'last_modified': last_modified_str
-        }
-            
-        plugin_info_list.append(plugin_info)
-    
+        plugin_info_list.append({'name': f"{'system/' if is_system else ''}{dir_name}/{module_name}", 'class_name': 'unknown',
+            'status': 'error', 'error': '未在模块中找到有效的插件类', 'path': plugin_path, 'directory': dir_name, 'last_modified': last_modified_str})
     return plugin_info_list
 
 @catch_error
 def load_plugin_module(plugin_file, module_name, is_system=False):
-    """加载插件模块并进行错误处理"""
     try:
         dir_name = os.path.basename(os.path.dirname(plugin_file))
-        
-        full_module_name = f"plugins.{dir_name}.{module_name}"
-        
-        spec = importlib.util.spec_from_file_location(full_module_name, plugin_file)
-        if not spec or not spec.loader:
-            return [{
-                'name': f"{dir_name}/{module_name}",
-                'class_name': 'unknown',
-                'status': 'error',
-                'error': '无法加载插件文件',
-                'path': plugin_file,
-                'directory': dir_name
-            }]
-            
+        if not (spec := importlib.util.spec_from_file_location(f"plugins.{dir_name}.{module_name}", plugin_file)) or not spec.loader:
+            return [{'name': f"{dir_name}/{module_name}", 'class_name': 'unknown', 'status': 'error', 
+                'error': '无法加载插件文件', 'path': plugin_file, 'directory': dir_name}]
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        
         return process_plugin_module(module, plugin_file, module_name, is_system=is_system, dir_name=dir_name)
-        
     except Exception as e:
-        dir_name = os.path.basename(os.path.dirname(plugin_file))
-        plugin_name = f"{dir_name}/{module_name}"
-        return [{
-            'name': plugin_name,
-            'class_name': 'unknown',
-            'status': 'error',
-            'error': str(e),
-            'path': plugin_file,
-            'directory': dir_name,
-            'traceback': traceback.format_exc()
-        }]
+        return [{'name': f"{os.path.basename(os.path.dirname(plugin_file))}/{module_name}", 'class_name': 'unknown',
+            'status': 'error', 'error': str(e), 'path': plugin_file, 
+            'directory': os.path.basename(os.path.dirname(plugin_file)), 'traceback': traceback.format_exc()}]
 
 @catch_error
 def scan_plugins():
@@ -1541,57 +1401,22 @@ def register_socketio_handlers(sio):
 
 def get_statistics_data(force_refresh=False):
     global historical_data_cache, historical_cache_loaded, today_data_cache, today_cache_time
-    
-    current_time = time.time()
-    current_date = datetime.now().date()
-    
-    # 检查今日数据缓存（面板刷新只刷新今日数据）
-    today_cache_valid = (
-        not force_refresh and 
-        today_data_cache is not None and 
-        current_time - today_cache_time < TODAY_CACHE_DURATION
-    )
-    
+    current_time, current_date = time.time(), datetime.now().date()
+    today_cache_valid = not force_refresh and today_data_cache is not None and current_time - today_cache_time < TODAY_CACHE_DURATION
     try:
-        # 获取历史数据（永久缓存，只在框架重启时清空）
         if not historical_cache_loaded or historical_data_cache is None:
-            historical_data = load_historical_dau_data_optimized()
-            historical_data_cache = historical_data
+            historical_data_cache = load_historical_dau_data_optimized()
             historical_cache_loaded = True
-        else:
-            historical_data = historical_data_cache
-        
-        # 获取今日数据（10分钟缓存，可被force_refresh刷新）
-        if today_cache_valid:
-            today_data = today_data_cache
-        else:
-            today_data = get_today_dau_data(force_refresh)
-            today_data_cache = today_data
+        if not today_cache_valid:
+            today_data_cache = get_today_dau_data(force_refresh)
             today_cache_time = current_time
-        
-        result = {
-            'historical': historical_data,
-            'today': today_data,
-            'cache_time': current_time,
-            'cache_date': current_date.strftime('%Y-%m-%d'),
-            'cache_info': {
-                'historical_permanently_cached': historical_cache_loaded,
-                'today_cached': today_cache_valid,
-                'today_cache_age': current_time - today_cache_time if today_data_cache else 0,
-                'historical_count': len(historical_data) if historical_data else 0
-            }
-        }
-        
-        return result
-        
+        return {'historical': historical_data_cache, 'today': today_data_cache, 'cache_time': current_time,
+            'cache_date': current_date.strftime('%Y-%m-%d'), 'cache_info': {'historical_permanently_cached': historical_cache_loaded,
+            'today_cached': today_cache_valid, 'today_cache_age': current_time - today_cache_time if today_data_cache else 0,
+            'historical_count': len(historical_data_cache) if historical_data_cache else 0}}
     except Exception as e:
         add_error_log(f"获取统计数据失败: {str(e)}")
-        return {
-            'historical': [],
-            'today': {},
-            'cache_time': current_time,
-            'error': str(e)
-        }
+        return {'historical': [], 'today': {}, 'cache_time': current_time, 'error': str(e)}
 
 def load_historical_dau_data():
     """原始的历史数据加载函数（从数据库加载）"""
@@ -1650,93 +1475,49 @@ def load_historical_dau_data_from_database():
         return load_historical_dau_data_fallback()
 
 def load_historical_dau_data_optimized():
-    """优化版的历史数据加载函数，使用并行处理"""
     try:
         try:
             from function.dau_analytics import get_dau_analytics
         except ImportError:
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if project_root not in sys.path:
+            if (project_root := os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) not in sys.path:
                 sys.path.insert(0, project_root)
             from function.dau_analytics import get_dau_analytics
-        
         import concurrent.futures
-        
-        dau_analytics = get_dau_analytics()
-        today = datetime.now()
-        
+        dau_analytics, today = get_dau_analytics(), datetime.now()
         def load_single_day_data(days_ago):
-            """加载单日数据的函数"""
             try:
-                target_date = today - timedelta(days=days_ago)
-                dau_data = dau_analytics.load_dau_data(target_date)
-                
-                if dau_data:
-                    display_date = target_date.strftime('%m-%d')
-                    dau_data['display_date'] = display_date
+                if dau_data := dau_analytics.load_dau_data(target_date := today - timedelta(days=days_ago)):
+                    dau_data['display_date'] = target_date.strftime('%m-%d')
                     return dau_data
+            except:
+                pass
                 return None
-            except Exception:
-                return None
-        
-        # 使用线程池并行加载数据
-        historical_data = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            # 提交所有任务
-            future_to_day = {executor.submit(load_single_day_data, i): i for i in range(1, 31)}
-            
-            # 收集结果
-            for future in concurrent.futures.as_completed(future_to_day):
-                try:
-                    result = future.result(timeout=5)  # 5秒超时
-                    if result:
-                        historical_data.append(result)
-                except Exception:
-                    continue
-        
-        # 按日期排序
+            historical_data = [r for f in concurrent.futures.as_completed({executor.submit(load_single_day_data, i): i for i in range(1, 31)}) if (r := f.result(timeout=5))]
         historical_data.sort(key=lambda x: x.get('date', ''))
-        
         return historical_data
-        
     except Exception as e:
         add_error_log(f"加载优化历史DAU数据失败: {str(e)}")
-        # 如果并行加载失败，回退到传统方法
         return load_historical_dau_data_fallback()
 
 def load_historical_dau_data_fallback():
-    """回退的传统数据加载方法"""
     try:
         try:
             from function.dau_analytics import get_dau_analytics
         except ImportError:
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if project_root not in sys.path:
+            if (project_root := os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) not in sys.path:
                 sys.path.insert(0, project_root)
             from function.dau_analytics import get_dau_analytics
-        
-        dau_analytics = get_dau_analytics()
-        historical_data = []
-        
-        today = datetime.now()
-        
+        dau_analytics, today, historical_data = get_dau_analytics(), datetime.now(), []
         for i in range(1, 31):
-            target_date = today - timedelta(days=i)
-            
             try:
-                dau_data = dau_analytics.load_dau_data(target_date)
-                
-                if dau_data:
-                    display_date = target_date.strftime('%m-%d')
-                    dau_data['display_date'] = display_date
+                if dau_data := dau_analytics.load_dau_data(target_date := today - timedelta(days=i)):
+                    dau_data['display_date'] = target_date.strftime('%m-%d')
                     historical_data.append(dau_data)
-            except Exception:
+            except:
                 continue
-        
         historical_data.sort(key=lambda x: x.get('date', ''))
-        
         return historical_data
-        
     except Exception as e:
         add_error_log(f"加载历史DAU数据失败: {str(e)}")
         return []
@@ -1906,98 +1687,40 @@ def start_web(main_app=None, is_subprocess=False):
         return None
 
 def complete_dau_data():
-    import os
-    import sys
-    
     try:
         try:
             from function.dau_analytics import get_dau_analytics
         except ImportError:
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if project_root not in sys.path:
+            if (project_root := os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) not in sys.path:
                 sys.path.insert(0, project_root)
             from function.dau_analytics import get_dau_analytics
-        
-        dau_analytics = get_dau_analytics()
-        today = datetime.now()
-        
-        missing_dates = []
-        
-        for i in range(1, 31):
-            target_date = today - timedelta(days=i)
-            
-            try:
-                dau_data = dau_analytics.load_dau_data(target_date)
-                if not dau_data:
-                    missing_dates.append(target_date)
-            except Exception as e:
-                missing_dates.append(target_date)
-        
+        dau_analytics, today = get_dau_analytics(), datetime.now()
+        missing_dates = [target_date for i in range(1, 31) if not dau_analytics.load_dau_data(target_date := today - timedelta(days=i))]
         if not missing_dates:
-            return {
-                'generated_count': 0,
-                'failed_count': 0,
-                'total_missing': 0,
-                'generated_dates': [],
-                'failed_dates': [],
-                'message': '近30天DAU数据完整，无需补全'
-            }
-        
-        generated_count = 0
-        failed_count = 0
-        generated_dates = []
-        failed_dates = []
-        
+            return {'generated_count': 0, 'failed_count': 0, 'total_missing': 0, 'generated_dates': [], 
+                'failed_dates': [], 'message': '近30天DAU数据完整，无需补全'}
+        generated_dates, failed_dates = [], []
         for target_date in missing_dates:
             try:
-                success = dau_analytics.manual_generate_dau(target_date)
-                if success:
-                    generated_count += 1
-                    generated_dates.append(target_date.strftime('%Y-%m-%d'))
-                else:
-                    failed_count += 1
+                (generated_dates if dau_analytics.manual_generate_dau(target_date) else failed_dates).append(target_date.strftime('%Y-%m-%d'))
+            except:
                     failed_dates.append(target_date.strftime('%Y-%m-%d'))
-            except Exception as e:
-                failed_count += 1
-                failed_dates.append(target_date.strftime('%Y-%m-%d'))
-        
-        return {
-            'generated_count': generated_count,
-            'failed_count': failed_count,
-            'total_missing': len(missing_dates),
-            'generated_dates': generated_dates,
-            'failed_dates': failed_dates,
-            'message': f'检测到{len(missing_dates)}天的DAU数据缺失，成功生成{generated_count}天，失败{failed_count}天'
-        }
-        
+        return {'generated_count': len(generated_dates), 'failed_count': len(failed_dates), 'total_missing': len(missing_dates),
+            'generated_dates': generated_dates, 'failed_dates': failed_dates,
+            'message': f'检测到{len(missing_dates)}天的DAU数据缺失，成功生成{len(generated_dates)}天，失败{len(failed_dates)}天'}
     except Exception as e:
         raise Exception(f"补全DAU数据失败: {str(e)}")
 
 def fetch_user_nickname(user_id):
-    import requests
-    
     try:
         if not user_id or len(user_id) < 3:
             return None
-            
         from config import appid
-        
-        api_url = f"https://i.elaina.vin/api/bot/xx.php?openid={user_id}&appid={appid}"
-        
-        response = requests.get(api_url, timeout=3)
-        
-        if response.status_code == 200:
-            data = response.json()
-            nickname = data.get('名字', '').strip()
-            
-            if nickname and nickname != user_id and len(nickname) > 0 and len(nickname) <= 20:
+        if (response := requests.get(f"https://i.elaina.vin/api/bot/xx.php?openid={user_id}&appid={appid}", timeout=3)).status_code == 200:
+            if (nickname := response.json().get('名字', '').strip()) and nickname != user_id and 0 < len(nickname) <= 20:
                 return nickname
-            else:
-                return None
-        else:
-                    return None
-        
-    except Exception as e:
+    except:
+        pass
         return None
 
 @web.route('/api/sandbox/test', methods=['POST'])
@@ -2117,100 +1840,45 @@ def sandbox_test():
         return api_error_response(f'MessageEvent创建错误: {str(event_error)}')
 
 def get_available_dau_dates():
-    """从数据库获取可用的DAU日期列表"""
     try:
         try:
             from function.dau_analytics import get_dau_analytics
         except ImportError:
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if project_root not in sys.path:
+            if (project_root := os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) not in sys.path:
                 sys.path.insert(0, project_root)
             from function.dau_analytics import get_dau_analytics
-        
-        dau_analytics = get_dau_analytics()
+        dau_analytics, today = get_dau_analytics(), datetime.now().date()
         available_dates = []
-        today = datetime.now().date()
-        thirty_days_ago = today - timedelta(days=30)
-        
-        # 检查近30天的数据库DAU数据
-        for i in range(31):  # 包括今天，共31天
-            check_date = today - timedelta(days=i)
-            if check_date >= thirty_days_ago:
+        for i in range(31):
+            if (check_date := today - timedelta(days=i)) >= today - timedelta(days=30):
                 try:
-                    dau_data = dau_analytics.load_dau_data(datetime.combine(check_date, datetime.min.time()))
-                    
-                    if dau_data:
-                        is_today = check_date == today
-                        date_str = check_date.strftime('%Y-%m-%d')
-                        display_name = "今日数据" if is_today else f"{check_date.strftime('%m-%d')} ({date_str})"
-                        
-                        available_dates.append({
-                            'value': 'today' if is_today else date_str,
-                            'date': date_str,
-                            'display': display_name,
-                            'is_today': is_today
-                        })
-                except Exception:
+                    if dau_analytics.load_dau_data(datetime.combine(check_date, datetime.min.time())):
+                        is_today, date_str = check_date == today, check_date.strftime('%Y-%m-%d')
+                        available_dates.append({'value': 'today' if is_today else date_str, 'date': date_str,
+                            'display': "今日数据" if is_today else f"{check_date.strftime('%m-%d')} ({date_str})", 'is_today': is_today})
+                except:
                     continue
-        
-        # 确保今日数据始终存在
-        today_exists = any(item['is_today'] for item in available_dates)
-        if not today_exists:
-            available_dates.append({
-                'value': 'today',
-                'date': today.strftime('%Y-%m-%d'),
-                'display': '今日数据',
-                'is_today': True
-            })
-        
-        # 按日期排序，今日数据在前
+        if not any(item['is_today'] for item in available_dates):
+            available_dates.append({'value': 'today', 'date': today.strftime('%Y-%m-%d'), 'display': '今日数据', 'is_today': True})
         available_dates.sort(key=lambda x: (not x['is_today'], -int(x['date'].replace('-', ''))))
-        
         return available_dates
-        
     except Exception as e:
         add_error_log(f"获取可用DAU日期失败: {str(e)}")
-        return [{
-            'value': 'today',
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'display': '今日数据',
-            'is_today': True
-        }]
+        return [{'value': 'today', 'date': datetime.now().strftime('%Y-%m-%d'), 'display': '今日数据', 'is_today': True}]
 
 def get_specific_date_data(date_str):
-    """从数据库获取特定日期的DAU数据"""
     try:
         try:
             from function.dau_analytics import get_dau_analytics
         except ImportError:
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if project_root not in sys.path:
+            if (project_root := os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) not in sys.path:
                 sys.path.insert(0, project_root)
             from function.dau_analytics import get_dau_analytics
-        
-        target_date = datetime.strptime(date_str, '%Y-%m-%d')
-        
-        dau_analytics = get_dau_analytics()
-        dau_data = dau_analytics.load_dau_data(target_date)
-        
-        if not dau_data:
+        if not (dau_data := get_dau_analytics().load_dau_data(datetime.strptime(date_str, '%Y-%m-%d'))):
             return None
-        
-        message_stats = dau_data.get('message_stats', {})
-        user_stats = dau_data.get('user_stats', {})
-        command_stats = dau_data.get('command_stats', [])
-        event_stats = dau_data.get('event_stats', {})
-        
-        return {
-            'message_stats': message_stats,
-            'user_stats': user_stats,
-            'command_stats': command_stats,
-            'event_stats': event_stats,
-            'date': date_str,
-            'generated_at': dau_data.get('generated_at', ''),
-            'is_historical': True
-        }
-        
+        return {'message_stats': dau_data.get('message_stats', {}), 'user_stats': dau_data.get('user_stats', {}),
+            'command_stats': dau_data.get('command_stats', []), 'event_stats': dau_data.get('event_stats', {}),
+            'date': date_str, 'generated_at': dau_data.get('generated_at', ''), 'is_historical': True}
     except Exception as e:
         add_error_log(f"获取特定日期DAU数据失败 {date_str}: {str(e)}")
         return None
@@ -2239,181 +1907,70 @@ except ImportError:
 def save_openapi_data():
     try:
         os.makedirs(os.path.dirname(OPENAPI_DATA_FILE), exist_ok=True)
-        
         with open(OPENAPI_DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(openapi_user_data, f, indent=2, ensure_ascii=False)
-    except Exception:
+    except:
         pass
 
 def load_openapi_data():
     global openapi_user_data
     try:
-        if os.path.exists(OPENAPI_DATA_FILE):
-            with open(OPENAPI_DATA_FILE, 'r', encoding='utf-8') as f:
-                openapi_user_data = json.load(f)
-        else:
-            openapi_user_data = {}
-    except Exception:
+        openapi_user_data = json.load(open(OPENAPI_DATA_FILE, 'r', encoding='utf-8')) if os.path.exists(OPENAPI_DATA_FILE) else {}
+    except:
         openapi_user_data = {}
 
 def verify_openapi_login(user_data):
     try:
-        if not user_data or user_data.get('type') != 'ok':
+        return user_data and user_data.get('type') == 'ok' and _bot_api.get_bot_list(
+            uin=user_data.get('uin'), quid=user_data.get('developerId'), ticket=user_data.get('ticket')).get('code') == 0
+    except:
             return False
         
-        # 使用本地bot_api模块验证登录状态
-        res = _bot_api.get_bot_list(
-            uin=user_data.get('uin'),
-            quid=user_data.get('developerId'),
-            ticket=user_data.get('ticket')
-        )
-        
-        return res.get('code') == 0
-    except Exception:
-        return False
-
 
 
 @web.route('/openapi/start_login', methods=['POST'])
 @require_auth
 def openapi_start_login():
     try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        
-        current_time = time.time()
-        
-        # 使用本地bot_api模块创建登录二维码
-        login_data = _bot_api.create_login_qr()
-        
-        if login_data.get('status') != 'success':
-            return jsonify({
-                'success': False,
-                'message': '获取登录二维码失败，请稍后重试'
-            })
-        
-        url = login_data.get('url')
-        qr = login_data.get('qr')
-        
-        if not url or not qr:
-            return jsonify({
-                'success': False,
-                'message': '获取登录二维码失败，请稍后重试'
-            })
-        
+        user_id = request.get_json().get('user_id', 'web_user')
+        if (login_data := _bot_api.create_login_qr()).get('status') != 'success' or not (url := login_data.get('url')) or not (qr := login_data.get('qr')):
+            return jsonify({'success': False, 'message': '获取登录二维码失败，请稍后重试'})
         openapi_login_tasks[user_id] = (time.time(), {'qr': qr})
-        
-        return jsonify({
-            'success': True,
-            'login_url': url,
-            'qr_code': qr,
-            'message': '请扫描二维码登录'
-        })
-        
+        return jsonify({'success': True, 'login_url': url, 'qr_code': qr, 'message': '请扫描二维码登录'})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'启动登录失败: {str(e)}'
-        })
+        return jsonify({'success': False, 'message': f'启动登录失败: {str(e)}'})
 
 @web.route('/openapi/check_login', methods=['POST'])
 @require_auth
 def openapi_check_login():
     try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        
+        user_id = request.get_json().get('user_id', 'web_user')
         if user_id not in openapi_login_tasks:
-            return jsonify({
-                'success': False,
-                'status': 'not_started',
-                'message': '未找到登录任务'
-            })
-        
-        task_data = openapi_login_tasks[user_id][1]
-        qr = task_data['qr']
-        
-        # 使用本地bot_api模块检查登录状态
-        res = _bot_api.get_qr_login_info(qrcode=qr)
-        
-        if res.get('code') == 0:
+            return jsonify({'success': False, 'status': 'not_started', 'message': '未找到登录任务'})
+        if (res := _bot_api.get_qr_login_info(qrcode=openapi_login_tasks[user_id][1]['qr'])).get('code') == 0:
             login_data = res.get('data', {}).get('data', {})
             openapi_user_data[user_id] = {'type': 'ok', **login_data}
-            
-            if user_id in openapi_login_tasks:
-                del openapi_login_tasks[user_id]
-            
-
-            
+            openapi_login_tasks.pop(user_id, None)
             save_openapi_data()
-            
-            return jsonify({
-                'success': True,
-                'status': 'logged_in',
-                'data': {
-                    'uin': login_data.get('uin'),
-                    'appId': login_data.get('appId'),
-                    'developerId': login_data.get('developerId')
-                },
-                'message': '登录成功'
-            })
-        else:
-            return jsonify({
-                'success': True,
-                'status': 'waiting',
-                'message': '等待扫码登录'
-            })
-            
+            return jsonify({'success': True, 'status': 'logged_in', 'data': {'uin': login_data.get('uin'), 
+                'appId': login_data.get('appId'), 'developerId': login_data.get('developerId')}, 'message': '登录成功'})
+        return jsonify({'success': True, 'status': 'waiting', 'message': '等待扫码登录'})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'status': 'error',
-            'message': f'检查登录状态失败: {str(e)}'
-        })
+        return jsonify({'success': False, 'status': 'error', 'message': f'检查登录状态失败: {str(e)}'})
 
 @web.route('/openapi/get_botlist', methods=['POST'])
 @require_auth
 def openapi_get_botlist():
     try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        
+        user_id = request.get_json().get('user_id', 'web_user')
         if user_id not in openapi_user_data:
-            return jsonify({
-                'success': False,
-                'message': '未登录，请先登录开放平台'
-            })
-        
+            return jsonify({'success': False, 'message': '未登录，请先登录开放平台'})
         user_data = openapi_user_data[user_id]
-        
-        # 使用本地bot_api模块获取机器人列表
-        res = _bot_api.get_bot_list(
-            uin=user_data.get('uin'),
-            quid=user_data.get('developerId'),
-            ticket=user_data.get('ticket')
-        )
-        
-        if res.get('code') != 0:
-            return jsonify({
-                'success': False,
-                'message': '登录状态失效，请重新登录'
-            })
-        
-        apps = res.get('data', {}).get('apps', [])
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'uin': user_data.get('uin'),
-                'apps': apps
-            }
-        })
-        
+        if (res := _bot_api.get_bot_list(uin=user_data.get('uin'), quid=user_data.get('developerId'), ticket=user_data.get('ticket'))).get('code') != 0:
+            return jsonify({'success': False, 'message': '登录状态失效，请重新登录'})
+        return jsonify({'success': True, 'data': {'uin': user_data.get('uin'), 'apps': res.get('data', {}).get('apps', [])}})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'获取机器人列表失败: {str(e)}'
-        })
+        return jsonify({'success': False, 'message': f'获取机器人列表失败: {str(e)}'})
 
 @web.route('/openapi/get_botdata', methods=['POST'])
 @require_auth  
@@ -2570,12 +2127,8 @@ def openapi_get_notifications():
 @require_auth
 @catch_error  
 def openapi_logout():
-    data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    
-    if user_id in openapi_user_data:
-        del openapi_user_data[user_id]
-    
+    user_id = request.get_json().get('user_id', 'web_user')
+    openapi_user_data.pop(user_id, None)
     save_openapi_data()
     return openapi_success_response(message='登出成功')
 
@@ -2583,44 +2136,23 @@ def openapi_logout():
 @require_auth
 @catch_error
 def openapi_get_login_status():
-    data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    
-    user_data = check_openapi_login(user_id)
-    if not user_data:
-        return openapi_success_response(logged_in=False)
-    
-    return openapi_success_response(
-        logged_in=True,
-        uin=user_data.get('uin'),
-        appid=user_data.get('appId')
-    )
+    user_data = check_openapi_login(request.get_json().get('user_id', 'web_user'))
+    return openapi_success_response(logged_in=True, uin=user_data.get('uin'), appid=user_data.get('appId')) if user_data else openapi_success_response(logged_in=False)
 
 def cleanup_openapi_tasks():
     current_time = time.time()
-    expired_users = []
-    
-    for user_id, (start_time, _) in openapi_login_tasks.items():
-        if current_time - start_time > 300:
-            expired_users.append(user_id)
-    
-    for user_id in expired_users:
-        del openapi_login_tasks[user_id]
-
-import threading
-import time as time_module
+    for user_id in [uid for uid, (start_time, _) in openapi_login_tasks.items() if current_time - start_time > 300]:
+        openapi_login_tasks.pop(user_id, None)
 
 def start_openapi_cleanup_thread():
     def cleanup_loop():
         while True:
             try:
                 cleanup_openapi_tasks()
-                time_module.sleep(60)
-            except Exception:
-                time_module.sleep(60)
-    
-    cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
-    cleanup_thread.start()
+            except:
+                pass
+            time.sleep(60)
+    threading.Thread(target=cleanup_loop, daemon=True).start()
 
 start_openapi_cleanup_thread()
 
@@ -2787,19 +2319,8 @@ def _write_templates_to_file(templates, button_templates):
     }
 
 def _extract_template_params(template_content):
-    import re
-    
-    param_pattern = r'\{\{\.(\w+)\}\}'
-    matches = re.findall(param_pattern, template_content)
-    
-    params = []
     seen = set()
-    for param in matches:
-        if param not in seen:
-            params.append(param)
-            seen.add(param)
-    
-    return params
+    return [p for p in re.findall(r'\{\{\.(\w+)\}\}', template_content) if p not in seen and not seen.add(p)]
 
 @web.route('/openapi/verify_saved_login', methods=['POST'])
 @require_auth
@@ -2857,52 +2378,18 @@ start_openapi_cleanup_thread()
 @catch_error
 def openapi_get_templates():
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    
-    user_data = check_openapi_login(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
-    # 使用本地bot_api模块获取消息模板
-    res = _bot_api.get_message_templates(
-        uin=user_data.get('uin'),
-        quid=user_data.get('developerId'),
-        ticket=user_data.get('ticket'),
-        appid=appid_to_use
-    )
-    
-    # 检查API返回状态，兼容不同的错误字段
+    appid_to_use = data.get('appid') or user_data.get('appId')
+    res = _bot_api.get_message_templates(uin=user_data.get('uin'), quid=user_data.get('developerId'), 
+        ticket=user_data.get('ticket'), appid=appid_to_use)
     if res.get('retcode', 0) != 0 or res.get('code', 0) not in [0, 200]:
-        error_msg = res.get('msg') or res.get('message') or '获取模板失败，请重新登录'
-        return openapi_error_response(error_msg)
-    
-    templates = res.get('data', {}).get('list', [])
-    
-    processed_templates = []
-    for template in templates:
-        processed_templates.append({
-            'id': template.get('模板id', ''),
-            'name': template.get('模板名称', '未命名'),
-            'type': template.get('模板类型', '未知类型'),
-            'status': template.get('模板状态', '未知状态'),
-            'content': template.get('模板内容', ''),
-            'create_time': template.get('创建时间', ''),
-            'update_time': template.get('更新时间', ''),
-            'raw_data': template
-        })
-    
-    return jsonify({
-        'success': True,
-        'data': {
-            'uin': user_data.get('uin'),
-            'appid': appid_to_use,
-            'templates': processed_templates,
-            'total': len(processed_templates)
-        }
-    })
+        return openapi_error_response(res.get('msg') or res.get('message') or '获取模板失败，请重新登录')
+    processed_templates = [{'id': t.get('模板id', ''), 'name': t.get('模板名称', '未命名'), 'type': t.get('模板类型', '未知类型'),
+        'status': t.get('模板状态', '未知状态'), 'content': t.get('模板内容', ''), 'create_time': t.get('创建时间', ''),
+        'update_time': t.get('更新时间', ''), 'raw_data': t} for t in res.get('data', {}).get('list', [])]
+    return jsonify({'success': True, 'data': {'uin': user_data.get('uin'), 'appid': appid_to_use, 
+        'templates': processed_templates, 'total': len(processed_templates)}})
 
 @web.route('/openapi/get_template_detail', methods=['POST'])
 @require_auth
@@ -3032,63 +2519,20 @@ def openapi_render_button_template():
 @require_auth
 @catch_error
 def openapi_get_whitelist():
-    """获取指定AppID的IP白名单列表"""
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    
-    user_data = check_openapi_login(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
-    if not appid_to_use:
+    if not (appid_to_use := data.get('appid') or user_data.get('appId')):
         return openapi_error_response('缺少AppID参数')
-    
-    # 使用本地bot_api模块获取白名单列表
-    res = _bot_api.get_white_list(
-        appid=appid_to_use,
-        uin=user_data.get('uin'),
-        uid=user_data.get('developerId'),  # 使用developerId作为uid
-        ticket=user_data.get('ticket')
-    )
-    
-    # 检查API返回状态
+    res = _bot_api.get_white_list(appid=appid_to_use, uin=user_data.get('uin'),
+        uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
     if res.get('code', 0) != 0:
-        error_msg = res.get('msg') or '获取白名单失败，请检查登录状态'
-        return openapi_error_response(error_msg)
-    
-    ip_list = res.get('data', [])
-    
-    # 格式化IP列表数据
-    formatted_ips = []
-    for ip_info in ip_list:
-        if isinstance(ip_info, dict):
-            formatted_ips.append({
-                'ip': ip_info.get('ip', ''),
-                'description': ip_info.get('desc', ''),
-                'create_time': ip_info.get('create_time', ''),
-                'status': ip_info.get('status', 'active')
-            })
-        elif isinstance(ip_info, str):
-            # 如果直接是IP字符串
-            formatted_ips.append({
-                'ip': ip_info,
-                'description': '',
-                'create_time': '',
-                'status': 'active'
-            })
-    
-    return jsonify({
-        'success': True,
-        'data': {
-            'uin': user_data.get('uin'),
-            'appid': appid_to_use,
-            'ip_list': formatted_ips,
-            'total': len(formatted_ips)
-        }
-    })
+        return openapi_error_response(res.get('msg') or '获取白名单失败，请检查登录状态')
+    formatted_ips = [{'ip': ip.get('ip', '') if isinstance(ip, dict) else ip, 'description': ip.get('desc', '') if isinstance(ip, dict) else '',
+        'create_time': ip.get('create_time', '') if isinstance(ip, dict) else '', 'status': ip.get('status', 'active') if isinstance(ip, dict) else 'active'}
+        for ip in res.get('data', [])]
+    return jsonify({'success': True, 'data': {'uin': user_data.get('uin'), 'appid': appid_to_use,
+        'ip_list': formatted_ips, 'total': len(formatted_ips)}})
 
 @web.route('/openapi/update_whitelist', methods=['POST'])
 @require_auth
@@ -3181,45 +2625,19 @@ def openapi_update_whitelist():
 @require_auth
 @catch_error
 def openapi_get_delete_qr():
-    """获取删除IP的授权二维码"""
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    
-    user_data = check_openapi_login(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
-    if not appid_to_use:
+    if not (appid_to_use := data.get('appid') or user_data.get('appId')):
         return openapi_error_response('缺少AppID参数')
-    
     try:
-        # 创建白名单登录二维码
-        qr_result = _bot_api.create_white_login_qr(
-            appid=appid_to_use,
-            uin=user_data.get('uin'),
-            uid=user_data.get('developerId'),
-            ticket=user_data.get('ticket')
-        )
-        
+        qr_result = _bot_api.create_white_login_qr(appid=appid_to_use, uin=user_data.get('uin'),
+            uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
         if qr_result.get('code', 0) != 0:
             return openapi_error_response('创建授权二维码失败，请检查登录状态')
-        
-        qrcode = qr_result.get('qrcode', '')
-        qr_url = qr_result.get('url', '')
-        
-        if not qrcode or not qr_url:
+        if not (qrcode := qr_result.get('qrcode', '')) or not (qr_url := qr_result.get('url', '')):
             return openapi_error_response('获取授权二维码失败')
-        
-        return jsonify({
-            'success': True,
-            'qrcode': qrcode,
-            'url': qr_url,
-            'message': '获取授权二维码成功'
-        })
-        
+        return jsonify({'success': True, 'qrcode': qrcode, 'url': qr_url, 'message': '获取授权二维码成功'})
     except Exception as e:
         return openapi_error_response(f'获取授权二维码失败: {str(e)}')
 
@@ -3227,43 +2645,16 @@ def openapi_get_delete_qr():
 @require_auth
 @catch_error
 def openapi_check_delete_auth():
-    """检查删除授权状态"""
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    qrcode = data.get('qrcode', '')
-    
-    user_data = check_openapi_login(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
-    if not appid_to_use or not qrcode:
+    if not (appid_to_use := data.get('appid') or user_data.get('appId')) or not (qrcode := data.get('qrcode', '')):
         return openapi_error_response('缺少必要参数')
-    
     try:
-        # 验证二维码授权状态
-        auth_result = _bot_api.verify_qr_auth(
-            appid=appid_to_use,
-            uin=user_data.get('uin'),
-            uid=user_data.get('developerId'),
-            ticket=user_data.get('ticket'),
-            qrcode=qrcode
-        )
-        
-        if auth_result.get('code', 0) == 0:
-            return jsonify({
-                'success': True,
-                'authorized': True,
-                'message': '授权成功'
-            })
-        else:
-            return jsonify({
-                'success': True,
-                'authorized': False,
-                'message': '等待授权中'
-            })
+        auth_result = _bot_api.verify_qr_auth(appid=appid_to_use, uin=user_data.get('uin'),
+            uid=user_data.get('developerId'), ticket=user_data.get('ticket'), qrcode=qrcode)
+        return jsonify({'success': True, 'authorized': auth_result.get('code', 0) == 0,
+            'message': '授权成功' if auth_result.get('code', 0) == 0 else '等待授权中'})
         
     except Exception as e:
         return jsonify({
@@ -3382,74 +2773,32 @@ def openapi_batch_add_whitelist():
 
 @web.route('/api/system/status', methods=['GET'])
 def get_system_status():
-    """获取系统状态信息"""
     try:
-        # 导入配置文件
-        import sys
-        import os
-        
-        # 将项目根目录添加到路径中以便导入config
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if project_root not in sys.path:
+        if (project_root := os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) not in sys.path:
             sys.path.insert(0, project_root)
-        
         try:
             import config
-            # 直接从配置文件读取是否为单独进程模式
-            server_config = getattr(config, 'SERVER_CONFIG', {})
-            websocket_config = getattr(config, 'WEBSOCKET_CONFIG', {})
-            
-            web_dual_process = server_config.get('web_dual_process', False)
-            websocket_enabled = websocket_config.get('enabled', False)
-            
-        except (ImportError, AttributeError) as e:
-            # 如果无法导入配置文件，使用默认值
-            web_dual_process = False
-            websocket_enabled = False
-        
+            web_dual_process = getattr(config, 'SERVER_CONFIG', {}).get('web_dual_process', False)
+            websocket_enabled = getattr(config, 'WEBSOCKET_CONFIG', {}).get('enabled', False)
+        except:
+            web_dual_process, websocket_enabled = False, False
         current_pid = os.getpid()
-        
-        # WebSocket可用性判断
         websocket_available = False
         if not web_dual_process:
-            # 非单独进程模式
             if websocket_enabled:
-                # 启用了WebSocket，则WebSocket可用
                 websocket_available = True
             else:
-                # 未启用WebSocket，但可能有主进程运行，检查主进程
                 try:
                     import psutil
-                    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                        try:
-                            if proc.info['pid'] != current_pid and proc.info['cmdline']:
-                                cmdline = ' '.join(proc.info['cmdline'])
-                                if 'main.py' in cmdline and 'ElainaBot' in cmdline:
-                                    websocket_available = True
-                                    break
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            continue
-                except ImportError:
-                    # 如果psutil不可用，保守判断
+                    websocket_available = any('main.py' in (cmdline := ' '.join(proc.info['cmdline'])) and 'ElainaBot' in cmdline
+                        for proc in psutil.process_iter(['pid', 'name', 'cmdline']) if proc.info['pid'] != current_pid and proc.info['cmdline'])
+                except:
                     websocket_available = False
-        
-        return jsonify({
-            'success': True,
-            'standalone_web': web_dual_process,          # 直接使用配置文件中的值
-            'websocket_available': websocket_available,
-            'websocket_enabled': websocket_enabled,
-            'process_id': current_pid,
-            'config_source': 'config.py'
-        })
-        
+        return jsonify({'success': True, 'standalone_web': web_dual_process, 'websocket_available': websocket_available,
+            'websocket_enabled': websocket_enabled, 'process_id': current_pid, 'config_source': 'config.py'})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'standalone_web': True,  # 出错时保守判断为单独进程
-            'websocket_available': False,
-            'error': str(e),
-            'config_source': 'fallback'
-        })
+        return jsonify({'success': False, 'standalone_web': True, 'websocket_available': False,
+            'error': str(e), 'config_source': 'fallback'})
 
 @web.route('/api/restart', methods=['POST'])
 @require_auth
@@ -3900,27 +3249,11 @@ def get_chat_history():
             """, (table_name,))
             
             if cursor.fetchone()['count'] == 0:
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'messages': [],
-                        'chat_info': {
-                            'chat_id': chat_id,
-                            'chat_type': chat_type,
-                            'avatar': get_chat_avatar(chat_id, chat_type)
-                        }
-                    }
-                })
+                return jsonify({'success': True, 'data': {'messages': [],
+                    'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type)}}})
             
-            # 构建查询条件（包含接收和发送的消息）
-            if chat_type == 'group':
-                # 群聊：获取该群的接收消息 + 机器人发送到该群的消息
-                where_condition = "(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)"
-                params = (chat_id, chat_id)
-            else:  # user
-                # 私聊：获取该用户的私聊消息 + 机器人发送给该用户的消息
-                where_condition = "(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')"
-                params = (chat_id, chat_id)
+            where_condition, params = (("(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)", (chat_id, chat_id))
+                if chat_type == 'group' else ("(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')", (chat_id, chat_id)))
             
             # 获取消息记录
             sql = f"""
@@ -3933,43 +3266,16 @@ def get_chat_history():
             cursor.execute(sql, params)
             messages = cursor.fetchall()
             
-            # 处理消息数据 - 快速返回版本（昵称由前端异步加载）
             message_list = []
-            
             for msg in messages:
-                # 判断是否为机器人发送的消息
-                is_self_message = False
-                display_user_id = msg['user_id']
-                
-                if chat_type == 'group' and msg['user_id'] == 'ZFC2G':
-                    # 群聊中的机器人发送消息
-                    is_self_message = True
-                    display_user_id = '机器人'
-                elif chat_type == 'user' and msg['group_id'] == 'ZFC2C':
-                    # 私聊中的机器人发送消息
-                    is_self_message = True
-                    display_user_id = '机器人'
-                
-                message_info = {
-                    'user_id': display_user_id,
-                    'content': msg['content'],
+                is_self_message = (chat_type == 'group' and msg['user_id'] == 'ZFC2G') or (chat_type == 'user' and msg['group_id'] == 'ZFC2C')
+                display_user_id = '机器人' if is_self_message else msg['user_id']
+                message_list.append({'user_id': display_user_id, 'content': msg['content'],
                     'timestamp': msg['timestamp'].strftime('%H:%M:%S') if msg['timestamp'] else '',
-                    'avatar': get_chat_avatar('robot' if is_self_message else msg['user_id'], 'user'),
-                    'is_self': is_self_message
-                }
-                message_list.append(message_info)
+                    'avatar': get_chat_avatar('robot' if is_self_message else msg['user_id'], 'user'), 'is_self': is_self_message})
             
-            return jsonify({
-                'success': True,
-                'data': {
-                    'messages': message_list,
-                    'chat_info': {
-                        'chat_id': chat_id,
-                        'chat_type': chat_type,
-                        'avatar': get_chat_avatar(chat_id, chat_type)
-                    }
-                }
-            })
+            return jsonify({'success': True, 'data': {'messages': message_list,
+                'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type)}}})
             
         finally:
             cursor.close()
@@ -4051,80 +3357,42 @@ def send_message():
             display_content = ''
             
             if send_method == 'text':
-                content = data.get('content', '').strip()
-                if not content:
+                if not (content := data.get('content', '').strip()):
                     return jsonify({'success': False, 'message': '请输入消息内容'})
-                message_id = event.reply(content)
+                # 发送普通消息：强制使用纯文本模式 (use_markdown=False)
+                message_id = event.reply(content, use_markdown=False)
                 display_content = content
-                
             elif send_method == 'markdown':
-                content = data.get('content', '').strip()
-                if not content:
+                if not (content := data.get('content', '').strip()):
                     return jsonify({'success': False, 'message': '请输入Markdown内容'})
-                # 使用原生markdown（通过设置USE_MARKDOWN=True）
-                from config import USE_MARKDOWN
-                original_use_md = USE_MARKDOWN
-                import config
-                config.USE_MARKDOWN = True
-                try:
-                    message_id = event.reply(content)
-                finally:
-                    config.USE_MARKDOWN = original_use_md
+                # 发送 Markdown 消息：强制使用 markdown 模式 (use_markdown=True)
+                message_id = event.reply(content, use_markdown=True)
                 display_content = content
                 
             elif send_method == 'template_markdown':
-                template = data.get('template')
-                params = data.get('params', [])
-                keyboard_id = data.get('keyboard_id')
-                
-                if not template:
+                if not (template := data.get('template')):
                     return jsonify({'success': False, 'message': '请选择模板'})
-                if not params:
+                if not (params := data.get('params', [])):
                     return jsonify({'success': False, 'message': '请输入模板参数'})
-                    
-                message_id = event.reply_markdown(template, tuple(params), keyboard_id)
-                display_content = f'[模板消息: {template}]'
-                
+                message_id, display_content = event.reply_markdown(template, tuple(params), data.get('keyboard_id')), f'[模板消息: {template}]'
             elif send_method == 'image':
-                image_url = data.get('image_url', '').strip()
-                image_text = data.get('image_text', '').strip()
-                
-                if not image_url:
+                if not (image_url := data.get('image_url', '').strip()):
                     return jsonify({'success': False, 'message': '请输入图片URL'})
-                    
-                message_id = event.reply_image(image_url, image_text)
-                display_content = f'[图片消息: {image_text or "图片"}]'
-                
+                message_id, display_content = event.reply_image(image_url, data.get('image_text', '').strip()), f'[图片消息: {data.get("image_text", "") or "图片"}]'
             elif send_method == 'voice':
-                voice_url = data.get('voice_url', '').strip()
-                
-                if not voice_url:
+                if not (voice_url := data.get('voice_url', '').strip()):
                     return jsonify({'success': False, 'message': '请输入语音文件URL'})
-                    
-                message_id = event.reply_voice(voice_url)
-                display_content = '[语音消息]'
-                
+                message_id, display_content = event.reply_voice(voice_url), '[语音消息]'
             elif send_method == 'video':
-                video_url = data.get('video_url', '').strip()
-                
-                if not video_url:
+                if not (video_url := data.get('video_url', '').strip()):
                     return jsonify({'success': False, 'message': '请输入视频文件URL'})
-                    
-                message_id = event.reply_video(video_url)
-                display_content = '[视频消息]'
-                
+                message_id, display_content = event.reply_video(video_url), '[视频消息]'
             elif send_method == 'ark':
-                ark_type = data.get('ark_type')
-                ark_params = data.get('ark_params', [])
-                
-                if not ark_type:
+                if not (ark_type := data.get('ark_type')):
                     return jsonify({'success': False, 'message': '请选择ARK卡片类型'})
-                if not ark_params:
+                if not (ark_params := data.get('ark_params', [])):
                     return jsonify({'success': False, 'message': '请输入卡片参数'})
-                    
-                message_id = event.reply_ark(ark_type, tuple(ark_params))
-                display_content = f'[ARK卡片: 类型{ark_type}]'
-                
+                message_id, display_content = event.reply_ark(ark_type, tuple(ark_params)), f'[ARK卡片: 类型{ark_type}]'
             else:
                 return jsonify({'success': False, 'message': '不支持的发送方法'})
             
@@ -4143,11 +3411,9 @@ def send_message():
                         if error_obj.get('error') is True:
                             api_error = ''
                             if error_obj.get('message'):
-                                api_error += error_obj['message']
+                                api_error = error_obj['message']
                             if error_obj.get('code'):
-                                api_error += f" code:{error_obj['code']}" if api_error else f"code:{error_obj['code']}"
-                            if error_obj.get('trace_id'):
-                                api_error += f" trace_id:{error_obj['trace_id']}" if api_error else f"trace_id:{error_obj['trace_id']}"
+                                api_error += f", code:{error_obj['code']}" if api_error else f"code:{error_obj['code']}"
                             
                             return jsonify({'success': False, 'message': api_error or "发送失败: 未知错误"})
                     except Exception:
@@ -4191,47 +3457,104 @@ def send_message():
 @web.route('/api/message/get_nickname', methods=['POST'])
 @require_auth
 def get_nickname():
-    """获取用户昵称"""
     try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        
-        if not user_id:
+        if not (user_id := request.get_json().get('user_id')):
             return jsonify({'success': False, 'message': '缺少用户ID'})
         
-        # 调用API获取昵称
-        import requests
-        
-        api_url = f"https://i.elaina.vin/api/bot/xx.php"
-        params = {
-            'openid': user_id,
-            'appid': appid
-        }
-        
+        # 从数据库获取昵称
         try:
-            response = requests.get(api_url, params=params, timeout=5)
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    nickname = data.get('名字', f"用户{user_id[-6:]}")
-                except:
-                    # 如果JSON解析失败，fallback到原来的text处理
-                    nickname = response.text.strip() if response.text.strip() else f"用户{user_id[-6:]}"
-            else:
+            from function.database import Database
+            db = Database()
+            nickname = db.get_user_name(user_id)
+            
+            if not nickname:
                 nickname = f"用户{user_id[-6:]}"
         except:
             nickname = f"用户{user_id[-6:]}"
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'user_id': user_id,
-                'nickname': nickname
-            }
-        })
-        
+            
+        return jsonify({'success': True, 'data': {'user_id': user_id, 'nickname': nickname}})
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取昵称失败: {str(e)}'})
+
+@web.route('/api/message/get_nicknames_batch', methods=['POST'])
+@require_auth
+def get_nicknames_batch():
+    """批量获取用户昵称"""
+    try:
+        data = request.get_json()
+        user_ids = data.get('user_ids', [])
+        
+        if not user_ids or not isinstance(user_ids, list):
+            return jsonify({'success': False, 'message': '缺少用户ID列表'})
+        
+        # 从数据库批量获取昵称
+        try:
+            from function.database import Database, get_table_name
+            from function.db_pool import ConnectionManager
+            
+            db = Database()
+            nicknames = {}
+            
+            # 使用 IN 查询批量获取
+            if user_ids:
+                with ConnectionManager() as manager:
+                    if manager.connection:
+                        cursor = manager.connection.cursor()
+                        try:
+                            placeholders = ','.join(['%s'] * len(user_ids))
+                            sql = f"SELECT user_id, name FROM {get_table_name('users')} WHERE user_id IN ({placeholders})"
+                            cursor.execute(sql, tuple(user_ids))
+                            results = cursor.fetchall()
+                            
+                            # 处理结果
+                            for row in results:
+                                if isinstance(row, dict):
+                                    user_id = row.get('user_id')
+                                    name = row.get('name')
+                                else:
+                                    user_id = row[0]
+                                    name = row[1]
+                                
+                                if user_id and name:
+                                    nicknames[user_id] = name
+                        finally:
+                            cursor.close()
+            
+            # 对于没有找到昵称的用户，使用默认昵称
+            for user_id in user_ids:
+                if user_id not in nicknames:
+                    nicknames[user_id] = f"用户{user_id[-6:]}"
+            
+            return jsonify({'success': True, 'data': {'nicknames': nicknames}})
+            
+        except Exception as e:
+            # 如果数据库查询失败，返回默认昵称
+            nicknames = {user_id: f"用户{user_id[-6:]}" for user_id in user_ids}
+            return jsonify({'success': True, 'data': {'nicknames': nicknames}})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'批量获取昵称失败: {str(e)}'})
+
+@web.route('/api/message/get_templates', methods=['GET'])
+@require_auth
+def get_markdown_templates():
+    """获取所有可用的 Markdown 模板"""
+    try:
+        from core.event.markdown_templates import get_all_templates
+        templates = get_all_templates()
+        
+        template_list = []
+        for template_id, template_info in templates.items():
+            template_list.append({
+                'id': template_id,
+                'name': f'模板{template_id}',
+                'params': template_info.get('params', []),
+                'param_count': len(template_info.get('params', []))
+            })
+        
+        return jsonify({'success': True, 'data': {'templates': template_list}})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取模板列表失败: {str(e)}'})
 
 def get_chat_avatar(chat_id, chat_type):
     """获取聊天头像URL"""
@@ -4242,18 +3565,9 @@ def get_chat_avatar(chat_id, chat_type):
         return chat_id[0].upper() if chat_id else 'G'
 
 def get_user_nickname(user_id):
-    """获取用户昵称（内部函数，用于聊天记录）"""
     try:
-        import requests
-        
-        api_url = f"https://i.elaina.vin/api/bot/xx.php"
-        params = {
-            'openid': user_id,
-            'appid': appid
-        }
-        
         try:
-            response = requests.get(api_url, params=params, timeout=3)  # 减少超时时间
+            response = requests.get("https://i.elaina.vin/api/bot/xx.php", params={'openid': user_id, 'appid': appid}, timeout=3)
             if response.status_code == 200:
                 try:
                     data = response.json()
@@ -4297,36 +3611,20 @@ def get_user_nicknames_batch(user_ids):
     if not users_to_fetch:
         return result
     
-    # 并发获取昵称
     def fetch_single_nickname(user_id):
         try:
             nickname = get_user_nickname(user_id)
-            # 更新缓存
-            _nickname_cache[user_id] = {
-                'nickname': nickname,
-                'timestamp': current_time
-            }
-            return user_id, nickname
-        except Exception as e:
-            fallback_name = f"用户{user_id[-6:]}"
-            _nickname_cache[user_id] = {
-                'nickname': fallback_name,
-                'timestamp': current_time
-            }
-            return user_id, fallback_name
+        except:
+            nickname = f"用户{user_id[-6:]}"
+        _nickname_cache[user_id] = {'nickname': nickname, 'timestamp': current_time}
+        return user_id, nickname
     
-    # 使用线程池并发请求，最多5个并发
-    max_workers = min(5, len(users_to_fetch))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_user = {executor.submit(fetch_single_nickname, user_id): user_id 
-                         for user_id in users_to_fetch}
-        
-        for future in as_completed(future_to_user, timeout=10):  # 10秒总超时
+    with ThreadPoolExecutor(max_workers=min(5, len(users_to_fetch))) as executor:
+        future_to_user = {executor.submit(fetch_single_nickname, uid): uid for uid in users_to_fetch}
+        for future in as_completed(future_to_user, timeout=10):
             try:
                 user_id, nickname = future.result()
                 result[user_id] = nickname
-            except Exception as e:
-                user_id = future_to_user[future]
-                result[user_id] = f"用户{user_id[-6:]}"
-    
+            except:
+                result[future_to_user[future]] = f"用户{future_to_user[future][-6:]}"
     return result

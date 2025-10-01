@@ -34,7 +34,7 @@ GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'            # 被拉进群事件类型
 def _handle_welcome(event, **kwargs):
     """群欢迎消息处理"""
     # 获取欢迎消息内容和按钮
-    message = "![感谢 #1755px #2048px](https://gd-hbimg.huaban.com/d8b5c087d33e7d25835db96adab5f226227e943a165000-gzpWLe)\n__「你绝不是只身一人」 「我一直在你身边。」\n今朝依旧，今后亦然。__\n\n>大家好，我是有着沉鱼落雁般美貌的灰之魔女伊蕾娜！\n\n>可以为群内提供各种各样的群娱互动，与一些高质量图库功能，欢迎大家使用！\n***\n\n>注:所有指令必须_[@伊蕾娜]_才能使用,可以先尝试发送娱乐菜单，有按钮可以一键发送命令使用哦~\n"
+    message = "![感谢 #1755px #2048px](https://lengxi-1323728141.cos.ap-guangzhou.myqcloud.com/%E5%9B%BA%E5%AE%9A%E5%9B%BE%E7%89%87/%E7%BE%A4%E6%AC%A2%E8%BF%8E.jpg)\n__「你绝不是只身一人」 「我一直在你身边。」\n今朝依旧，今后亦然。__\n\n>大家好，我是有着沉鱼落雁般美貌的灰之魔女伊蕾娜！\n\n>可以为群内提供各种各样的群娱互动，与一些高质量图库功能，欢迎大家使用！\n***\n\n>注:所有指令必须_[@伊蕾娜]_才能使用,可以先尝试发送娱乐菜单，有按钮可以一键发送命令使用哦~\n"
     
     btn = event.button([
         event.rows([{
@@ -231,7 +231,7 @@ def _handle_default(event, **kwargs):
         event.rows([
            {
             'text': '反馈与投稿',
-            'data': 'https://www.wjx.cn/vm/rJ1ZKHn.aspx',
+            'data': 'https://www.wjx.cn/vm/wVmvlOu.aspx',
             'type': 0,
             'style': 4
         }, {
@@ -243,7 +243,7 @@ def _handle_default(event, **kwargs):
         ])
     ])
     
-    result = event.reply(f"![错误指令 #1360px #680px](https://gd-hbimg.huaban.com/53f695e975a52018a87ab8dc21bffff16da658ff7c6d7-fDXTPP)\n<@{user_id}> ", btn)
+    result = event.reply(f"![错误指令 #1360px #680px](https://lengxi-1323728141.cos.ap-guangzhou.myqcloud.com/%E5%9B%BA%E5%AE%9A%E5%9B%BE%E7%89%87/%E9%94%99%E8%AF%AF%E6%8C%87%E4%BB%A4.png)\n<@{user_id}> ", btn)
     return result is not None
 
 def _handle_owner_only(event, **kwargs):
@@ -273,24 +273,25 @@ def _handle_maintenance(event, **kwargs):
 def _handle_api_error(event, **kwargs):
     """API错误消息处理"""
     error_code = kwargs.get('error_code')
+    error_message = kwargs.get('error_message', '')
     trace_id = kwargs.get('trace_id')
     endpoint = kwargs.get('endpoint')
     
-    # 根据不同错误码定制错误提示
+    # 根据不同错误码定制用户友好的错误提示（QQ用户看到的）
     if error_code == 40034006:
-        user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{trace_id}\n注：消息违规，请截图选一种方式反馈"
+        user_tip = f"\n消息发送失败\n\n>消息违规\ncode:{error_code}\n注：请截图选一种方式反馈"
         show_feedback_buttons = True
     elif error_code == 40054017:
-        user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{trace_id}\n注：消息被拦截，可能因你的群昵称导致，请更换群昵称尝试，如果还是不可用则截图反馈"
+        user_tip = f"\n消息发送失败\n\n>消息被拦截\ncode:{error_code}\n注：可能因你的群昵称导致，请更换群昵称尝试"
         show_feedback_buttons = True
     elif error_code == 50015006:
-        user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{trace_id}\n注：系统繁忙，稍后重试"
+        user_tip = f"\n消息发送失败\n\n>系统繁忙\ncode:{error_code}\n注：稍后重试"
         show_feedback_buttons = False
     elif error_code == 40054010 or error_code == 40034028:
-        user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{trace_id}\n注：禁止发送url，请截图选一种方式反馈"
+        user_tip = f"\n消息发送失败\n\n>禁止发送url\ncode:{error_code}\n注：请截图选一种方式反馈"
         show_feedback_buttons = True
     else:
-        user_tip = f"\n消息发送失败\n\n>code:{error_code}\ntrace_id:{trace_id}\n注：出现错误，请截图进行反馈"
+        user_tip = f"\n消息发送失败\n\n>未知错误\ncode:{error_code}\n注：出现错误，请截图进行反馈"
         show_feedback_buttons = True
     
     try:
@@ -314,7 +315,7 @@ def _handle_api_error(event, **kwargs):
                     },
                     {
                         'text': '问卷(较慢)',
-                        'link': 'https://www.wjx.cn/vm/rJ1ZKHn.aspx',
+                        'link': 'https://www.wjx.cn/vm/wVmvlOu.aspx',
                         'type': 0,
                         'style': 1
                     },
@@ -355,7 +356,7 @@ def _handle_blacklist(event, **kwargs):
             },
             {
                 'text': '问卷(较慢)',
-                'link': 'https://www.wjx.cn/vm/rJ1ZKHn.aspx',
+                'link': 'https://www.wjx.cn/vm/wVmvlOu.aspx',
                 'type': 0,
                 'style': 1
             }

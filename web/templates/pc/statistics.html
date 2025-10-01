@@ -173,13 +173,9 @@
 
 {% block scripts %}
 <script>
-// =====================
-// 统计页面相关功能
-// =====================
 let statisticsChart = null;
 let statisticsData = null;
 
-// 自定义平均值显示插件（完全照抄老版本）
 const averageDisplayPlugin = {
     id: 'averageDisplay',
     afterDraw: function(chart) {
@@ -199,12 +195,10 @@ const averageDisplayPlugin = {
         
         const text = ` (${options.text})`;
         
-        // 获取图例项的位置
         const legendItem = legend.legendItems[0];
         if (legendItem) {
-            // 计算文本位置：在图例标签后面
             const labelWidth = ctx.measureText(legendItem.text).width;
-            const x = legend.left + 35 + labelWidth; // 35是图例色块和间距的宽度
+            const x = legend.left + 35 + labelWidth;
             const y = legend.top + legend.height / 2;
             
             ctx.fillText(text, x, y);
@@ -214,7 +208,6 @@ const averageDisplayPlugin = {
     }
 };
 
-// 防抖函数
 function debounce(func, delay) {
     let timeoutId;
     return function (...args) {
@@ -223,44 +216,68 @@ function debounce(func, delay) {
     };
 }
 
-// 数字格式化函数
 function formatNumber(num) {
-    // 处理各种输入类型
-    if (num === null || num === undefined) {
-        return '0';
-    }
-    
-    // 如果是对象，尝试提取数值
+    if (num === null || num === undefined) return '0';
     if (typeof num === 'object') {
-        if (num.value !== undefined) {
-            num = num.value;
-        } else if (num.count !== undefined) {
-            num = num.count;
-        } else {
-            return '0';
-        }
+        num = num.value ?? num.count ?? 0;
     }
-    
-    // 转换为数字
     const numValue = Number(num);
-    
-    // 检查是否为有效数字
-    if (isNaN(numValue)) {
-        return '0';
-    }
-    
-    if (numValue >= 10000) {
-        return (numValue / 10000).toFixed(2).replace(/\.?0+$/, '') + 'w';
-    } else if (numValue >= 1000) {
-        return (numValue / 1000).toFixed(2).replace(/\.?0+$/, '') + 'k';
-    } else {
-        return numValue.toString();
-    }
+    if (isNaN(numValue)) return '0';
+    if (numValue >= 10000) return (numValue / 10000).toFixed(2).replace(/\.?0+$/, '') + 'w';
+    if (numValue >= 1000) return (numValue / 1000).toFixed(2).replace(/\.?0+$/, '') + 'k';
+    return numValue.toString();
 }
 
+function getStatValue(data, path, defaultValue = 0) {
+    return data?.[path.split('.')[0]]?.[path.split('.')[1]] || defaultValue;
+}
 
+function getStat(item, statType, field) {
+    return item?.[statType]?.[field] || 0;
+}
 
-// 初始化统计页面
+function extractDataArrays(data, fields, statType = 'message_stats') {
+    const arrays = fields.map(() => []);
+    
+    if (data.historical && Array.isArray(data.historical)) {
+        data.historical.forEach(item => {
+            fields.forEach((field, i) => {
+                const value = typeof field === 'function' ? field(item) : getStat(item, statType, field);
+                arrays[i].push(value);
+            });
+        });
+    }
+    
+    if (data.today) {
+        fields.forEach((field, i) => {
+            const value = typeof field === 'function' ? field(data.today) : getStat(data.today, statType, field);
+            arrays[i].push(value);
+        });
+    }
+    
+    return arrays;
+}
+
+function createDataset(label, data, color, bgColor) {
+    return {
+        label,
+        data,
+        borderColor: color,
+        backgroundColor: bgColor,
+        tension: 0.4,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6
+    };
+}
+
+const EMPTY_TABLE_ROW = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+
+function getToken() {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('token');
+}
+
 function initStatistics() {
     const ctx = document.getElementById('statisticsChart');
     if (!ctx) return;
@@ -336,18 +353,13 @@ function initStatistics() {
     });
 }
 
-
-
-// 加载统计数据（支持异步处理）
 function loadStatistics(forceRefresh = false) {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+    const token = getToken();
     if (!token) {
         console.error('未找到访问token');
         return;
     }
     
-    // 显示加载状态
     updateDataSourceInfo({
         data_source_info: {
             source: 'loading',
@@ -355,7 +367,6 @@ function loadStatistics(forceRefresh = false) {
         }
     });
     
-    // 构建API URL，默认使用异步模式
     let apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}&async=true`;
     if (forceRefresh) {
         apiUrl += '&force_refresh=true';
@@ -370,12 +381,9 @@ function loadStatistics(forceRefresh = false) {
         })
         .then(data => {
             if (data.success) {
-                // 检查是否是异步响应
                 if (data.task_id && data.status === 'started') {
-                    // 异步模式：开始轮询任务状态
                     pollTaskStatus(data.task_id, token);
                 } else {
-                    // 同步模式：直接处理数据
                     handleStatisticsData(data);
                 }
             } else {
@@ -389,7 +397,6 @@ function loadStatistics(forceRefresh = false) {
         });
 }
 
-// 轮询任务状态
 function pollTaskStatus(taskId, token, maxAttempts = 60) {
     let attempts = 0;
     
@@ -404,10 +411,8 @@ function pollTaskStatus(taskId, token, maxAttempts = 60) {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // 后端直接返回任务数据，不在data.task下
                     const taskData = data;
                     
-                    // 更新进度显示
                     if (taskData.progress !== undefined) {
                         updateDataSourceInfo({
                             data_source_info: {
@@ -418,17 +423,14 @@ function pollTaskStatus(taskId, token, maxAttempts = 60) {
                     }
                     
                     if (taskData.status === 'completed') {
-                        // 任务完成，处理结果数据
                         if (taskData.data) {
                             handleStatisticsData(taskData.data);
                         } else {
                             showStatisticsError('统计任务完成但无数据返回');
                         }
                     } else if (taskData.status === 'failed') {
-                        // 任务失败
                         showStatisticsError('统计任务失败: ' + (taskData.error || '未知错误'));
                     } else {
-                        // 任务仍在进行中，继续轮询
                         setTimeout(checkStatus, 1000);
                     }
                 } else {
@@ -441,30 +443,24 @@ function pollTaskStatus(taskId, token, maxAttempts = 60) {
             });
     };
     
-    // 开始轮询
     setTimeout(checkStatus, 1000);
 }
 
-// 处理统计数据
 function handleStatisticsData(data) {
     statisticsData = data;
     
-    // 更新数据源信息
     if (data.data_source_info) {
         updateDataSourceInfo(data);
     }
     
-    // 只有在加载完整统计数据时才更新图表
     if (data.historical && data.today) {
         updateChart('messages_combined');
         updateTables(data.today || {});
     } else if (data.selected_date_data) {
-        // 这是历史日期数据，只更新表格
         updateTables(data.selected_date_data);
     }
 }
 
-// 更新图表
 function updateChart(metric) {
     if (!statisticsChart || !statisticsData) return;
     
@@ -473,7 +469,6 @@ function updateChart(metric) {
     let total = 0;
     let count = 0;
     
-    // 处理历史数据
     if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
         statisticsData.historical.forEach(item => {
             const displayLabel = item.display_date || item.date || '未知';
@@ -502,7 +497,6 @@ function updateChart(metric) {
     });
     }
     
-    // 添加今日数据
     if (statisticsData.today) {
         labels.push('今日');
         
@@ -528,253 +522,61 @@ function updateChart(metric) {
         count++;
     }
     
-    // 判断是否为多线图表
     let datasets = [];
     
     if (metric === 'messages_combined') {
-        // 消息数据合并：总消息量、私聊消息数、群聊消息数三条线
-        const totalMessagesData = [];
-        const privateMessagesData = [];
-        const groupMessagesData = [];
+        const [totalMessagesData, privateMessagesData, groupMessagesData] = extractDataArrays(
+            statisticsData,
+            ['total_messages', 'private_messages', item => getStat(item, 'message_stats', 'total_messages') - getStat(item, 'message_stats', 'private_messages')]
+        );
         
-        // 处理历史数据
-        if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
-            statisticsData.historical.forEach(item => {
-                const totalMessages = item.message_stats ? item.message_stats.total_messages || 0 : 0;
-                const privateMessages = item.message_stats ? item.message_stats.private_messages || 0 : 0;
-                const groupMessages = totalMessages - privateMessages;
-                
-                totalMessagesData.push(totalMessages);
-                privateMessagesData.push(privateMessages);
-                groupMessagesData.push(groupMessages);
-            });
-        }
-        
-        // 添加今日数据
-        if (statisticsData.today) {
-            const todayTotal = statisticsData.today.message_stats ? statisticsData.today.message_stats.total_messages || 0 : 0;
-            const todayPrivate = statisticsData.today.message_stats ? statisticsData.today.message_stats.private_messages || 0 : 0;
-            const todayGroup = todayTotal - todayPrivate;
-            
-            totalMessagesData.push(todayTotal);
-            privateMessagesData.push(todayPrivate);
-            groupMessagesData.push(todayGroup);
-        }
-        
-        datasets = [{
-            label: '总消息量',
-            data: totalMessagesData,
-            borderColor: '#4361ee',
-            backgroundColor: 'rgba(67, 97, 238, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }, {
-            label: '私聊消息数',
-            data: privateMessagesData,
-            borderColor: '#7209b7',
-            backgroundColor: 'rgba(114, 9, 183, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }, {
-            label: '群聊消息数',
-            data: groupMessagesData,
-            borderColor: '#f72585',
-            backgroundColor: 'rgba(247, 37, 133, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }];
+        datasets = [
+            createDataset('总消息量', totalMessagesData, '#4361ee', 'rgba(67, 97, 238, 0.15)'),
+            createDataset('私聊消息数', privateMessagesData, '#7209b7', 'rgba(114, 9, 183, 0.15)'),
+            createDataset('群聊消息数', groupMessagesData, '#f72585', 'rgba(247, 37, 133, 0.15)')
+        ];
     } else if (metric === 'active_combined') {
-        // 活跃用户+群聊：活跃用户数和活跃群聊数两条线
-        const activeUsersData = [];
-        const activeGroupsData = [];
+        const [activeUsersData, activeGroupsData] = extractDataArrays(statisticsData, ['active_users', 'active_groups']);
         
-        // 处理历史数据
-        if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
-            statisticsData.historical.forEach(item => {
-                const activeUsers = item.message_stats ? item.message_stats.active_users || 0 : 0;
-                const activeGroups = item.message_stats ? item.message_stats.active_groups || 0 : 0;
-                
-                activeUsersData.push(activeUsers);
-                activeGroupsData.push(activeGroups);
-            });
-        }
-        
-        // 添加今日数据
-        if (statisticsData.today) {
-            const todayActiveUsers = statisticsData.today.message_stats ? statisticsData.today.message_stats.active_users || 0 : 0;
-            const todayActiveGroups = statisticsData.today.message_stats ? statisticsData.today.message_stats.active_groups || 0 : 0;
-            
-            activeUsersData.push(todayActiveUsers);
-            activeGroupsData.push(todayActiveGroups);
-        }
-        
-        datasets = [{
-            label: '活跃用户数',
-            data: activeUsersData,
-            borderColor: '#f72585',
-            backgroundColor: 'rgba(247, 37, 133, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }, {
-            label: '活跃群聊数',
-            data: activeGroupsData,
-            borderColor: '#4cc9f0',
-            backgroundColor: 'rgba(76, 201, 240, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }];
+        datasets = [
+            createDataset('活跃用户数', activeUsersData, '#f72585', 'rgba(247, 37, 133, 0.15)'),
+            createDataset('活跃群聊数', activeGroupsData, '#4cc9f0', 'rgba(76, 201, 240, 0.15)')
+        ];
     } else if (metric === 'total_combined') {
-        // 总数据合并：总用户数、总群组数、总好友数三条线
-        const totalUsersData = [];
-        const totalGroupsData = [];
-        const totalFriendsData = [];
+        const [totalUsersData, totalGroupsData, totalFriendsData] = extractDataArrays(
+            statisticsData, 
+            ['total_users', 'total_groups', 'total_friends'], 
+            'user_stats'
+        );
         
-        // 处理历史数据
-        if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
-            statisticsData.historical.forEach(item => {
-                const totalUsers = item.user_stats ? item.user_stats.total_users || 0 : 0;
-                const totalGroups = item.user_stats ? item.user_stats.total_groups || 0 : 0;
-                const totalFriends = item.user_stats ? item.user_stats.total_friends || 0 : 0;
-                
-                totalUsersData.push(totalUsers);
-                totalGroupsData.push(totalGroups);
-                totalFriendsData.push(totalFriends);
-            });
-        }
-        
-        // 添加今日数据
-        if (statisticsData.today) {
-            const todayUsers = statisticsData.today.user_stats ? statisticsData.today.user_stats.total_users || 0 : 0;
-            const todayGroups = statisticsData.today.user_stats ? statisticsData.today.user_stats.total_groups || 0 : 0;
-            const todayFriends = statisticsData.today.user_stats ? statisticsData.today.user_stats.total_friends || 0 : 0;
-            
-            totalUsersData.push(todayUsers);
-            totalGroupsData.push(todayGroups);
-            totalFriendsData.push(todayFriends);
-        }
-        
-        datasets = [{
-            label: '总用户数',
-            data: totalUsersData,
-            borderColor: '#f77f00',
-            backgroundColor: 'rgba(247, 127, 0, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }, {
-            label: '总群组数',
-            data: totalGroupsData,
-            borderColor: '#fcbf49',
-            backgroundColor: 'rgba(252, 191, 73, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }, {
-            label: '总好友数',
-            data: totalFriendsData,
-            borderColor: '#606c38',
-            backgroundColor: 'rgba(96, 108, 56, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }];
+        datasets = [
+            createDataset('总用户数', totalUsersData, '#f77f00', 'rgba(247, 127, 0, 0.15)'),
+            createDataset('总群组数', totalGroupsData, '#fcbf49', 'rgba(252, 191, 73, 0.15)'),
+            createDataset('总好友数', totalFriendsData, '#606c38', 'rgba(96, 108, 56, 0.15)')
+        ];
     } else if (metric === 'group_events') {
-        // 群组变化：进群和退群两条线
-        const joinData = [];
-        const leaveData = [];
+        const [joinData, leaveData] = extractDataArrays(
+            statisticsData, 
+            ['group_join_count', 'group_leave_count'], 
+            'event_stats'
+        );
         
-        // 重新处理数据用于多线图表
-        if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
-            statisticsData.historical.forEach(item => {
-                const joinCount = item.event_stats ? item.event_stats.group_join_count || 0 : 0;
-                const leaveCount = item.event_stats ? item.event_stats.group_leave_count || 0 : 0;
-                joinData.push(joinCount);
-                leaveData.push(leaveCount);
-            });
-        }
-        
-        if (statisticsData.today) {
-            const todayJoin = statisticsData.today.event_stats ? statisticsData.today.event_stats.group_join_count || 0 : 0;
-            const todayLeave = statisticsData.today.event_stats ? statisticsData.today.event_stats.group_leave_count || 0 : 0;
-            joinData.push(todayJoin);
-            leaveData.push(todayLeave);
-        }
-        
-        datasets = [{
-            label: '进群数',
-            data: joinData,
-            borderColor: '#28a745',
-            backgroundColor: 'rgba(40, 167, 69, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }, {
-            label: '退群数',
-            data: leaveData,
-            borderColor: '#dc3545',
-            backgroundColor: 'rgba(220, 53, 69, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }];
+        datasets = [
+            createDataset('进群数', joinData, '#28a745', 'rgba(40, 167, 69, 0.15)'),
+            createDataset('退群数', leaveData, '#dc3545', 'rgba(220, 53, 69, 0.15)')
+        ];
     } else if (metric === 'friend_events') {
-        // 好友变化：加友和删友两条线
-        const addData = [];
-        const removeData = [];
+        const [addData, removeData] = extractDataArrays(
+            statisticsData, 
+            ['friend_add_count', 'friend_remove_count'], 
+            'event_stats'
+        );
         
-        // 重新处理数据用于多线图表
-        if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
-            statisticsData.historical.forEach(item => {
-                const addCount = item.event_stats ? item.event_stats.friend_add_count || 0 : 0;
-                const removeCount = item.event_stats ? item.event_stats.friend_remove_count || 0 : 0;
-                addData.push(addCount);
-                removeData.push(removeCount);
-            });
-        }
-        
-        if (statisticsData.today) {
-            const todayAdd = statisticsData.today.event_stats ? statisticsData.today.event_stats.friend_add_count || 0 : 0;
-            const todayRemove = statisticsData.today.event_stats ? statisticsData.today.event_stats.friend_remove_count || 0 : 0;
-            addData.push(todayAdd);
-            removeData.push(todayRemove);
-        }
-        
-        datasets = [{
-            label: '加好友数',
-            data: addData,
-            borderColor: '#17a2b8',
-            backgroundColor: 'rgba(23, 162, 184, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }, {
-            label: '删好友数',
-            data: removeData,
-            borderColor: '#ffc107',
-            backgroundColor: 'rgba(255, 193, 7, 0.15)',
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }];
+        datasets = [
+            createDataset('加好友数', addData, '#17a2b8', 'rgba(23, 162, 184, 0.15)'),
+            createDataset('删好友数', removeData, '#ffc107', 'rgba(255, 193, 7, 0.15)')
+        ];
     } else {
-        // 单线图表
         const average = count > 0 ? (total / count) : 0;
         
         const metricInfo = {
@@ -788,19 +590,8 @@ function updateChart(metric) {
         };
         
         const info = metricInfo[metric] || metricInfo['total_messages'];
+        datasets = [createDataset(info.label, data, info.color, info.bg)];
         
-        datasets = [{
-            label: info.label,
-            data: data,
-            borderColor: info.color,
-            backgroundColor: info.bg,
-            tension: 0.4,
-            fill: false,
-            pointRadius: 4,
-            pointHoverRadius: 6
-        }];
-        
-        // 更新平均值显示（只对单线图表显示平均值）
         const averageElement = document.getElementById('chart-average-display');
         if (averageElement && count > 0) {
             averageElement.textContent = `30天平均: ${formatNumber(Math.round(average))}`;
@@ -809,11 +600,9 @@ function updateChart(metric) {
         }
     }
     
-    // 更新图表数据
     statisticsChart.data.labels = labels;
     statisticsChart.data.datasets = datasets;
     
-    // 隐藏多线图表的平均值显示
     if (metric === 'messages_combined' || metric === 'active_combined' || metric === 'total_combined' || 
         metric === 'group_events' || metric === 'friend_events') {
         const averageElement = document.getElementById('chart-average-display');
@@ -823,69 +612,48 @@ function updateChart(metric) {
     }
     
     statisticsChart.update();
-    
-    // 更新按钮状态
     updateButtonState(metric);
 }
 
-
-
-// 更新数据源信息
 function updateDataSourceInfo(data) {
     const infoElement = document.getElementById('data-source-info');
     if (!infoElement || !data.data_source_info) return;
     
-    const sourceInfo = data.data_source_info;
-    let badgeClass = 'bg-secondary';
-    let icon = 'hourglass-split';
-    let text = '未知';
+    const sourceMap = {
+        loading: { badge: 'bg-warning', icon: 'hourglass-split', text: '加载中' },
+        processing: { badge: 'bg-info', icon: 'gear-fill', text: '计算中' },
+        api: { badge: 'bg-success', icon: 'cloud-check', text: '实时数据' },
+        cache: { badge: 'bg-info', icon: 'clock-history', text: '缓存数据' }
+    };
     
-    if (sourceInfo.source === 'loading') {
-        badgeClass = 'bg-warning';
-        icon = 'hourglass-split';
-        text = '加载中';
-    } else if (sourceInfo.source === 'processing') {
-        badgeClass = 'bg-info';
-        icon = 'gear-fill';
-        text = '计算中';
-    } else if (sourceInfo.source === 'api') {
-        badgeClass = 'bg-success';
-        icon = 'cloud-check';
-        text = '实时数据';
-    } else if (sourceInfo.source === 'cache') {
-        badgeClass = 'bg-info';
-        icon = 'clock-history';
-        text = '缓存数据';
-    }
+    const sourceInfo = data.data_source_info;
+    const { badge = 'bg-secondary', icon = 'hourglass-split', text = '未知' } = sourceMap[sourceInfo.source] || {};
     
     infoElement.innerHTML = `
-        <span class="badge ${badgeClass}">
+        <span class="badge ${badge}">
             <i class="bi bi-${icon}"></i> ${text}
         </span>
         <small>${sourceInfo.update_time || ''}</small>
     `;
 }
 
-// 填充日期选择器（完全照抄老版本实现）
 function populateDateSelector(dates) {
     const selector = document.getElementById('date-selector');
-    selector.innerHTML = ''; // 清空现有选项
+    selector.innerHTML = '';
     
     dates.forEach(dateItem => {
         const option = document.createElement('option');
         option.value = dateItem.value;
         option.textContent = dateItem.display;
         if (dateItem.is_today) {
-            option.selected = true; // 默认选中今日
+            option.selected = true;
         }
         selector.appendChild(option);
     });
 }
 
-// 加载可用日期（照抄老版本实现）
 function loadAvailableDates() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+    const token = getToken();
     if (!token) return;
     
     fetch(`/web/api/available_dates?token=${encodeURIComponent(token)}`)
@@ -900,12 +668,10 @@ function loadAvailableDates() {
         });
 }
 
-// 加载指定日期的数据（使用loadDateSpecificData）
 function loadDateData(date) {
     loadDateSpecificData(date);
 }
 
-// 更新今日统计数据
 function updateTodayStats(data) {
     const table = document.getElementById('today-stats-table');
     if (!data) {
@@ -929,49 +695,35 @@ function updateTodayStats(data) {
     ).join('');
 }
 
-// 更新最活跃用户
+function updateTable(tableId, items, rowMapper) {
+    const table = document.getElementById(tableId);
+    if (!items || items.length === 0) {
+        table.innerHTML = EMPTY_TABLE_ROW;
+        return;
+    }
+    table.innerHTML = items.map(rowMapper).join('');
+}
+
 function updateTopUsers(users) {
-    const table = document.getElementById('top-users-table');
-    if (!users || users.length === 0) {
-        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
-        return;
-    }
-    
-    table.innerHTML = users.map(user => 
+    updateTable('top-users-table', users, user => 
         `<tr><td>${user.user_id}</td><td class="fw-bold">${formatNumber(user.message_count)}</td></tr>`
-    ).join('');
+    );
 }
 
-// 更新最活跃群组
 function updateTopGroups(groups) {
-    const table = document.getElementById('top-groups-table');
-    if (!groups || groups.length === 0) {
-        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
-        return;
-    }
-    
-    table.innerHTML = groups.map(group => 
+    updateTable('top-groups-table', groups, group => 
         `<tr><td>${group.group_id}</td><td class="fw-bold">${formatNumber(group.message_count)}</td></tr>`
-    ).join('');
+    );
 }
 
-// 更新指令统计
 function updateCommandStats(commands) {
-    const table = document.getElementById('command-stats-table');
-    if (!commands || commands.length === 0) {
-        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
-        return;
-    }
-    
-    table.innerHTML = commands.map(cmd => 
+    updateTable('command-stats-table', commands, cmd => 
         `<tr><td>${cmd.command}</td><td class="fw-bold">${formatNumber(cmd.count)}</td></tr>`
-    ).join('');
+    );
 }
 
-// 补全DAU（照抄老版本实现）
 function completeDau() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+    const token = getToken();
     if (!token) return;
     
     const button = document.getElementById('complete-dau');
@@ -990,7 +742,7 @@ function completeDau() {
         .then(data => {
             if (data.success) {
                 alert('DAU补全成功！');
-                loadStatistics(); // 重新加载数据
+                loadStatistics();
             } else {
                 alert('DAU补全失败：' + data.message);
             }
@@ -1005,7 +757,6 @@ function completeDau() {
         });
 }
 
-// 显示统计错误信息（照抄老版本）
 function showStatisticsError(message) {
     const container = document.getElementById('statistics-container');
     if (container) {
@@ -1017,9 +768,6 @@ function showStatisticsError(message) {
     }
 }
 
-
-
-// 更新按钮状态
 function updateButtonState(metric) {
     document.querySelectorAll('.chart-toggle').forEach(btn => {
         btn.classList.remove('active');
@@ -1029,14 +777,11 @@ function updateButtonState(metric) {
     });
 }
 
-// 更新表格（完全照抄老版本实现）
 function updateTables(todayData) {
-    // 更新今日数据概览表格
     const todayStatsTable = document.getElementById('today-stats-table');
     const messageStats = todayData.message_stats || {};
     const userStats = todayData.user_stats || {};
     
-    // 更新数据源信息显示
     const dataSourceInfoElement = document.getElementById('data-source-info');
     if (dataSourceInfoElement) {
         let sourceHtml = '';
@@ -1093,60 +838,35 @@ function updateTables(todayData) {
         `;
     }
     
-    // 更新最活跃群组表格
-    const topGroupsTable = document.getElementById('top-groups-table');
     const topGroups = messageStats.top_groups || [];
-    if (topGroupsTable) {
-        if (topGroups.length > 0) {
-            topGroupsTable.innerHTML = topGroups.slice(0, 5).map(group => 
-                `<tr><td>${maskId(group.group_id)}</td><td>${group.message_count}</td></tr>`
-            ).join('');
-        } else {
-            topGroupsTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
-        }
-    }
+    updateTable('top-groups-table', topGroups.slice(0, 5), group => 
+        `<tr><td>${maskId(group.group_id)}</td><td>${group.message_count}</td></tr>`
+    );
     
-    // 更新最活跃用户表格
-    const topUsersTable = document.getElementById('top-users-table');
     const topUsers = messageStats.top_users || [];
-    if (topUsersTable) {
-        if (topUsers.length > 0) {
-            topUsersTable.innerHTML = topUsers.slice(0, 5).map(user => 
-                `<tr><td><span class="user-id-with-nickname" data-user-id="${user.user_id}">${maskId(user.user_id)} <span class="nickname-loading">📝</span></span></td><td>${user.message_count}</td></tr>`
-            ).join('');
-            
-            // 异步加载昵称
-            loadNicknamesForUsers(topUsers.slice(0, 5));
-        } else {
-            topUsersTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
-        }
+    if (topUsers.length > 0) {
+        updateTable('top-users-table', topUsers.slice(0, 5), user => 
+            `<tr><td><span class="user-id-with-nickname" data-user-id="${user.user_id}">${maskId(user.user_id)} <span class="nickname-loading">📝</span></span></td><td>${user.message_count}</td></tr>`
+        );
+        loadNicknamesForUsers(topUsers.slice(0, 5));
+    } else {
+        document.getElementById('top-users-table').innerHTML = EMPTY_TABLE_ROW;
     }
     
-    // 更新指令使用排行表格
-    const commandStatsTable = document.getElementById('command-stats-table');
     const commandStats = todayData.command_stats || [];
-    if (commandStatsTable) {
-        if (commandStats.length > 0) {
-            commandStatsTable.innerHTML = commandStats.slice(0, 5).map(cmd => 
-                `<tr><td>${cmd.command}</td><td>${cmd.count}</td></tr>`
-            ).join('');
-        } else {
-            commandStatsTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
-        }
-    }
+    updateTable('command-stats-table', commandStats.slice(0, 5), cmd => 
+        `<tr><td>${cmd.command}</td><td>${cmd.count}</td></tr>`
+    );
 }
 
-// 脱敏处理ID（照抄老版本）
 function maskId(id) {
     if (!id || typeof id !== 'string') return '未知';
     if (id.length <= 6) return id;
     return id.substring(0, 3) + '***' + id.substring(id.length - 3);
 }
 
-// 昵称缓存（照抄老版本）
 const nicknameCache = new Map();
 
-// 为用户列表加载昵称（照抄老版本）
 function loadNicknamesForUsers(users) {
     users.forEach(user => {
         if (user.user_id && !nicknameCache.has(user.user_id)) {
@@ -1157,10 +877,8 @@ function loadNicknamesForUsers(users) {
     });
 }
 
-// 获取单个用户昵称（照抄老版本）
 function fetchUserNickname(userId) {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+    const token = getToken();
     if (!token) return;
     
     fetch(`/web/api/get_nickname/${encodeURIComponent(userId)}?token=${encodeURIComponent(token)}`)
@@ -1176,7 +894,6 @@ function fetchUserNickname(userId) {
         });
 }
 
-// 更新用户昵称显示（完全照抄老版本）
 function updateUserNickname(userId, nickname) {
     const elements = document.querySelectorAll(`[data-user-id="${userId}"]`);
     elements.forEach(element => {
@@ -1189,33 +906,25 @@ function updateUserNickname(userId, nickname) {
     });
 }
 
-// 加载特定日期的数据（完全照抄老版本实现）
 function loadDateSpecificData(selectedDate) {
     if (selectedDate === 'today') {
-        // 加载今日数据（包含图表）
         loadStatisticsData();
     } else {
-        // 加载历史数据（仅表格）
         loadHistoricalDateData(selectedDate);
     }
 }
 
-// 别名函数，与老版本保持一致
 function loadStatisticsData(forceRefresh = false) {
     loadStatistics(forceRefresh);
 }
 
-// 加载历史日期数据（使用同步模式，因为历史数据通常很快）
 function loadHistoricalDateData(dateStr) {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    
+    const token = getToken();
     if (!token) {
         console.error('未找到访问token');
         return;
     }
     
-    // 显示加载状态
     updateDataSourceInfo({
         data_source_info: {
             source: 'loading',
@@ -1223,7 +932,6 @@ function loadHistoricalDateData(dateStr) {
         }
     });
     
-    // 构建API URL查询特定日期，强制使用同步模式
     const apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}&date=${dateStr}&async=false`;
     
     fetch(apiUrl)
@@ -1235,7 +943,6 @@ function loadHistoricalDateData(dateStr) {
         })
         .then(data => {
             if (data.success) {
-                // 更新表格数据（不更新图表）
                 if (data.selected_date_data) {
                     updateTables(data.selected_date_data);
                 } else {
@@ -1252,80 +959,34 @@ function loadHistoricalDateData(dateStr) {
         });
 }
 
-// 页面初始化（性能优化版本，避免阻塞主线程）
 document.addEventListener('DOMContentLoaded', function() {
-    // 异步初始化，避免阻塞主线程
-    function initializeStatisticsAsync() {
-        // 分阶段初始化，避免一次性加载过多
-        
-        // 第一阶段：初始化图表（延迟50ms）
-        setTimeout(() => {
-            initStatistics();
-        }, 50);
-        
-        // 第二阶段：加载统计数据（延迟100ms）
-        setTimeout(() => {
+    const initTasks = [
+        { fn: initStatistics, delay: 50 },
+        { fn: loadStatistics, delay: 100 },
+        { fn: loadAvailableDates, delay: 150 }
+    ];
+    
+    const events = [
+        { selector: '.chart-toggle', event: 'click', handler: (e) => updateChart(e.target.dataset.metric), debounce: 200 },
+        { selector: '#refresh-statistics', event: 'click', handler: () => {
             loadStatistics();
-        }, 100);
-        
-        // 第三阶段：加载可用日期（延迟150ms）
-        setTimeout(() => {
-            loadAvailableDates();
-        }, 150);
-    }
+            loadDateSpecificData(document.getElementById('date-selector').value);
+        }, debounce: 1000 },
+        { selector: '#complete-dau', event: 'click', handler: completeDau, debounce: 500 },
+        { selector: '#date-selector', event: 'change', handler: (e) => loadDateSpecificData(e.target.value), debounce: 300 }
+    ];
     
-    // 立即绑定事件，但使用防抖优化
-    function bindEventsWithOptimization() {
-        // 图表切换按钮（使用防抖，避免频繁切换）
-        const debouncedUpdateChart = debounce((metric) => {
-            updateChart(metric);
-        }, 200);
-        
-        document.querySelectorAll('.chart-toggle').forEach(button => {
-            button.addEventListener('click', function() {
-                debouncedUpdateChart(this.dataset.metric);
-            });
-        });
-        
-        // 刷新按钮（防止重复点击）
-        const debouncedRefresh = debounce(() => {
-            loadStatistics();
-            const selectedDate = document.getElementById('date-selector').value;
-            loadDateSpecificData(selectedDate);
-        }, 1000);
-        
-        document.getElementById('refresh-statistics').addEventListener('click', debouncedRefresh);
-        
-        // 补全DAU按钮（防止重复点击）
-        const debouncedComplete = debounce(() => {
-            completeDau();
-        }, 500);
-        
-        document.getElementById('complete-dau').addEventListener('click', debouncedComplete);
-        
-        // 日期选择器（使用防抖，避免频繁切换）
-        const debouncedDateChange = debounce((value) => {
-            loadDateSpecificData(value);
-        }, 300);
-        
-        document.getElementById('date-selector').addEventListener('change', function() {
-            debouncedDateChange(this.value);
-        });
-    }
+    events.forEach(({ selector, event, handler, debounce: delay }) => {
+        const debouncedHandler = delay ? debounce(handler, delay) : handler;
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => el.addEventListener(event, debouncedHandler));
+    });
     
-    // 立即绑定事件
-    bindEventsWithOptimization();
+    const initAsync = () => initTasks.forEach(({ fn, delay }) => setTimeout(fn, delay));
     
-    // 使用requestIdleCallback进行异步初始化
-    if ('requestIdleCallback' in window) {
-        requestIdleCallback(initializeStatisticsAsync, { timeout: 300 });
-    } else {
-        // 降级到setTimeout
-        setTimeout(initializeStatisticsAsync, 100);
-    }
-    
-    // 统计页面不需要实时WebSocket连接，避免额外性能开销
-    // initSocket('statistics');
+    ('requestIdleCallback' in window) 
+        ? requestIdleCallback(initAsync, { timeout: 300 })
+        : setTimeout(initAsync, 100);
 });
 </script>
 {% endblock %}

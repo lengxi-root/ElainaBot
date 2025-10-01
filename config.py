@@ -8,7 +8,7 @@ appid = ""                              # 机器人APPID，在QQ开发者平台�
 secret = ""      # 机器人密钥
 ROBOT_QQ = ""                          # 机器人QQ号
 IMAGE_BED_CHANNEL_ID = ''                 # 图床频道子频道ID，用于图床上传
-OWNER_IDS = ["8C7A05AC58E3BCAAA3E83B22486FAF8F"] # 主人QQ号列表，可使用仅主人插件
+OWNER_IDS = [""] # 主人OPENID列表，可使用仅主人插件
 
 # 消息处理配置 - 控制消息格式和行为
 USE_MARKDOWN = False                             # 是否使用Markdown格式发送消息 MD模板请使用False
@@ -47,8 +47,7 @@ LOG_CONFIG = {
 # WebSocket配置 - 实时通信连接设置
 WEBSOCKET_CONFIG = {
     'enabled': True,                           # 是否启用WebSocket连接功能
-    'custom_url': None,                         # 自定义WebSocket连接地址，如果设置则直接连接，不获取网关
-                                                # 示例: 'wss://api.sgroup.qq.com/websocket' 或 'ws://localhost:8080/ws'
+    'custom_url': None,                         # 自定义WebSocket连接地址，设置则直接连接，不懂不要填写
     'log_level': 'INFO',                        # WebSocket专用日志级别
     'log_message_content': False,               # 是否记录消息内容(调试模式)
 }
@@ -131,4 +130,12 @@ COS_CONFIG = {
     'domain': None,                            # 自定义域名(可选)
     'upload_path_prefix': 'mlog/',             # 默认上传路径前缀
     'max_file_size': 50 * 1024 * 1024,       # 最大文件大小50MB
+}
+
+# Bilibili图床配置 - B站图片上传功能
+BILIBILI_IMAGE_BED_CONFIG = {
+    'enabled': True,  # 是否启用Bilibili图床功能
+    'csrf_token': "",  # Bilibili CSRF Token (bili_jct)
+    'sessdata': "",  # Bilibili SESSDATA Cookie
+    'bucket': "openplatform",  # 上传bucket类型，一般为openplatform
 }

@@ -1047,6 +1047,77 @@ def cancel_pending_config():
         return jsonify({'success': True, 'message': '已取消待应用的配置'})
     return jsonify({'success': False, 'message': '没有待应用的配置文件'}), 404
 
+@web.route('/api/plugin/toggle', methods=['POST'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def toggle_plugin():
+    """启用或禁用插件"""
+    data = request.get_json()
+    plugin_path = data.get('path')
+    action = data.get('action')  # 'enable' 或 'disable'
+    
+    if not plugin_path or not action:
+        return jsonify({'success': False, 'message': '缺少必要参数'}), 400
+    
+    if action not in ['enable', 'disable']:
+        return jsonify({'success': False, 'message': '无效的操作类型'}), 400
+    
+    # 安全检查：确保路径在 plugins 目录下
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(script_dir, 'plugins')
+    abs_plugin_path = os.path.abspath(plugin_path)
+    
+    if not abs_plugin_path.startswith(os.path.abspath(plugins_dir)):
+        return jsonify({'success': False, 'message': '无效的插件路径'}), 403
+    
+    try:
+        if action == 'disable':
+            # 禁用插件：将 .py 改为 .py.ban
+            if not plugin_path.endswith('.py'):
+                return jsonify({'success': False, 'message': '只能禁用 .py 文件'}), 400
+            
+            new_path = plugin_path + '.ban'
+            if os.path.exists(new_path):
+                return jsonify({'success': False, 'message': '禁用文件已存在'}), 409
+            
+            os.rename(plugin_path, new_path)
+            add_framework_log(f"插件已禁用: {os.path.basename(plugin_path)}")
+            
+            return jsonify({
+                'success': True,
+                'message': '插件已禁用',
+                'new_path': new_path
+            })
+            
+        elif action == 'enable':
+            # 启用插件：将 .py.ban 改为 .py
+            if not plugin_path.endswith('.py.ban'):
+                return jsonify({'success': False, 'message': '只能启用 .py.ban 文件'}), 400
+            
+            new_path = plugin_path[:-4]  # 移除 .ban
+            if os.path.exists(new_path):
+                return jsonify({'success': False, 'message': '启用文件已存在'}), 409
+            
+            os.rename(plugin_path, new_path)
+            add_framework_log(f"插件已启用: {os.path.basename(new_path)}")
+            
+            return jsonify({
+                'success': True,
+                'message': '插件已启用',
+                'new_path': new_path
+            })
+            
+    except PermissionError:
+        return jsonify({'success': False, 'message': '没有权限操作该文件'}), 403
+    except FileNotFoundError:
+        return jsonify({'success': False, 'message': '文件不存在'}), 404
+    except Exception as e:
+        error_msg = f"操作插件失败: {str(e)}"
+        add_error_log(error_msg, traceback.format_exc())
+        return jsonify({'success': False, 'message': error_msg}), 500
+
 @catch_error
 def get_system_info():
     global _last_gc_time, _last_gc_log_time
@@ -1272,7 +1343,7 @@ def load_plugin_module(plugin_file, module_name, is_system=False):
 
 @catch_error
 def scan_plugins():
-    """扫描所有插件并获取其状态"""
+    """扫描所有插件并获取其状态（包括已禁用的 .py.ban 文件）"""
     global plugins_info
     plugins_info = []
     
@@ -1282,6 +1353,7 @@ def scan_plugins():
     for dir_name in os.listdir(plugins_dir):
         plugin_dir = os.path.join(plugins_dir, dir_name)
         if os.path.isdir(plugin_dir):
+            # 扫描 .py 文件（已启用的插件）
             py_files = [f for f in os.listdir(plugin_dir) if f.endswith('.py') and f != '__init__.py']
             
             for py_file in py_files:
@@ -1294,9 +1366,37 @@ def scan_plugins():
                     is_system=(dir_name == 'system')
                 )
                 
+                # 标记为已启用
+                for plugin_info in plugin_info_list:
+                    plugin_info['enabled'] = True
+                
                 plugins_info.extend(plugin_info_list)
+            
+            # 扫描 .py.ban 文件（已禁用的插件）
+            ban_files = [f for f in os.listdir(plugin_dir) if f.endswith('.py.ban')]
+            
+            for ban_file in ban_files:
+                plugin_file = os.path.join(plugin_dir, ban_file)
+                plugin_name = os.path.splitext(os.path.splitext(ban_file)[0])[0]  # 移除 .py.ban
+                last_modified_str = datetime.fromtimestamp(os.path.getmtime(plugin_file)).strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 为禁用的插件创建信息条目
+                plugins_info.append({
+                    'name': f"{dir_name}/{plugin_name}",
+                    'class_name': 'unknown',
+                    'status': 'disabled',
+                    'error': '插件已禁用',
+                    'path': plugin_file,
+                    'is_system': (dir_name == 'system'),
+                    'directory': dir_name,
+                    'last_modified': last_modified_str,
+                    'enabled': False,
+                    'handlers': 0,
+                    'handlers_list': []
+                })
     
-    plugins_info.sort(key=lambda x: (0 if x['status'] == 'loaded' else 1))
+    # 按状态排序：loaded -> disabled -> error
+    plugins_info.sort(key=lambda x: (0 if x['status'] == 'loaded' else (1 if x['status'] == 'disabled' else 2)))
     return plugins_info
 
 @catch_error
@@ -1368,7 +1468,11 @@ def register_socketio_handlers(sio):
         
         sio.emit('system_info', system_info, room=request.sid, namespace=PREFIX)
 
-
+    @sio.on('get_plugins_info', namespace=PREFIX)
+    @require_socketio_token
+    def handle_get_plugins_info():
+        plugins = scan_plugins()
+        sio.emit('plugins_update', plugins, room=request.sid, namespace=PREFIX)
 
     @sio.on('request_logs', namespace=PREFIX)
     @require_socketio_token  

@@ -23,7 +23,7 @@
 
 {% block scripts %}
 <script>
-let pluginsData = [];
+const getToken = () => new URLSearchParams(window.location.search).get('token');
 
 function loadPlugins() {
     const container = document.getElementById('plugins-container');
@@ -36,7 +36,7 @@ function loadPlugins() {
         window.socket.emit('get_plugins_info');
     } else {
         loading.style.display = 'none';
-        container.innerHTML = '<div class="alert alert-warning">无法连接到服务器获取插件信息</div>';
+        container.innerHTML = '<div class="alert alert-warning">无法连接到服务器</div>';
     }
 }
 
@@ -96,10 +96,15 @@ function updatePluginsInfo(plugins) {
                 <div class="directory-plugins" id="directory-plugins-${directory}">`;
             
             directoryPlugins.forEach(plugin => {
-                const statusClass = plugin.status === 'loaded' ? 'loaded' : 'error';
-                let statusBadge = plugin.status === 'loaded' 
-                    ? `<span class="badge bg-success plugin-badge"><i class="bi bi-check-circle-fill"></i> 已加载</span>` 
-                    : `<span class="badge bg-danger plugin-badge"><i class="bi bi-exclamation-triangle-fill"></i> 错误</span>`;
+                const statusClass = plugin.status === 'loaded' ? 'loaded' : (plugin.status === 'disabled' ? 'disabled' : 'error');
+                let statusBadge = '';
+                if (plugin.status === 'loaded') {
+                    statusBadge = `<span class="badge bg-success plugin-badge"><i class="bi bi-check-circle-fill"></i> 已加载</span>`;
+                } else if (plugin.status === 'disabled') {
+                    statusBadge = `<span class="badge bg-warning plugin-badge"><i class="bi bi-dash-circle-fill"></i> 已禁用</span>`;
+                } else {
+                    statusBadge = `<span class="badge bg-danger plugin-badge"><i class="bi bi-exclamation-triangle-fill"></i> 错误</span>`;
+                }
                 let handlerCountBadge = '';
                 if (plugin.status === 'loaded') {
                     const handlerCount = plugin.handlers || 0;
@@ -168,6 +173,21 @@ function updatePluginsInfo(plugins) {
                 if (plugin.last_modified) {
                     timeDisplay = `<span class="plugin-path text-muted ms-2"><i class="bi bi-clock-history"></i> ${plugin.last_modified}</span>`;
                 }
+                
+                let toggleSwitch = '';
+                if (plugin.status === 'loaded' || plugin.status === 'disabled') {
+                    const isEnabled = plugin.enabled !== false && plugin.status === 'loaded';
+                    const switchId = `plugin-switch-${plugin.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                    toggleSwitch = `<div class="form-check form-switch plugin-toggle-switch">
+                                        <input class="form-check-input" type="checkbox" 
+                                               id="${switchId}" ${isEnabled ? 'checked' : ''}
+                                               onchange="togglePluginSwitch('${plugin.path}', this)">
+                                        <label class="form-check-label" for="${switchId}">
+                                            ${isEnabled ? '已启用' : '已禁用'}
+                                        </label>
+                                    </div>`;
+                }
+                
                 html += `
                 <div class="card plugin-card ${statusClass}">
                 <div class="plugin-content">
@@ -181,6 +201,7 @@ function updatePluginsInfo(plugins) {
                                 <div class="plugin-badges">
                                     ${statusBadge}
                                 ${handlerCountBadge}
+                                ${toggleSwitch}
                             </div>
                         </div>
                         ${handlersHtml}
@@ -218,15 +239,117 @@ function togglePluginFolder(directory) {
     }
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+async function togglePluginSwitch(pluginPath, switchElement) {
+    const action = switchElement.checked ? 'enable' : 'disable';
+    const label = switchElement.nextElementSibling;
+    const originalState = { checked: !switchElement.checked, text: label.textContent };
+    
+    switchElement.disabled = true;
+    label.textContent = '处理中...';
+    
+    try {
+        const response = await fetch(`/web/api/plugin/toggle?token=${getToken()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: pluginPath, action })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast(result.message, 'success');
+            label.textContent = action === 'enable' ? '已启用' : '已禁用';
+            updatePluginCardStatus(switchElement, action === 'enable' ? 'loaded' : 'disabled');
+            
+            if (result.new_path) {
+                switchElement.setAttribute('onchange', `togglePluginSwitch('${result.new_path}', this)`);
+            }
+            
+            switchElement.disabled = false;
+        } else {
+            throw new Error(result.message || '操作失败');
+        }
+    } catch (error) {
+        showToast(error.message, 'error');
+        switchElement.checked = originalState.checked;
+        label.textContent = originalState.text;
+        switchElement.disabled = false;
+    }
+}
+
+function updatePluginCardStatus(switchElement, newStatus) {
+    const pluginCard = switchElement.closest('.plugin-card');
+    if (!pluginCard) return;
+    
+    pluginCard.classList.remove('loaded', 'disabled', 'error');
+    pluginCard.classList.add(newStatus);
+    
+    const statusBadge = pluginCard.querySelector('.plugin-badges .badge');
+    if (statusBadge) {
+        const statusConfig = {
+            loaded: { class: 'bg-success', icon: 'check-circle-fill', text: '已加载' },
+            disabled: { class: 'bg-warning', icon: 'dash-circle-fill', text: '已禁用' },
+            error: { class: 'bg-danger', icon: 'exclamation-triangle-fill', text: '错误' }
+        };
+        const config = statusConfig[newStatus];
+        if (config) {
+            statusBadge.className = `badge ${config.class} plugin-badge`;
+            statusBadge.innerHTML = `<i class="bi bi-${config.icon}"></i> ${config.text}`;
+        }
+    }
+}
+
+function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    const isSuccess = type === 'success';
+    toast.className = `alert alert-${isSuccess ? 'success' : 'danger'} position-fixed`;
+    toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 250px;';
+    toast.innerHTML = `<div class="d-flex align-items-center">
+        <i class="bi bi-${isSuccess ? 'check-circle' : 'exclamation-circle'}-fill me-2"></i>
+        <div>${message}</div>
+    </div>`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     window.updatePluginsInfo = updatePluginsInfo;
+    window.togglePluginSwitch = togglePluginSwitch;
     initSocket('plugins');
 });
 </script>
+
+<style>
+.plugin-toggle-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 0 8px;
+    padding: 0;
+}
+.plugin-toggle-switch .form-check-input {
+    cursor: pointer;
+    width: 3rem;
+    height: 1.5rem;
+    border: 2px solid #cbd5e0;
+    margin: 0;
+}
+.plugin-toggle-switch .form-check-input:checked {
+    background-color: #667eea;
+    border-color: #667eea;
+}
+.plugin-toggle-switch .form-check-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.plugin-toggle-switch .form-check-label {
+    cursor: pointer;
+    font-weight: 500;
+    color: #4a5568;
+    margin: 0;
+    white-space: nowrap;
+    font-size: 0.85rem;
+}
+</style>
+
 {% endblock %}

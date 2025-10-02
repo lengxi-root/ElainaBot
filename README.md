@@ -36,6 +36,7 @@ ElainaBot 是一个基于 Python 的 QQ 官方机器人框架，支持WH WS连�
 
 ```bash
 git clone https://github.com/lengxi-root/ElainaBot.git
+git clone https://gitee.com/lengxi-root/ElainaBot.git
 cd ElainaBot
 ```
 
@@ -72,7 +73,8 @@ DB_CONFIG = {
 ```bash
 python main.py
 ```
-details>
+
+</details>
 
 ## 使用教程
 

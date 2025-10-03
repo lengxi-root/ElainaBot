@@ -710,7 +710,9 @@ class MessageEvent:
 
     def _notify_web_display(self, timestamp):
         from web.app import add_display_message
-        formatted_message = f"{self.user_id}（{self.group_id}）：{self.content}" if self.group_id and self.group_id != "c2c" else f"{self.user_id}：{self.content}"
+        # formatted_message 仅用于兼容旧版本，web界面应使用结构化字段
+        # 只传递消息内容，避免在消息列显示ID
+        formatted_message = self.content or ""
         add_display_message(
             formatted_message, 
             timestamp, 

@@ -1,0 +1,217 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-robot"></i> AI 智能编写插件
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-4">
+                    <i class="bi bi-info-circle-fill"></i>
+                    <strong>功能说明：</strong>描述你想要的插件功能，AI 将自动生成代码并保存到 <code>plugins/ai/</code> 目录
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">插件需求描述</label>
+                    <textarea class="form-control" id="ai-prompt" rows="6" 
+                              placeholder="例如：编写一个天气查询插件，用户输入"天气 城市名"可以查询该城市的天气信息"></textarea>
+                    <small class="text-muted">请详细描述插件的功能、触发命令、预期行为等</small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">插件文件名</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="plugin-filename" 
+                               placeholder="例如：天气查询">
+                        <span class="input-group-text">.py</span>
+                    </div>
+                    <small class="text-muted">无需输入 .py 后缀，系统会自动添加</small>
+                </div>
+
+                <div class="d-flex gap-2 mb-3">
+                    <button class="btn btn-primary" onclick="generatePlugin()" id="generate-btn">
+                        <i class="bi bi-magic"></i> 生成插件
+                    </button>
+                    <button class="btn btn-secondary" onclick="clearForm()">
+                        <i class="bi bi-x-circle"></i> 清空
+                    </button>
+                </div>
+
+                <div id="generation-status" class="alert" style="display: none;"></div>
+
+                <div id="code-result" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0"><i class="bi bi-file-code"></i> 生成的代码</h6>
+                        <button class="btn btn-sm btn-success" onclick="savePlugin()" id="save-btn">
+                            <i class="bi bi-save"></i> 保存插件
+                        </button>
+                    </div>
+                    <div id="code-editor" style="border: 1px solid #dee2e6; border-radius: 4px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+#code-editor { min-height: 400px; }
+#code-editor .CodeMirror { 
+    height: auto; 
+    min-height: 400px; 
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace; 
+    font-size: 14px; 
+    border: none;
+}
+#code-editor .CodeMirror-scroll { overflow-y: hidden; overflow-x: auto; }
+</style>
+
+<script>
+const getToken = () => new URLSearchParams(window.location.search).get('token');
+let codeEditor = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    initCodeEditor();
+});
+
+function initCodeEditor() {
+    const editorElement = document.getElementById('code-editor');
+    if (editorElement && typeof CodeMirror !== 'undefined') {
+        codeEditor = CodeMirror(editorElement, {
+            mode: 'python',
+            theme: 'monokai',
+            lineNumbers: true,
+            lineWrapping: true,
+            indentUnit: 4,
+            tabSize: 4,
+            indentWithTabs: false,
+            matchBrackets: true,
+            autoCloseBrackets: true,
+            styleActiveLine: true,
+            readOnly: false,
+            viewportMargin: Infinity
+        });
+    }
+}
+
+async function generatePlugin() {
+    const prompt = document.getElementById('ai-prompt').value.trim();
+    let filename = document.getElementById('plugin-filename').value.trim();
+    
+    if (!prompt) {
+        showStatus('请输入插件需求描述', 'danger');
+        return;
+    }
+    
+    if (!filename) {
+        showStatus('请输入插件文件名', 'danger');
+        return;
+    }
+    
+    if (!filename.endsWith('.py')) {
+        filename = filename + '.py';
+    }
+    
+    const generateBtn = document.getElementById('generate-btn');
+    generateBtn.disabled = true;
+    generateBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 生成中...';
+    
+    showStatus('正在生成插件代码，请稍候...', 'info');
+    
+    try {
+        const response = await fetch(`/web/api/ai/generate_plugin?token=${getToken()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, filename })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            codeEditor.setValue(result.code);
+            document.getElementById('code-result').style.display = 'block';
+            
+            setTimeout(() => {
+                if (codeEditor) codeEditor.refresh();
+            }, 100);
+            
+            showStatus('✅ 插件代码生成成功！您可以预览并保存', 'success');
+        } else {
+            showStatus('❌ ' + (result.message || '生成失败'), 'danger');
+        }
+    } catch (error) {
+        showStatus('❌ 生成失败：' + error.message, 'danger');
+    } finally {
+        generateBtn.disabled = false;
+        generateBtn.innerHTML = '<i class="bi bi-magic"></i> 生成插件';
+    }
+}
+
+async function savePlugin() {
+    let filename = document.getElementById('plugin-filename').value.trim();
+    const code = codeEditor.getValue();
+    
+    if (!code) {
+        showStatus('没有可保存的代码', 'danger');
+        return;
+    }
+    
+    if (!filename.endsWith('.py')) {
+        filename = filename + '.py';
+    }
+    
+    const saveBtn = document.getElementById('save-btn');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 保存中...';
+    
+    try {
+        const response = await fetch(`/web/api/ai/save_plugin?token=${getToken()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename, code })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('✅ 插件已保存到 ' + result.path, 'success');
+        } else {
+            showStatus('❌ ' + (result.message || '保存失败'), 'danger');
+        }
+    } catch (error) {
+        showStatus('❌ 保存失败：' + error.message, 'danger');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-save"></i> 保存插件';
+    }
+}
+
+function clearForm() {
+    document.getElementById('ai-prompt').value = '';
+    document.getElementById('plugin-filename').value = '';
+    document.getElementById('code-result').style.display = 'none';
+    document.getElementById('generation-status').style.display = 'none';
+    if (codeEditor) {
+        codeEditor.setValue('');
+    }
+}
+
+function showStatus(message, type) {
+    const statusDiv = document.getElementById('generation-status');
+    statusDiv.className = `alert alert-${type}`;
+    statusDiv.innerHTML = message;
+    statusDiv.style.display = 'block';
+}
+</script>
+
+<link rel="stylesheet" href="{{ url_for('web.static', filename='css/vendor/codemirror.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('web.static', filename='css/vendor/codemirror-monokai.min.css') }}">
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-python.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-matchbrackets.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-closebrackets.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-active-line.min.js') }}"></script>
+{% endblock %}

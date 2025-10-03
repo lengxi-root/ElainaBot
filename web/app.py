@@ -1047,6 +1047,122 @@ def cancel_pending_config():
         return jsonify({'success': True, 'message': '已取消待应用的配置'})
     return jsonify({'success': False, 'message': '没有待应用的配置文件'}), 404
 
+@web.route('/api/ai/generate_plugin', methods=['POST'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def ai_generate_plugin():
+    """AI生成插件代码"""
+    data = request.get_json()
+    prompt = data.get('prompt', '').strip()
+    filename = data.get('filename', '').strip()
+    
+    if not prompt:
+        return jsonify({'success': False, 'message': '请输入需求描述'}), 400
+    
+    if not filename or not filename.endswith('.py'):
+        return jsonify({'success': False, 'message': '文件名必须以 .py 结尾'}), 400
+    
+    try:
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        example_plugin_path = os.path.join(script_dir, 'plugins', 'example', '示例插件（可喂给AI）.py')
+        
+        example_code = ''
+        if os.path.exists(example_plugin_path):
+            with open(example_plugin_path, 'r', encoding='utf-8') as f:
+                example_code = f.read()
+        
+        # 构建提示词
+        ai_prompt = f"""参考示例插件代码：
+```python
+{example_code}
+```
+
+关键规范：
+- 继承 Plugin 类
+- get_regex_handlers() 返回字典
+- @staticmethod 装饰器
+- 不要用 async/await
+- 数据库用 MySQL（%s 占位符）
+
+用户需求：{prompt}
+
+直接输出完整的Python代码，不要解释，不要用markdown包裹："""
+        
+        # 调用 AI API
+        response = requests.post(
+            'https://i.elaina.vin/api/ai.php',
+            json={'text': ai_prompt},
+            headers={'Content-Type': 'application/json'},
+            timeout=60
+        )
+        
+        result = response.json()
+        
+        if result.get('status') == 'success' and result.get('response'):
+            code = result['response']
+            code = re.sub(r'^```(?:python)?\s*\n', '', code)
+            code = re.sub(r'\n```\s*$', '', code)
+            generated_code = code.strip()
+            
+            return jsonify({
+                'success': True,
+                'code': generated_code,
+                'message': '代码生成成功'
+            })
+        else:
+            error_msg = result.get('message', 'AI 调用失败')
+            return jsonify({'success': False, 'message': error_msg}), 500
+        
+    except Exception as e:
+        error_msg = f"生成插件失败: {str(e)}"
+        add_error_log(error_msg, traceback.format_exc())
+        return jsonify({'success': False, 'message': error_msg}), 500
+
+@web.route('/api/ai/save_plugin', methods=['POST'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def ai_save_plugin():
+    """保存 AI 生成的插件"""
+    data = request.get_json()
+    filename = data.get('filename', '').strip()
+    code = data.get('code', '').strip()
+    
+    if not filename or not filename.endswith('.py'):
+        return jsonify({'success': False, 'message': '无效的文件名'}), 400
+    
+    if not code:
+        return jsonify({'success': False, 'message': '代码内容不能为空'}), 400
+    
+    try:
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ai_plugins_dir = os.path.join(script_dir, 'plugins', 'ai')
+        os.makedirs(ai_plugins_dir, exist_ok=True)
+        
+        target_path = os.path.join(ai_plugins_dir, filename)
+        
+        if os.path.exists(target_path):
+            return jsonify({'success': False, 'message': '文件已存在，请更换文件名'}), 409
+        
+        with open(target_path, 'w', encoding='utf-8') as f:
+            f.write(code)
+        
+        add_framework_log(f"AI 生成插件已保存: {filename}")
+        
+        return jsonify({
+            'success': True,
+            'message': '插件已保存',
+            'path': f'plugins/ai/{filename}'
+        })
+        
+    except Exception as e:
+        error_msg = f"保存插件失败: {str(e)}"
+        add_error_log(error_msg, traceback.format_exc())
+        return jsonify({'success': False, 'message': error_msg}), 500
+
 @web.route('/api/plugin/toggle', methods=['POST'])
 @check_ip_ban
 @require_token

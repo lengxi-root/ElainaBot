@@ -48,30 +48,10 @@ pip install -r requirements.txt
 
 3. 配置机器人
 
-编辑 `config.py` 文件，填写QQ机器人等配置信息：
 
 ```python
-# 机器人配置
-appid = "机器人APPID"
-secret = "机器人SECRET" 
-
-
-
-# 数据库配置
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': 3306,
-    'user': '用户名',
-    'password': '密码',
-    'database': '数据库名',
-    # ...其他配置
-}
-```
-
-4. 运行机器人
-
-```bash
-python main.py
+请进入 http://你的ip:5001/web
+#config的端口改变时，这个端口也要改成你配置的
 ```
 
 </details>
@@ -87,7 +67,7 @@ http://localhost:端口/web/?token=自己设置的access_token
 2. 通过Web面板可以：
    - 实时监控机器人状态
    - 监控内存使用情况
-   等等
+   - 等等
 
 ## 框架结构
 

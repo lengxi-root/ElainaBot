@@ -167,7 +167,7 @@ class Database:
         """从 API 获取用户昵称"""
         try:
             url = f"https://i.elaina.vin/api/bot/xx.php?openid={user_id}&appid={appid}"
-            response = get_json(url, timeout=10, verify=False)
+            response = get_json(url, timeout=3, verify=False)
             if isinstance(response, dict):
                 return response.get('名字') or response.get('name') or response.get('nickname')
             return None
@@ -181,6 +181,9 @@ class Database:
 
     def _update_user_name(self, user_id, name=None):
         if name is None:
+            existing_name = self.get_user_name(user_id)
+            if existing_name:
+                return
             name = self.fetch_user_name_from_api(user_id)
         
         if name:

@@ -20,7 +20,7 @@ POOL_CONFIG = {
     'read_timeout': DB_CONFIG['read_timeout'],
     'write_timeout': DB_CONFIG['write_timeout'],
     'connection_lifetime': DB_CONFIG['connection_lifetime'],
-    'thread_pool_size': max(50, (os.cpu_count() or 4) * 4),
+    'thread_pool_size': None,
     'retry_count': DB_CONFIG['retry_count'],
     'retry_interval': DB_CONFIG['retry_interval']
 }
@@ -36,7 +36,7 @@ class DatabasePool:
     _initialized = False
     _connection_requests = queue.Queue()
     _thread_pool = None
-    _min_connections = 10
+    _min_connections = 6
     _idle_timeout = 180
     _connection_lifetime = POOL_CONFIG['connection_lifetime']
     _request_timeout = 5.0
@@ -52,8 +52,8 @@ class DatabasePool:
     def __init__(self):
         with self._init_lock:
             if not self._initialized:
-                thread_pool_size = POOL_CONFIG['thread_pool_size']
-                self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=thread_pool_size, thread_name_prefix="DBPool")
+                from concurrent.futures import ThreadPoolExecutor
+                self._thread_pool = ThreadPoolExecutor(max_workers=300, thread_name_prefix="DBPool")
                 self._conn_request_thread = threading.Thread(target=self._process_connection_requests, daemon=True, name="DBConnRequestProcessor")
                 self._conn_request_thread.start()
                 self._init_pool()

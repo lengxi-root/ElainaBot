@@ -145,7 +145,8 @@ INITIAL_CONFIG_HTML = '''<!DOCTYPE html>
         <div class="config-card">
             <div class="alert alert-wizard alert-info">
                 <i class="bi bi-info-circle-fill"></i> 
-                <strong>提示：</strong> 请填写填必填项，频道图床和主人openid等无需填写吗，可在后续web面板重新填写，其他配置可使用默认值
+                <strong>提示：</strong> 请填写必填项，请提前创建好mysql数据库，频道图床和主人openid等无需填写，其他配置可使用默认值<br>
+                <strong>请注意：</strong> 重启后遇到403，请访问 http://ip:你设置的端口号/web?token=你设置的access_token<br>可在Web面板安全配置查看或设置
             </div>
 
             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -709,7 +710,7 @@ def start_initial_config_wizard():
         secret = str(getattr(config, 'secret', '')).strip()
         
         if not appid or not secret:
-            return jsonify({'success': False, 'message': '请至少填写 appid 和 secret'})
+            return jsonify({'success': False, 'message': '提示：</strong> 请填写必填项，请提前创建好mysql数据库，频道图床和主人openid等无需填写，其他配置可使用默认值'})
         
         base_dir = os.path.dirname(os.path.abspath(__file__))
         main_first = os.path.join(base_dir, 'main-first.py')

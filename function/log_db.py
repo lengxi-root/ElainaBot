@@ -20,9 +20,9 @@ DEFAULT_LOG_CONFIG = {
     'create_tables': True,
     'table_per_day': True,
     'batch_size': 0,
-    'min_pool_size': 3,
+    'min_pool_size': 5,
     'autocommit': True,
-    'pool_size': 50,
+    'pool_size': None,
 }
 
 MERGED_LOG_CONFIG = {**DEFAULT_LOG_CONFIG, **LOG_DB_CONFIG}
@@ -46,7 +46,7 @@ class LogDatabasePool:
     _pool = []
     _busy_connections = {}
     _initialized = False
-    _min_connections = max(2, MERGED_LOG_CONFIG['min_pool_size'] // 3)
+    _min_connections = MERGED_LOG_CONFIG['min_pool_size']
     _idle_timeout = 300
     
     def __new__(cls):
@@ -58,7 +58,7 @@ class LogDatabasePool:
     def __init__(self):
         with self._init_lock:
             if not self._initialized:
-                self._thread_pool = ThreadPoolExecutor(max_workers=MERGED_LOG_CONFIG['pool_size'], thread_name_prefix="LogDBPool")
+                self._thread_pool = ThreadPoolExecutor(max_workers=None, thread_name_prefix="LogDBPool")
                 self._init_pool()
                 self._maintenance_thread = threading.Thread(target=self._maintain_pool, daemon=True, name="LogDBPoolMaintenance")
                 self._maintenance_thread.start()

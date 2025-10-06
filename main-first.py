@@ -57,14 +57,21 @@ _app_initialized = False
 http_pool = get_pool_manager()
 _web_process = None
 _web_process_event = Event()
+_gc_counter = 0
+_message_handler_ready = threading.Event()
+_plugins_preloaded = False
+_message_executor = None
 
 def log_error(error_msg, tb_str=None):
     logging.error(f"{error_msg}\n{tb_str or traceback.format_exc()}")
     add_error_log(error_msg, tb_str or traceback.format_exc())
 
 def cleanup_gc():
-    if random.random() < 0.05:
+    global _gc_counter
+    _gc_counter += 1
+    if _gc_counter >= 100:
         gc.collect(0)
+        _gc_counter = 0
 
 def start_web_process():
     setup_logging()
@@ -149,7 +156,11 @@ def create_app():
         json_data = json.loads(data)
         op = json_data.get("op")
         if op == 0:
-            threading.Thread(target=process_message_event, args=(data.decode(),), daemon=True).start()
+            global _message_executor
+            if _message_executor is None:
+                from concurrent.futures import ThreadPoolExecutor
+                _message_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="MsgHandler")
+            _message_executor.submit(process_message_event, data.decode())
             return "OK"
         elif op == 13:
             from function.sign import Signs
@@ -159,47 +170,55 @@ def create_app():
     log_to_console("Flask应用创建成功")
     return flask_app
 
-def _process_message_concurrent(event):
-    import concurrent.futures
-    from core.plugin.PluginManager import PluginManager
-    result = [False]
-    
-    def plugin_task():
-        try:
-            result[0] = PluginManager.dispatch_message(event)
-        except Exception as e:
-            log_error(f"插件处理失败: {str(e)}")
-    
-    def storage_task():
-        if not event.skip_recording:
-            event._record_message_to_db_only()
-            import datetime
-            event._notify_web_display(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        plugin_future = executor.submit(plugin_task)
-        executor.submit(storage_task)
-        try:
-            plugin_future.result(timeout=0.1)
-        except concurrent.futures.TimeoutError:
-            pass
-    
-    event.record_last_message_id()
-    return result[0]
-
 def process_message_event(data):
     if not data:
         return False
-    from core.event.MessageEvent import MessageEvent
-    event = MessageEvent(data)
-    if event.ignore:
+    
+    global _plugins_preloaded
+    if not _plugins_preloaded:
+        _message_handler_ready.wait(timeout=5)
+    
+    try:
+        from core.event.MessageEvent import MessageEvent
+        from core.plugin.PluginManager import PluginManager
+        
+        event = MessageEvent(data)
+        if event.ignore:
+            del event
+            return False
+        
+        def async_db_tasks():
+            try:
+                if not event.skip_recording:
+                    event._record_user_and_group()
+                    event._record_message_to_db_only()
+                    import datetime
+                    event._notify_web_display(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                event.record_last_message_id()
+            except:
+                pass
+        
+        import threading
+        threading.Thread(target=async_db_tasks, daemon=True).start()
+        
+        try:
+            PluginManager.dispatch_message(event)
+        except Exception as e:
+            log_error(f"插件处理失败: {str(e)}")
+        
+        del event, data
+        cleanup_gc()
         return False
-    result = _process_message_concurrent(event)
-    cleanup_gc()
-    return result
+    except Exception as e:
+        log_error(f"消息处理异常: {str(e)}")
+        return False
 
 async def handle_ws_message(raw_data):
-    threading.Thread(target=process_message_event, args=(raw_data,), daemon=True).start()
+    global _message_executor
+    if _message_executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _message_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="MsgHandler")
+    _message_executor.submit(process_message_event, raw_data)
 
 async def create_websocket_client():
     from function.ws_client import create_qq_bot_client
@@ -221,6 +240,8 @@ def run_websocket_client():
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
     for attempt in range(3):
+        loop = None
+        client = None
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -240,7 +261,23 @@ def run_websocket_client():
                 time.sleep(10)
         finally:
             try:
-                loop.close()
+                if client:
+                    del client
+                if loop:
+                    try:
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    except:
+                        pass
+                    try:
+                        loop.close()
+                    except:
+                        pass
+                    del loop
+                gc.collect()
             except:
                 pass
 
@@ -252,18 +289,29 @@ def setup_websocket():
             log_to_console("WebSocket自动连接启动成功")
 
 def init_systems(is_subprocess=False):
+    global _message_handler_ready, _plugins_preloaded
     setup_logging()
     gc.enable()
     gc.set_threshold(700, 10, 5)
     gc.collect(0)
     log_to_console("垃圾回收系统初始化成功")
     
-    def load_plugins():
-        from core.plugin.PluginManager import PluginManager
-        PluginManager.load_plugins()
-        log_to_console("插件系统初始化成功")
+    def init_critical_systems():
+        try:
+            from function.database import Database
+            Database()
+            log_to_console("数据库系统初始化成功")
+            
+            from core.plugin.PluginManager import PluginManager
+            PluginManager.load_plugins()
+            log_to_console("插件系统初始化成功")
+            _plugins_preloaded = True
+            _message_handler_ready.set()
+        except Exception as e:
+            log_error(f"系统初始化失败: {str(e)}")
+            _message_handler_ready.set()
     
-    threading.Thread(target=load_plugins, daemon=True).start()
+    threading.Thread(target=init_critical_systems, daemon=True).start()
     
     if not is_subprocess:
         setup_websocket()

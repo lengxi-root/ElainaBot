@@ -77,13 +77,18 @@ class MessageEvent:
         self.message_id = self.get('d/id') or self.get('id') if self.event_type in ('GROUP_AT_MESSAGE_CREATE', 'C2C_MESSAGE_CREATE', 'AT_MESSAGE_CREATE') else self.get('id')
         self.timestamp = self.get('d/timestamp')
         self.matches = None
-        self.db = Database()
+        self._db = None
         self.ignore = False
         self.skip_recording = skip_recording
         self._endpoint_cache = {}
         self._parse_message()
-        if not self.ignore and not self.skip_recording:
-            self._record_user_and_group()
+    
+    @property
+    def db(self):
+        if self._db is None:
+            from function.database import Database
+            self._db = Database()
+        return self._db
 
     def _parse_message(self):
         if self.event_type in self._MESSAGE_TYPE_PARSERS:
@@ -710,8 +715,6 @@ class MessageEvent:
 
     def _notify_web_display(self, timestamp):
         from web.app import add_display_message
-        # formatted_message 仅用于兼容旧版本，web界面应使用结构化字段
-        # 只传递消息内容，避免在消息列显示ID
         formatted_message = self.content or ""
         add_display_message(
             formatted_message, 
@@ -722,10 +725,21 @@ class MessageEvent:
         )
 
     def _record_user_and_group(self):
-        user_is_new = False
+        def async_welcome_check():
+            try:
+                user_is_new = False
+                if self.user_id and hasattr(self.db, 'exists_user'):
+                    user_is_new = not self.db.exists_user(self.user_id)
+                
+                if user_is_new and self.is_group and self.message_type not in {self.GROUP_ADD_ROBOT, self.GROUP_DEL_ROBOT, self.FRIEND_ADD, self.FRIEND_DEL}:
+                    from config import ENABLE_NEW_USER_WELCOME
+                    if ENABLE_NEW_USER_WELCOME:
+                        from core.plugin.message_templates import MessageTemplate, MSG_TYPE_USER_WELCOME
+                        MessageTemplate.send(self, MSG_TYPE_USER_WELCOME, user_count=self.db.get_user_count())
+            except:
+                pass
+        
         if self.user_id:
-            if hasattr(self.db, 'exists_user') and not self.db.exists_user(self.user_id):
-                user_is_new = True
             self.db.add_user(self.user_id)
         if self.group_id:
             self.db.add_group(self.group_id)
@@ -733,11 +747,13 @@ class MessageEvent:
                 self.db.add_user_to_group(self.group_id, self.user_id)
         if self.is_private and self.user_id:
             self.db.add_member(self.user_id)
-        if user_is_new and self.is_group and ENABLE_NEW_USER_WELCOME and self.message_type not in {self.GROUP_ADD_ROBOT, self.GROUP_DEL_ROBOT, self.FRIEND_ADD, self.FRIEND_DEL}:
-            try:
-                MessageTemplate.send(self, MSG_TYPE_USER_WELCOME, user_count=self.db.get_user_count())
-            except:
-                pass
+        
+        try:
+            import eventlet
+            eventlet.spawn_n(async_welcome_check)
+        except:
+            import threading
+            threading.Thread(target=async_welcome_check, daemon=True).start()
 
     def record_last_message_id(self):
         if self.message_type in (self.GROUP_DEL_ROBOT, self.FRIEND_DEL):

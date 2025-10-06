@@ -11,6 +11,7 @@ import gc
 import weakref
 import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 from config import (
     SEND_DEFAULT_RESPONSE, OWNER_IDS, MAINTENANCE_MODE,
@@ -20,7 +21,6 @@ from core.plugin.message_templates import MessageTemplate, MSG_TYPE_MAINTENANCE,
 from web.app import add_plugin_log, add_framework_log, add_error_log
 from function.log_db import add_log_to_db
 
-# 全局变量
 _last_plugin_gc_time = 0
 _plugin_gc_interval = 30
 _blacklist_cache = {}
@@ -28,6 +28,8 @@ _blacklist_last_load = 0
 _blacklist_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "blacklist.json")
 _last_quick_check_time = 0
 _plugins_loaded = False
+_last_cache_cleanup = 0
+_plugin_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="PluginWorker")
 
 class Plugin:
     """插件接口基类"""
@@ -40,15 +42,13 @@ class Plugin:
         raise NotImplementedError("子类必须实现get_regex_handlers方法")
 
 class PluginManager:
-    """插件管理器"""
     _regex_handlers = {}
     _plugins = {}
     _file_last_modified = {}
     _unloaded_modules = []
     _regex_cache = {}
     _sorted_handlers = []
-    _handler_patterns_cache = {}  # 预编译的处理器模式缓存
-    _permission_cache = {}  # 权限检查缓存
+    _handler_patterns_cache = {}
 
     # === 通用辅助方法 ===
     @classmethod
@@ -167,14 +167,11 @@ class PluginManager:
     # === 插件加载管理 ===
     @classmethod
     def load_plugins(cls):
-        """加载所有插件"""
-        global _last_plugin_gc_time, _last_quick_check_time, _plugins_loaded
+        global _last_plugin_gc_time, _last_quick_check_time, _plugins_loaded, _last_cache_cleanup
         
         current_time = time.time()
         
-        # 快速检查避免频繁扫描（增加检查间隔到0.5秒）
-        if (_plugins_loaded and 
-            current_time - _last_quick_check_time < 0.5):
+        if (_plugins_loaded and current_time - _last_quick_check_time < 2.0):
             return len(cls._plugins)
         
         _last_quick_check_time = current_time
@@ -186,21 +183,23 @@ class PluginManager:
             os.makedirs(plugins_dir, exist_ok=True)
             return 0
         
-        # 检查已删除的文件
         cls._cleanup_deleted_files()
         
-        # 加载插件目录
         loaded_count = 0
         for dir_name in os.listdir(plugins_dir):
             dir_path = os.path.join(plugins_dir, dir_name)
             if os.path.isdir(dir_path):
                 loaded_count += cls._load_plugins_from_directory(script_dir, dir_name)
         
-        # 导入主模块实例
         main_module_loaded = cls._import_main_module_instances()
-        
-        # 定期垃圾回收
         cls._periodic_gc()
+        
+        if current_time - _last_cache_cleanup > 300:
+            if len(cls._regex_cache) > 200:
+                cls._regex_cache.clear()
+            if len(cls._handler_patterns_cache) > 200:
+                cls._handler_patterns_cache.clear()
+            _last_cache_cleanup = current_time
         
         _plugins_loaded = True
         return loaded_count + main_module_loaded
@@ -220,21 +219,28 @@ class PluginManager:
     
     @classmethod
     def _periodic_gc(cls):
-        """定期垃圾回收"""
         global _last_plugin_gc_time
         current_time = time.time()
         
         if cls._unloaded_modules and (current_time - _last_plugin_gc_time >= _plugin_gc_interval):
-            for module in cls._unloaded_modules:
-                for attr_name in dir(module):
-                    if not attr_name.startswith('__'):
-                        try:
-                            delattr(module, attr_name)
-                        except:
-                            pass
-            cls._unloaded_modules.clear()
-            gc.collect()
-            _last_plugin_gc_time = current_time
+            try:
+                for module in cls._unloaded_modules[:]:
+                    try:
+                        for attr_name in list(dir(module)):
+                            if not attr_name.startswith('__'):
+                                try:
+                                    delattr(module, attr_name)
+                                except:
+                                    pass
+                        del module
+                    except:
+                        pass
+                cls._unloaded_modules.clear()
+                gc.collect()
+            except:
+                pass
+            finally:
+                _last_plugin_gc_time = current_time
         
     @classmethod
     def _import_main_module_instances(cls):
@@ -590,16 +596,13 @@ class PluginManager:
     
     @classmethod
     def _rebuild_handler_patterns_cache(cls):
-        """重建处理器模式缓存以提升匹配性能"""
         cls._handler_patterns_cache.clear()
-        cls._permission_cache.clear()  # 清空权限缓存
         
         for i, handler_data in enumerate(cls._sorted_handlers):
             pattern = handler_data['pattern']
             handler_info = handler_data['handler_info']
             priority = handler_data['priority']
             
-            # 预编译正则表达式
             compiled_regex = cls._regex_cache.get(pattern)
             if not compiled_regex:
                 compiled_regex = cls._compile_and_cache_regex(pattern)
@@ -617,7 +620,6 @@ class PluginManager:
     # === 插件注册 ===
     @classmethod
     def register_plugin(cls, plugin_class, skip_log=False):
-        """注册插件"""
         priority = getattr(plugin_class, 'priority', 10)
         cls._plugins[plugin_class] = priority
         handlers = plugin_class.get_regex_handlers()
@@ -647,7 +649,7 @@ class PluginManager:
             handlers_count += 1
         
         cls._rebuild_sorted_handlers()
-        cls._handler_patterns_cache.clear()  # 清空缓存，下次使用时重建
+        cls._handler_patterns_cache.clear()
         return handlers_count
 
     # === 维护模式 ===
@@ -662,34 +664,27 @@ class PluginManager:
     # === 消息分发 ===
     @classmethod
     def dispatch_message(cls, event):
-        """消息分发处理主入口"""
         try:
-            cls.load_plugins()
-            
             if hasattr(event, 'handled') and event.handled:
                 return True
             
-            # 黑名单检查
             if hasattr(event, 'user_id') and event.user_id:
                 is_blacklisted, reason = cls.is_blacklisted(event.user_id)
                 if is_blacklisted:
                     MessageTemplate.send(event, MSG_TYPE_BLACKLIST, reason=reason)
                     return True
                 
-            # 维护模式检查
             if cls.is_maintenance_mode() and not cls.can_user_bypass_maintenance(event.user_id):
                 MessageTemplate.send(event, MSG_TYPE_MAINTENANCE)
                 return True
                 
-            # 权限预检查
             is_owner = event.user_id in OWNER_IDS
             is_group = cls._is_group_chat(event)
             
             return cls._process_message(event, is_owner, is_group)
             
         except Exception as e:
-            error_msg = f"消息分发处理失败: {str(e)}"
-            add_error_log(error_msg, traceback.format_exc())
+            add_error_log(f"消息分发处理失败: {str(e)}", traceback.format_exc())
             return False
 
     @classmethod
@@ -747,10 +742,8 @@ class PluginManager:
 
     @classmethod
     def _find_matched_handlers(cls, event_content, event, is_owner, is_group, permission_denied=None):
-        """查找匹配内容的所有处理器"""
         matched_handlers = []
         
-        # 使用预编译的处理器缓存提升性能
         if not cls._handler_patterns_cache:
             cls._rebuild_handler_patterns_cache()
         
@@ -760,18 +753,11 @@ class PluginManager:
             priority = handler_cache['priority']
             pattern = handler_cache['pattern']
             
-            # 快速正则匹配
             match = compiled_regex.search(event_content)
             if not match:
                 continue
             
-            # 权限缓存检查
-            permission_key = (handler_key, is_owner, is_group)
-            if permission_key in cls._permission_cache:
-                has_permission, deny_reason = cls._permission_cache[permission_key]
-            else:
-                has_permission, deny_reason = cls._check_permissions(handler_info, is_owner, is_group)
-                cls._permission_cache[permission_key] = (has_permission, deny_reason)
+            has_permission, deny_reason = cls._check_permissions(handler_info, is_owner, is_group)
             
             if not has_permission:
                 if permission_denied is not None:
@@ -790,7 +776,6 @@ class PluginManager:
 
     @classmethod
     def _execute_handlers(cls, event, matched_handlers, original_content=None):
-        """执行匹配的处理器"""
         matched = False
         
         for handler in matched_handlers:
@@ -810,19 +795,18 @@ class PluginManager:
                 error_msg = f"插件 {plugin_class.__name__} 处理消息时出错：{str(e)}"
                 add_error_log(error_msg, traceback.format_exc())
                 
-                # 记录到数据库
                 try:
                     add_log_to_db('error', {
                         'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
                         'content': error_msg,
                         'traceback': traceback.format_exc()
                     })
-                except Exception:
+                except:
                     pass
                     
                 matched = True
                 break
-                
+        
         return matched
 
     @classmethod
@@ -850,8 +834,8 @@ class PluginManager:
 
     @classmethod
     def _call_plugin_handler_with_logging(cls, plugin_class, handler_name, event, plugin_name):
-        """调用插件处理函数并处理日志"""
-        # 保存原始方法
+        global _plugin_executor
+        
         original_methods = {
             'reply': event.reply,
             'reply_image': getattr(event, 'reply_image', None),
@@ -863,32 +847,48 @@ class PluginManager:
         }
         
         is_first_reply = [True]
-        
-        # 创建日志包装器
         wrapped_methods = cls._create_method_logger(original_methods, plugin_name, is_first_reply, event)
         
-        # 替换方法
         for method_name, wrapped_method in wrapped_methods.items():
             if wrapped_method:
                 setattr(event, method_name, wrapped_method)
         
         try:
             handler = getattr(plugin_class, handler_name)
-            result = handler(event)
             
-            # 处理异步结果
-            if asyncio.iscoroutine(result):
+            def execute_handler():
                 try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+                    result = handler(event)
+                    if asyncio.iscoroutine(result):
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_closed():
+                                raise RuntimeError()
+                        except RuntimeError:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                        try:
+                            result = loop.run_until_complete(result)
+                        finally:
+                            try:
+                                loop.close()
+                            except:
+                                pass
+                    return result
+                except Exception as e:
+                    add_error_log(f"插件执行异常: {str(e)}", traceback.format_exc())
+                    return False
+            
+            future = _plugin_executor.submit(execute_handler)
+            
+            try:
+                from concurrent.futures import TimeoutError
+                result = future.result(timeout=3.0)
+                return result
+            except TimeoutError:
+                return True
                 
-                result = loop.run_until_complete(result)
-                
-            return result
         finally:
-            # 恢复原始方法
             for method_name, original_method in original_methods.items():
                 if original_method:
                     setattr(event, method_name, original_method)

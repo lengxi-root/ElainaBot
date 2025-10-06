@@ -170,8 +170,7 @@ class PluginManager:
         global _last_plugin_gc_time, _last_quick_check_time, _plugins_loaded, _last_cache_cleanup
         
         current_time = time.time()
-        
-        if (_plugins_loaded and current_time - _last_quick_check_time < 2.0):
+        if (_plugins_loaded and current_time - _last_quick_check_time < 2):
             return len(cls._plugins)
         
         _last_quick_check_time = current_time
@@ -665,6 +664,9 @@ class PluginManager:
     @classmethod
     def dispatch_message(cls, event):
         try:
+            # 检测插件更新（支持热加载）
+            cls.load_plugins()
+            
             if hasattr(event, 'handled') and event.handled:
                 return True
             

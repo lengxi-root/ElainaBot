@@ -9,6 +9,7 @@ import io
 from PIL import Image, ImageDraw, ImageFont
 from core.plugin.PluginManager import Plugin
 import config
+from config import USE_MARKDOWN
 from function.bot_api import get_bot_api
 
 # 使用框架的bot_api模块
@@ -501,16 +502,19 @@ class robot_data_plugin(Plugin):
                         app_type = login_data.get('appType')
                         app_type_str = '小程序' if app_type == '0' else '机器人' if app_type == '2' else '未知'
                         content = f"[{login_data.get('uin')}]\n管理员登录成功\n\n>登录类型：{app_type_str}\nAppId：{login_data.get('appId')}\n切换+appid可以切换机器人"
-                        buttons = event.button([
-                            event.rows([
-                                {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
-                                {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
-                                {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
-                                {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                        if USE_MARKDOWN:
+                            buttons = event.button([
+                                event.rows([
+                                    {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
+                                    {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                                    {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
+                                    {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                                ])
                             ])
-                        ])
+                            event.reply(content, buttons)
+                        else:
+                            event.reply(content)
                         _last_login_success[user_id] = time.time()
-                        event.reply(content, buttons)
                         return
                     else:
                         event.reply("管理员凭证已失效，正在重新获取登录二维码...")
@@ -542,11 +546,31 @@ class robot_data_plugin(Plugin):
         if not url or not qr:
             event.reply("获取登录二维码失败，请稍后重试")
             return
-        content = f"<@{user_id}>\n[QQ开发平台管理端登录]\n登录具有时效性，请尽快登录\n---\n>当你选择登录，代表你已经同意将数据托管给伊蕾娜Bot。"
-        buttons = event.button([
-            event.rows([{'text': '点击登录', 'data': url, 'type': 0, 'list': [user_id], 'style': 4}])
-        ])
-        event.reply(content, buttons)
+        content = f"<@{user_id}>\n[QQ开发平台管理端登录]\n登录具有时效性，请尽快登录\n\n>当你选择登录，代表你已经同意将数据托管给伊蕾娜Bot。"
+        if USE_MARKDOWN:
+            buttons = event.button([
+                event.rows([{'text': '点击登录', 'data': url, 'type': 0, 'list': [user_id], 'style': 4}])
+            ])
+            event.reply(content, buttons)
+        else:
+            display_url = url
+            if '://' in url:
+                parts = url.split('://')
+                protocol = parts[0]
+                rest = parts[1]
+                if '/' in rest:
+                    domain_parts = rest.split('/', 1)
+                    domain = domain_parts[0]
+                    path = '/' + domain_parts[1]
+                else:
+                    domain = rest
+                    path = ''
+                if '.' in domain:
+                    domain_segments = domain.split('.')
+                    domain_segments[-1] = domain_segments[-1].upper()
+                    domain = '.'.join(domain_segments)
+                display_url = f"{protocol}://{domain}{path}"
+            event.reply(f"{content}\n\n登录链接: {display_url}")
         max_time = time.time() + 60
         while time.time() < max_time:
             time.sleep(3)
@@ -560,16 +584,19 @@ class robot_data_plugin(Plugin):
                 app_type = login_data.get('appType')
                 app_type_str = '小程序' if app_type == '0' else '机器人' if app_type == '2' else '未知'
                 content = f"[{login_data.get('uin')}]\n登录成功\n\n>登录类型：{app_type_str}\nAppId：{login_data.get('appId')}\n切换+appid可以切换机器人"
-                buttons = event.button([
-                    event.rows([
-                        {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
-                        {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
-                        {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
-                        {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                if USE_MARKDOWN:
+                    buttons = event.button([
+                        event.rows([
+                            {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
+                            {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                            {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
+                            {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                        ])
                     ])
-                ])
+                    event.reply(content, buttons)
+                else:
+                    event.reply(content)
                 _last_login_success[user_id] = time.time()
-                event.reply(content, buttons)
                 if user_id in _login_tasks:
                     del _login_tasks[user_id]
                 return
@@ -581,10 +608,13 @@ class robot_data_plugin(Plugin):
         
         if not ensure_special_user_data(user):
             content = f'<@{user}> 未查询到你的登录信息'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
             
         robot_data_plugin._sync_get_message(event)
@@ -604,10 +634,13 @@ class robot_data_plugin(Plugin):
         
         if res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         
         msglist = [f"Uin:{data.get('uin')}\nAppid:{data.get('appId')}\n\n```python"]
@@ -621,15 +654,18 @@ class robot_data_plugin(Plugin):
             msglist.append(message_time)
         msglist.append('\n```\n')
         content = '\n'.join(msglist)
-        buttons = event.button([
-            event.rows([
-                {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
-                {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
-                {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
-                {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+        if USE_MARKDOWN:
+            buttons = event.button([
+                event.rows([
+                    {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
+                    {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                    {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
+                    {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                ])
             ])
-        ])
-        event.reply(content, buttons)
+            event.reply(content, buttons)
+        else:
+            event.reply(content)
 
     @staticmethod
     def get_botlist(event):
@@ -637,10 +673,13 @@ class robot_data_plugin(Plugin):
         
         if not ensure_special_user_data(user):
             content = f'<@{user}> 未查询到你的登录信息'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         robot_data_plugin._sync_get_botlist(event)
 
@@ -659,10 +698,13 @@ class robot_data_plugin(Plugin):
         
         if res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         
         msglist = [f"Uin:{data.get('uin')}\n\n```python"]
@@ -678,15 +720,18 @@ class robot_data_plugin(Plugin):
             msglist.append(f"介绍:{app_desc}")
         msglist.append('\n```\n')
         content = '\n'.join(msglist)
-        buttons = event.button([
-            event.rows([
-                {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
-                {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
-                {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
-                {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+        if USE_MARKDOWN:
+            buttons = event.button([
+                event.rows([
+                    {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
+                    {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                    {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
+                    {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                ])
             ])
-        ])
-        event.reply(content, buttons)
+            event.reply(content, buttons)
+        else:
+            event.reply(content)
 
     @staticmethod
     def get_botdata(event):
@@ -694,10 +739,13 @@ class robot_data_plugin(Plugin):
         
         if not ensure_special_user_data(user):
             content = f'<@{user}> 未查询到你的登录信息'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         robot_data_plugin._sync_get_botdata(event)
 
@@ -737,10 +785,13 @@ class robot_data_plugin(Plugin):
         
         if any(x.get('retcode', -1) != 0 for x in [data1_json, data2_json, data3_json]):
             content = f'<@{user}>登录状态失效'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         
         msg_data = data1_json.get('data', {}).get('msg_data', [])
@@ -786,15 +837,18 @@ class robot_data_plugin(Plugin):
             "\n```\n"
         ]
         content = '\n'.join(msglist)
-        buttons = event.button([
-            event.rows([
-                {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
-                {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
-                {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
-                {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+        if USE_MARKDOWN:
+            buttons = event.button([
+                event.rows([
+                    {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
+                    {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                    {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
+                    {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                ])
             ])
-        ])
-        event.reply(content, buttons)
+            event.reply(content, buttons)
+        else:
+            event.reply(content)
             
     @staticmethod
     def get_msgtpl(event):
@@ -802,10 +856,13 @@ class robot_data_plugin(Plugin):
         
         if not ensure_special_user_data(user):
             content = f'<@{user}> 未查询到你的登录信息'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         robot_data_plugin._sync_get_msgtpl(event)
 
@@ -825,10 +882,13 @@ class robot_data_plugin(Plugin):
         
         if res.get('retcode') != 0 and res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         
         msglist = [f"Uin:{data.get('uin')}\nAppid:{data.get('appId')}\n\n```python"]
@@ -839,7 +899,6 @@ class robot_data_plugin(Plugin):
             for j in range(min(len(templates), 8)):
                 if j > 0:
                     msglist.append('——————')
-                # 使用新的字段名
                 tpl_name = templates[j].get('模板名称', '未命名')
                 tpl_id = templates[j].get('模板id', '无ID')
                 status = templates[j].get('模板状态', '未知状态')
@@ -854,13 +913,16 @@ class robot_data_plugin(Plugin):
                     msglist.append(f"创建时间: {create_time}")
         msglist.append('\n```\n')
         content = '\n'.join(msglist)
-        buttons = event.button([
-            event.rows([
-                {'text': '详细', 'data': 'bot模板1', 'type': 2, 'style': 1},
-                {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+        if USE_MARKDOWN:
+            buttons = event.button([
+                event.rows([
+                    {'text': '详细', 'data': 'bot模板1', 'type': 2, 'style': 1},
+                    {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                ])
             ])
-        ])
-        event.reply(content, buttons)
+            event.reply(content, buttons)
+        else:
+            event.reply(content)
 
     @staticmethod
     def get_msgtpl_detail(event):
@@ -868,10 +930,13 @@ class robot_data_plugin(Plugin):
         
         if not ensure_special_user_data(user):
             content = f'<@{user}> 未查询到你的登录信息'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
             
         match = re.search(r'^bot模板\s*([^\s]+)$', event.content)
@@ -900,10 +965,13 @@ class robot_data_plugin(Plugin):
         )
         if res.get('retcode') != 0 and res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         
         templates = res.get('data', {}).get('list', [])
@@ -940,28 +1008,32 @@ class robot_data_plugin(Plugin):
             
             uploaded_url = event.uploadToQQImageBed(img_bytes.getvalue())
             if uploaded_url:
-                content = f"![模板详情 #1200px #900px]({uploaded_url})\n模板详情 ({current_index + 1}/{len(templates)})"
-                
-                first_row_buttons = [
-                    {'text': '模板列表', 'data': 'bot模板', 'type': 1, 'style': 1},
-                    {'text': '查询', 'data': 'bot模板', 'type': 2, 'style': 1}
-                ]
-                
-                second_row_buttons = []
-                if current_index > 0:
-                    prev_index = current_index
-                    second_row_buttons.append({'text': '上一个', 'data': f'bot模板{prev_index}', 'type': 1, 'style': 1})
-                
-                if current_index < len(templates) - 1:
-                    next_index = current_index + 2
-                    second_row_buttons.append({'text': '下一个', 'data': f'bot模板{next_index}', 'type': 1, 'style': 1})
-                
-                button_rows = [event.rows(first_row_buttons)]
-                if second_row_buttons:
-                    button_rows.append(event.rows(second_row_buttons))
-                
-                buttons = event.button(button_rows)
-                event.reply(content, buttons)
+                if USE_MARKDOWN:
+                    content = f"![模板详情 #1200px #900px]({uploaded_url})\n模板详情 ({current_index + 1}/{len(templates)})"
+                    
+                    first_row_buttons = [
+                        {'text': '模板列表', 'data': 'bot模板', 'type': 1, 'style': 1},
+                        {'text': '查询', 'data': 'bot模板', 'type': 2, 'style': 1}
+                    ]
+                    
+                    second_row_buttons = []
+                    if current_index > 0:
+                        prev_index = current_index
+                        second_row_buttons.append({'text': '上一个', 'data': f'bot模板{prev_index}', 'type': 1, 'style': 1})
+                    
+                    if current_index < len(templates) - 1:
+                        next_index = current_index + 2
+                        second_row_buttons.append({'text': '下一个', 'data': f'bot模板{next_index}', 'type': 1, 'style': 1})
+                    
+                    button_rows = [event.rows(first_row_buttons)]
+                    if second_row_buttons:
+                        button_rows.append(event.rows(second_row_buttons))
+                    
+                    buttons = event.button(button_rows)
+                    event.reply(content, buttons)
+                else:
+                    content = f"模板详情 ({current_index + 1}/{len(templates)})"
+                    event.reply_image(uploaded_url, content)
             else:
                 event.reply("上传模板详情图片失败，请稍后重试")
         except Exception as e:
@@ -973,10 +1045,13 @@ class robot_data_plugin(Plugin):
         
         if not ensure_special_user_data(user):
             content = f'<@{user}> 未查询到你的登录信息'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
             
         match = re.search(r'^切换appid\s*(.+)$', event.content)
@@ -1010,10 +1085,13 @@ class robot_data_plugin(Plugin):
         )
         if res.get('code') != 0:
             content = f'<@{user}>登录状态失效'
-            buttons = event.button([
-                event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
-            ])
-            event.reply(content, buttons)
+            if USE_MARKDOWN:
+                buttons = event.button([
+                    event.rows([{'text': '登录', 'data': '管理登录', 'type': 1, 'style': 1}])
+                ])
+                event.reply(content, buttons)
+            else:
+                event.reply(content)
             return
         
         apps = res.get('data', {}).get('apps', [])
@@ -1040,11 +1118,14 @@ class robot_data_plugin(Plugin):
         
         save_user_data(user, data)
         content = f"AppID已切换成功\n\n```python\n原AppID: {old_appid}\n新AppID: {new_appid}\n机器人: {app_name}\n```\n"
-        buttons = event.button([
-            event.rows([
-                {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
-                {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
-                {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+        if USE_MARKDOWN:
+            buttons = event.button([
+                event.rows([
+                    {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
+                    {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                    {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                ])
             ])
-        ])
-        event.reply(content, buttons) 
+            event.reply(content, buttons)
+        else:
+            event.reply(content) 

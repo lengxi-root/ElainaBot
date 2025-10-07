@@ -526,14 +526,11 @@ class LogDatabaseManager:
     
 
     def _cleanup_yesterday_ids(self):
-        try:
-            with self._with_cursor() as (cursor, connection):
-                table_name = self._get_table_name('id')
-                yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                cursor.execute(f"DELETE FROM `{table_name}` WHERE DATE(`timestamp`) = %s", (yesterday,))
-                connection.commit()
-        except:
-            pass
+        with self._with_cursor() as (cursor, connection):
+            table_name = self._get_table_name('id')
+            yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+            cursor.execute(f"DELETE FROM `{table_name}` WHERE DATE(`timestamp`) = %s", (yesterday,))
+            connection.commit()
 
     def shutdown(self):
         self._stop_event.set()
@@ -619,4 +616,12 @@ def add_sent_message_to_db(chat_type, chat_id, content, raw_message=None, timest
         'user_id': user_id, 'group_id': group_id, 'content': content, 'raw_message': raw_message or ''
     })
     log_db_manager._save_log_type_to_db('received')
+    return True
+
+def cleanup_yesterday_ids():
+    """清理昨天的ID记录"""
+    if not log_db_manager:
+        return False
+    log_db_manager._cleanup_yesterday_ids()
+    logger.info("昨日ID记录清理完成")
     return True

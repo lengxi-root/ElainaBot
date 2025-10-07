@@ -11,6 +11,7 @@ import gc
 import weakref
 import asyncio
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from config import (
@@ -20,6 +21,23 @@ from config import (
 from core.plugin.message_templates import MessageTemplate, MSG_TYPE_MAINTENANCE, MSG_TYPE_GROUP_ONLY, MSG_TYPE_OWNER_ONLY, MSG_TYPE_DEFAULT, MSG_TYPE_BLACKLIST
 from web.app import add_plugin_log, add_framework_log, add_error_log
 from function.log_db import add_log_to_db
+
+# 获取日志记录器
+_logger = logging.getLogger(__name__)
+
+def _log_error(error_msg, error_trace=None):
+    """统一的错误日志输出函数"""
+    # 输出到控制台
+    if error_trace:
+        _logger.error(f"{error_msg}\n{error_trace}")
+    else:
+        _logger.error(error_msg)
+    
+    # 同时推送到Web前台
+    try:
+        add_error_log(error_msg, error_trace or "")
+    except:
+        pass
 
 _last_plugin_gc_time = 0
 _plugin_gc_interval = 30
@@ -58,7 +76,7 @@ class PluginManager:
             return func(*args, **kwargs)
         except Exception as e:
             error_msg = error_msg_template.format(error=str(e))
-            add_error_log(error_msg, traceback.format_exc())
+            _log_error(error_msg, traceback.format_exc())
             return None
     
     @classmethod
@@ -117,7 +135,7 @@ class PluginManager:
             return compiled_regex
         except Exception as e:
             if error_context:
-                add_error_log(f"{error_context}正则表达式 '{pattern}' 编译失败: {str(e)}")
+                _log_error(f"{error_context}正则表达式 '{pattern}' 编译失败: {str(e)}")
             return None
 
     # === 黑名单管理 ===
@@ -146,7 +164,7 @@ class PluginManager:
                             _blacklist_cache = json.load(f)
                             _blacklist_last_load = current_time
             except Exception as e:
-                add_error_log(f"加载黑名单数据失败: {str(e)}", traceback.format_exc())
+                _log_error(f"加载黑名单数据失败: {str(e)}", traceback.format_exc())
                 
         return _blacklist_cache
     
@@ -254,7 +272,7 @@ class PluginManager:
                         if module:
                             loaded_count += cls._register_module_instances(plugin_class, module)
                 except Exception as e:
-                    add_error_log(f"导入主模块实例失败: {str(e)}", traceback.format_exc())
+                    _log_error(f"导入主模块实例失败: {str(e)}", traceback.format_exc())
         
         return loaded_count
     
@@ -274,7 +292,21 @@ class PluginManager:
                     if handlers > 0:
                         loaded_count += 1
             except Exception as e:
-                add_error_log(f"注册实例处理器失败: {str(e)}", traceback.format_exc())
+                error_msg = f"注册实例处理器失败: {attr_name} - {str(e)}"
+                error_trace = traceback.format_exc()
+                _log_error(error_msg, error_trace)
+                
+                # 记录到数据库
+                try:
+                    add_log_to_db('error', {
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'plugin_name': plugin_class.__name__,
+                        'instance_name': attr_name,
+                        'content': error_msg,
+                        'traceback': error_trace
+                    })
+                except:
+                    pass
         
         return loaded_count
 
@@ -354,7 +386,7 @@ class PluginManager:
                         cls._file_last_modified[file_path] = last_modified
                         loaded_count += cls._load_plugin_file(file_path, dir_name)
                 except (OSError, IOError) as e:
-                    add_error_log(f"获取文件修改时间失败: {file_path}, 错误: {str(e)}")
+                    _log_error(f"获取文件修改时间失败: {file_path}, 错误: {str(e)}")
                 
         return loaded_count
     
@@ -439,7 +471,21 @@ class PluginManager:
                     
         except Exception as e:
             error_msg = f"插件{'热更新' if module_fullname in sys.modules else '加载'}: {dir_name}/{plugin_name} 失败: {str(e)}"
-            add_error_log(error_msg, traceback.format_exc())
+            error_trace = traceback.format_exc()
+            _log_error(error_msg, error_trace)
+            
+            # 记录插件加载失败到数据库
+            try:
+                add_log_to_db('error', {
+                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'plugin_name': plugin_name,
+                    'plugin_file': plugin_file,
+                    'plugin_dir': dir_name,
+                    'content': error_msg,
+                    'traceback': error_trace
+                })
+            except:
+                pass
             
         return loaded_count
     
@@ -469,8 +515,21 @@ class PluginManager:
                     plugin_load_results.append(f"{attr_name}(优先级:{priority},处理器:{handlers_count})")
                 except Exception as e:
                     error_msg = f"插件类 {attr_name} 注册失败: {str(e)}"
+                    error_trace = traceback.format_exc()
                     plugin_load_results.append(f"{attr_name}(注册失败:{str(e)})")
-                    add_error_log(error_msg, traceback.format_exc())
+                    _log_error(error_msg, error_trace)
+                    
+                    # 记录插件注册失败到数据库
+                    try:
+                        add_log_to_db('error', {
+                            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                            'plugin_name': attr_name,
+                            'plugin_file': plugin_file,
+                            'content': error_msg,
+                            'traceback': error_trace
+                        })
+                    except:
+                        pass
                     
         # 记录加载结果
         if plugin_classes_found:
@@ -500,7 +559,7 @@ class PluginManager:
                     if plugin_class not in plugin_classes_to_remove:
                         plugin_classes_to_remove.append(plugin_class)
             except Exception as e:
-                add_error_log(f"查找插件类时出错: {str(e)}", traceback.format_exc())
+                _log_error(f"查找插件类时出错: {str(e)}", traceback.format_exc())
         
         # 清理正则处理器
         for pattern, handler_info in list(cls._regex_handlers.items()):
@@ -511,7 +570,7 @@ class PluginManager:
                     if pattern in cls._regex_cache:
                         del cls._regex_cache[pattern]
             except Exception as e:
-                add_error_log(f"清理正则处理器时出错: {str(e)}", traceback.format_exc())
+                _log_error(f"清理正则处理器时出错: {str(e)}", traceback.format_exc())
         
         # 清理插件类和资源
         for plugin_class in plugin_classes_to_remove:
@@ -544,7 +603,7 @@ class PluginManager:
                         pass
                         
         except Exception as e:
-            add_error_log(f"清理插件类资源时出错: {str(e)}", traceback.format_exc())
+            _log_error(f"清理插件类资源时出错: {str(e)}", traceback.format_exc())
     
     @classmethod
     def _cleanup_module(cls, module_fullname, file_exists):
@@ -573,7 +632,7 @@ class PluginManager:
                 del sys.modules[module_fullname]
                 
         except Exception as e:
-            add_error_log(f"清理模块时出错: {str(e)}", traceback.format_exc())
+            _log_error(f"清理模块时出错: {str(e)}", traceback.format_exc())
 
     # === 处理器管理 ===
     @classmethod 
@@ -686,7 +745,23 @@ class PluginManager:
             return cls._process_message(event, is_owner, is_group)
             
         except Exception as e:
-            add_error_log(f"消息分发处理失败: {str(e)}", traceback.format_exc())
+            error_msg = f"消息分发处理失败: {str(e)}"
+            error_trace = traceback.format_exc()
+            _log_error(error_msg, error_trace)
+            
+            # 记录到数据库
+            try:
+                add_log_to_db('error', {
+                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'user_id': getattr(event, 'user_id', ''),
+                    'group_id': getattr(event, 'group_id', 'c2c'),
+                    'message_content': getattr(event, 'content', '')[:500],
+                    'content': error_msg,
+                    'traceback': error_trace
+                })
+            except:
+                pass
+            
             return False
 
     @classmethod
@@ -795,13 +870,20 @@ class PluginManager:
                     break
             except Exception as e:
                 error_msg = f"插件 {plugin_class.__name__} 处理消息时出错：{str(e)}"
-                add_error_log(error_msg, traceback.format_exc())
+                error_trace = traceback.format_exc()
+                _log_error(error_msg, error_trace)
                 
+                # 记录详细的错误信息到数据库
                 try:
                     add_log_to_db('error', {
                         'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'plugin_name': plugin_class.__name__,
+                        'handler_name': handler_name,
+                        'user_id': getattr(event, 'user_id', ''),
+                        'group_id': getattr(event, 'group_id', 'c2c'),
+                        'message_content': getattr(event, 'content', '')[:500],
                         'content': error_msg,
-                        'traceback': traceback.format_exc()
+                        'traceback': error_trace
                     })
                 except:
                     pass
@@ -878,7 +960,25 @@ class PluginManager:
                                 pass
                     return result
                 except Exception as e:
-                    add_error_log(f"插件执行异常: {str(e)}", traceback.format_exc())
+                    # 捕获插件内部的所有错误并推送到前台
+                    error_msg = f"插件 {plugin_name} 执行异常: {str(e)}"
+                    error_trace = traceback.format_exc()
+                    _log_error(error_msg, error_trace)
+                    
+                    # 同时记录到数据库以便查询
+                    try:
+                        add_log_to_db('error', {
+                            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                            'plugin_name': plugin_name,
+                            'handler_name': handler_name,
+                            'user_id': getattr(event, 'user_id', ''),
+                            'group_id': getattr(event, 'group_id', 'c2c'),
+                            'content': error_msg,
+                            'traceback': error_trace
+                        })
+                    except:
+                        pass
+                    
                     return False
             
             future = _plugin_executor.submit(execute_handler)
@@ -888,6 +988,7 @@ class PluginManager:
                 result = future.result(timeout=3.0)
                 return result
             except TimeoutError:
+                # 插件执行超时，直接返回不记录
                 return True
                 
         finally:
@@ -945,7 +1046,7 @@ class PluginManager:
                 if re.search(regex_pattern, content):
                     return True
             except Exception as e:
-                add_error_log(f"排除正则 '{regex_pattern}' 匹配错误: {str(e)}")
+                _log_error(f"排除正则 '{regex_pattern}' 匹配错误: {str(e)}")
         return False
 
     @classmethod
@@ -984,4 +1085,4 @@ class PluginManager:
             add_log_to_db('unmatched', log_data)
 
         except Exception as e:
-            add_error_log(f"记录未匹配消息时出错: {str(e)}", traceback.format_exc()) 
+            _log_error(f"记录未匹配消息时出错: {str(e)}", traceback.format_exc()) 

@@ -23,7 +23,7 @@ class Database:
 
     def _init_database(self):
         if self._thread_pool is None:
-            self._thread_pool = ThreadPoolExecutor(max_workers=3)
+            self._thread_pool = ThreadPoolExecutor(max_workers=None, thread_name_prefix="Database")
         self._initialize_tables()
 
     def _initialize_tables(self):
@@ -166,7 +166,7 @@ class Database:
     def fetch_user_name_from_api(self, user_id):
         """从 API 获取用户昵称"""
         try:
-            url = f"https://i.elaina.vin/api/bot/xx.php?openid={user_id}&appid={appid}"
+            url = f"http://127.0.0.1:65535/api/bot/xx.php?openid={user_id}&appid={appid}"
             response = get_json(url, timeout=3, verify=False)
             if isinstance(response, dict):
                 return response.get('名字') or response.get('name') or response.get('nickname')

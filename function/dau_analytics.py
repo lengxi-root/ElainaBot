@@ -125,6 +125,7 @@ class DAUAnalytics:
             self._cache_timestamps.pop(key, None)
 
     def _daily_id_cleanup_task(self):
+        """每日ID清理任务 - 清理昨天的ID记录"""
         from function.log_db import cleanup_yesterday_ids
         cleanup_yesterday_ids()
 

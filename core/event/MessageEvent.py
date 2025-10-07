@@ -373,8 +373,13 @@ class MessageEvent:
                 audio_path = f.name
                 f.write(audio_data)
             pcm_path = audio_path + '.pcm'
-            subprocess.run(['ffmpeg', '-y', '-i', audio_path, '-ar', '48000', '-ac', '1', '-f', 's16le', '-loglevel', 'error', '-hide_banner', pcm_path], 
-                         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                ['ffmpeg', '-y', '-i', audio_path, '-ar', '48000', '-ac', '1', '-f', 's16le', 
+                 '-loglevel', 'quiet', '-hide_banner', pcm_path], 
+                check=True, 
+                stdout=subprocess.DEVNULL, 
+                stderr=subprocess.DEVNULL
+            )
             import pilk
             silk_path = audio_path + '.silk'
             pilk.encode(pcm_path, silk_path, pcm_rate=48000, tencent=True)

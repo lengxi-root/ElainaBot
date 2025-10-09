@@ -728,12 +728,17 @@ class PluginManager:
             
             if hasattr(event, 'handled') and event.handled:
                 return True
-            
             if hasattr(event, 'user_id') and event.user_id:
                 is_blacklisted, reason = cls.is_blacklisted(event.user_id)
                 if is_blacklisted:
-                    MessageTemplate.send(event, MSG_TYPE_BLACKLIST, reason=reason)
-                    return True
+                    is_id_command = False
+                    if hasattr(event, 'content') and event.content:
+                        id_command_pattern = r'^/?我的id$'
+                        if re.match(id_command_pattern, event.content.strip()):
+                            is_id_command = True
+                    if not is_id_command:
+                        MessageTemplate.send(event, MSG_TYPE_BLACKLIST, reason=reason)
+                        return True
                 
             if cls.is_maintenance_mode() and not cls.can_user_bypass_maintenance(event.user_id):
                 MessageTemplate.send(event, MSG_TYPE_MAINTENANCE)

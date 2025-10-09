@@ -139,3 +139,25 @@ BILIBILI_IMAGE_BED_CONFIG = {
     'sessdata': "",  # Bilibili SESSDATA Cookie
     'bucket': "openplatform",  # 上传bucket类型，一般为openplatform
 }
+
+# 框架自动更新配置 - 框架版本更新相关
+AUTO_UPDATE_CONFIG = {
+    'enabled': False,  # 是否启用自动更新功能
+    'check_interval': 1800,  # 更新检测间隔时间(秒)，默认1800秒(30分钟)
+    'auto_update': False,  # 是否自动更新(True=自动更新，False=仅检测提醒)
+    'backup_enabled': True,  # 更新前是否备份
+    
+    # 更新时不覆盖的文件和文件夹列表（支持通配符）
+    'skip_files': [
+        "config.py",  # 配置文件
+        "core/event/markdown_templates.py",  # Markdown模板
+        "core/plugin/message_templates.py",  # 消息模板
+        "plugins/",  # 插件目录
+        "data/",  # 数据目录
+        ".git/",  # Git目录
+        "__pycache__/",  # Python缓存
+        "*.pyc",  # Python编译文件
+        # 可在此添加自定义不覆盖的文件/文件夹
+
+    ],
+}

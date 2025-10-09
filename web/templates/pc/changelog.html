@@ -1,6 +1,72 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
+<!-- 版本信息卡片 -->
+<div class="row mb-3">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-muted mb-1">当前版本</h6>
+                        <h4 class="mb-0" id="current-version">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                            加载中...
+                        </h4>
+                        <small class="text-muted" id="version-update-time"></small>
+                    </div>
+                    <div class="text-end">
+                        <button class="btn btn-outline-primary btn-sm me-2" onclick="checkUpdate()">
+                            <i class="bi bi-search"></i> 检查更新
+                        </button>
+                        <button class="btn btn-success btn-sm" id="update-btn" onclick="startUpdate()" style="display: none;">
+                            <i class="bi bi-download"></i> 更新到最新版
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 更新信息 -->
+                <div id="update-info" class="mt-3" style="display: none;">
+                    <div class="alert alert-info mb-0">
+                        <i class="bi bi-info-circle"></i>
+                        <span id="update-message"></span>
+                    </div>
+                </div>
+                
+                <!-- 更新进度 -->
+                <div id="update-progress" class="mt-3" style="display: none;">
+                    <div class="progress" style="height: 25px;">
+                        <div id="update-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                            0%
+                        </div>
+                    </div>
+                    <small class="text-muted mt-2 d-block" id="update-status">正在准备更新...</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="text-muted mb-3">自动更新设置</h6>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>自动检查更新</span>
+                    <span class="badge bg-secondary" id="auto-check-status">未启用</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>自动安装更新</span>
+                    <span class="badge bg-secondary" id="auto-update-status">未启用</span>
+                </div>
+                <small class="text-muted mt-3 d-block">
+                    <i class="bi bi-info-circle"></i>
+                    在 config.py 中配置自动更新
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 更新日志列表 -->
 <div class="row">
     <div class="col-12">
@@ -93,84 +159,206 @@
 </style>
 
 <script>
-let changelogData = [];
+let changelogData = [], latestVersion = null;
+const getToken = () => new URLSearchParams(window.location.search).get('token') || '';
 
-// 页面加载时获取更新日志
 document.addEventListener('DOMContentLoaded', function() {
     loadChangelog();
+    loadVersionInfo();
+    loadUpdateStatus();
 });
 
-async function loadChangelog() {
-    const loadingContainer = document.getElementById('loading-container');
-    const errorContainer = document.getElementById('error-container');
-    const changelogContainer = document.getElementById('changelog-container');
-    
-    // 显示加载状态
-    loadingContainer.style.display = 'block';
-    errorContainer.style.display = 'none';
-    changelogContainer.style.display = 'none';
-    
+async function loadVersionInfo() {
     try {
-        const response = await fetch('/web/api/changelog');
+        const response = await fetch(`/web/api/update/version?token=${getToken()}`);
         const result = await response.json();
-        
+        if (result.success) {
+            const versionInfo = result.data;
+            document.getElementById('current-version').innerHTML = `<span class="badge bg-primary">${versionInfo.version || 'unknown'}</span>`;
+            if (versionInfo.update_time && versionInfo.update_time !== 'unknown') {
+                document.getElementById('version-update-time').textContent = `更新时间: ${versionInfo.update_time}`;
+            }
+        }
+    } catch (error) {
+        document.getElementById('current-version').innerHTML = '<span class="badge bg-secondary">unknown</span>';
+    }
+}
+
+async function loadUpdateStatus() {
+    try {
+        const response = await fetch(`/web/api/update/status?token=${getToken()}`);
+        const result = await response.json();
+        if (result.success) {
+            const status = result.data;
+            const checkStatus = document.getElementById('auto-check-status');
+            const updateStatus = document.getElementById('auto-update-status');
+            checkStatus.textContent = status.auto_update_enabled ? '已启用' : '未启用';
+            checkStatus.className = status.auto_update_enabled ? 'badge bg-success' : 'badge bg-secondary';
+            updateStatus.textContent = status.auto_update_on ? '已启用' : '未启用';
+            updateStatus.className = status.auto_update_on ? 'badge bg-success' : 'badge bg-secondary';
+        }
+    } catch (error) {
+        console.error('加载更新状态失败:', error);
+    }
+}
+
+async function checkUpdate() {
+    const updateBtn = document.getElementById('update-btn');
+    const updateInfo = document.getElementById('update-info');
+    const updateMessage = document.getElementById('update-message');
+    updateBtn.style.display = 'none';
+    updateInfo.style.display = 'none';
+    try {
+        updateMessage.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>正在检查更新...';
+        updateInfo.style.display = 'block';
+        const response = await fetch(`/web/api/update/check?token=${getToken()}`);
+        const result = await response.json();
+        if (result.success) {
+            const checkData = result.data;
+            if (checkData.has_update) {
+                latestVersion = checkData.latest_version;
+                updateMessage.innerHTML = `发现新版本: <strong>${checkData.latest_version}</strong> (当前: ${checkData.current_version})`;
+                updateBtn.style.display = 'inline-block';
+            } else {
+                updateMessage.textContent = '当前已是最新版本';
+                updateInfo.querySelector('.alert').className = 'alert alert-success mb-0';
+            }
+        } else {
+            throw new Error(result.message || '检查更新失败');
+        }
+    } catch (error) {
+        updateMessage.textContent = '检查更新失败: ' + error.message;
+        updateInfo.querySelector('.alert').className = 'alert alert-danger mb-0';
+    }
+}
+
+async function startUpdate() {
+    if (!confirm('确定要更新框架吗？\n\n更新前会自动备份当前版本，但更新过程中请不要关闭浏览器。')) return;
+    const updateBtn = document.getElementById('update-btn');
+    const updateInfo = document.getElementById('update-info');
+    const updateProgress = document.getElementById('update-progress');
+    updateBtn.style.display = 'none';
+    updateInfo.style.display = 'none';
+    updateProgress.style.display = 'block';
+    document.getElementById('update-status').textContent = '正在准备更新...';
+    try {
+        const response = await fetch(`/web/api/update/start?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        const result = await response.json();
+        if (result.success) {
+            document.getElementById('update-status').textContent = '更新已开始...';
+            pollUpdateProgress();
+        } else {
+            throw new Error(result.message || '启动更新失败');
+        }
+    } catch (error) {
+        updateProgress.style.display = 'none';
+        updateInfo.style.display = 'block';
+        document.getElementById('update-message').textContent = '更新失败: ' + error.message;
+        updateInfo.querySelector('.alert').className = 'alert alert-danger mb-0';
+    }
+}
+
+let pollInterval = null;
+async function pollUpdateProgress() {
+    if (pollInterval) clearInterval(pollInterval);
+    const progressBar = document.getElementById('update-progress-bar');
+    const statusText = document.getElementById('update-status');
+    const updateProgress = document.getElementById('update-progress');
+    const updateInfo = document.getElementById('update-info');
+    pollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/web/api/update/progress?token=${getToken()}`);
+            const result = await response.json();
+            if (result.success && result.data) {
+                const data = result.data;
+                if (data.progress !== undefined) {
+                    progressBar.style.width = data.progress + '%';
+                    progressBar.setAttribute('aria-valuenow', data.progress);
+                    progressBar.textContent = Math.round(data.progress) + '%';
+                }
+                if (data.message) statusText.textContent = data.message;
+                if (data.stage === 'failed') {
+                    progressBar.className = 'progress-bar bg-danger';
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    updateProgress.style.display = 'none';
+                    updateInfo.style.display = 'block';
+                    document.getElementById('update-message').innerHTML = `<strong>更新失败</strong><br>${data.message || '未知错误'}`;
+                    updateInfo.querySelector('.alert').className = 'alert alert-danger mb-0';
+                } else if (data.stage === 'completed') {
+                    progressBar.className = 'progress-bar bg-success';
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    updateProgress.style.display = 'none';
+                    updateInfo.style.display = 'block';
+                    document.getElementById('update-message').innerHTML = `<strong>更新成功！</strong><br>${data.message || ''}<br><small>更新后需要重启框架才能生效</small>`;
+                    updateInfo.querySelector('.alert').className = 'alert alert-success mb-0';
+                    setTimeout(() => loadVersionInfo(), 1000);
+                } else if (data.stage === 'preparing') {
+                    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-info';
+                } else if (data.is_updating) {
+                    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+                }
+            }
+        } catch (error) {
+            console.error('获取更新进度失败:', error);
+        }
+    }, 1000);
+}
+
+async function loadChangelog() {
+    const loading = document.getElementById('loading-container');
+    const error = document.getElementById('error-container');
+    const changelog = document.getElementById('changelog-container');
+    loading.style.display = 'block';
+    error.style.display = 'none';
+    changelog.style.display = 'none';
+    try {
+        const result = await (await fetch(`/web/api/changelog?token=${getToken()}`)).json();
         if (result.success) {
             changelogData = result.data;
             renderChangelog();
-            
-            // 显示内容
-            loadingContainer.style.display = 'none';
-            changelogContainer.style.display = 'block';
+            loading.style.display = 'none';
+            changelog.style.display = 'block';
         } else {
             throw new Error(result.error || '获取更新日志失败');
         }
     } catch (error) {
-        console.error('加载更新日志失败:', error);
-        
-        // 显示错误
-        loadingContainer.style.display = 'none';
-        errorContainer.style.display = 'block';
+        loading.style.display = 'none';
+        error.style.display = 'block';
         document.getElementById('error-message').textContent = error.message;
     }
 }
 
 function renderChangelog() {
     const container = document.getElementById('changelog-list');
-    
     if (changelogData.length === 0) {
         container.innerHTML = '<div class="text-center py-4 text-muted">没有提交记录</div>';
         return;
     }
-    
-    const html = changelogData.map(commit => `
+    container.innerHTML = changelogData.map(commit => `
         <div class="commit-item">
             <div class="d-flex justify-content-between align-items-start mb-2">
                 <div class="d-flex align-items-center">
                     <span class="commit-sha me-2">${commit.sha}</span>
-                    <span class="commit-author">
-                        <i class="bi bi-person"></i> ${commit.author}
-                    </span>
+                    <span class="commit-author"><i class="bi bi-person"></i> ${commit.author}</span>
                 </div>
-                <div class="commit-date">
-                    <i class="bi bi-calendar3"></i> ${commit.date}
-                </div>
+                <div class="commit-date"><i class="bi bi-calendar3"></i> ${commit.date}</div>
             </div>
             <div class="commit-message">${escapeHtml(commit.message)}</div>
-            ${commit.url ? `
-                <div class="mt-2">
-                    <a href="${commit.url}" target="_blank" class="commit-link text-decoration-none">
-                        <i class="bi bi-box-arrow-up-right"></i> 查看详情
-                    </a>
-                </div>
-            ` : ''}
+            ${commit.url ? `<div class="mt-2"><a href="${commit.url}" target="_blank" class="commit-link text-decoration-none"><i class="bi bi-box-arrow-up-right"></i> 查看详情</a></div>` : ''}
         </div>
     `).join('');
-    
-    container.innerHTML = html;
 }
 
 function refreshChangelog() {
     loadChangelog();
+    loadVersionInfo();
+    loadUpdateStatus();
 }
 
 function escapeHtml(text) {

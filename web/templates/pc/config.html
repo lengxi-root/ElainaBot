@@ -193,25 +193,13 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 
 <script>
 const CONFIG = {
-    groupOrder: {
-        '基础配置': '基础配置',
-        'SERVER_CONFIG': '服务器配置',
-        'LOG_CONFIG': '日志配置',
-        'WEBSOCKET_CONFIG': 'WebSocket配置',
-        'WEB_SECURITY': 'Web面板安全配置',
-        'WEB_INTERFACE': 'Web界面外观配置',
-        'DB_CONFIG': '主数据库配置',
-        'LOG_DB_CONFIG': '日志数据库配置',
-        'COS_CONFIG': '腾讯云COS配置',
-        'BILIBILI_IMAGE_BED_CONFIG': 'Bilibili图床配置'
-    },
     modeHints: {
         simple: { icon: 'bi-info-circle', class: '', text: '点击配置组快速切换，修改后点击"保存配置"，重启框架后生效' },
         advanced: { icon: 'bi-exclamation-triangle-fill', class: 'warning', text: '直接编辑配置文件，请确保语法正确，否则框架可能无法启动！' }
     }
 };
 
-let currentConfig = '', configItems = [], configGroups = {}, currentGroupKey = '', codeMirrorEditor = null;
+let currentConfig = '', configItems = [], configGroups = {}, currentGroupKey = '', codeMirrorEditor = null, groupDisplayNames = {};
 
 const getToken = () => new URLSearchParams(window.location.search).get('token') || '';
 const showElement = (el, show = true) => el && (el.style.display = show ? 'block' : 'none');
@@ -293,6 +281,7 @@ async function loadSimpleMode() {
         if (data.success) {
             configItems = data.items;
             configGroups = {};
+            groupDisplayNames = data.group_names || {};
             
             // 分类配置项
             data.items.forEach((item, index) => {
@@ -301,20 +290,20 @@ async function loadSimpleMode() {
                 (configGroups[groupName] || (configGroups[groupName] = [])).push(item);
             });
             
-            // 生成配置组按钮
+            // 生成配置组按钮（动态读取）
             const groupsSelector = document.getElementById('config-groups-selector');
             groupsSelector.innerHTML = '';
             let firstGroup = null;
+            const groupKeys = Object.keys(configGroups);
 
-            Object.keys(CONFIG.groupOrder).forEach((key, i) => {
-                if (!configGroups[key]) return;
-                if (i === 0) firstGroup = { key, title: CONFIG.groupOrder[key] };
-                
+            groupKeys.forEach((key, i) => {
+                const displayName = groupDisplayNames[key] || key;
+                if (i === 0) firstGroup = { key, title: displayName };
                 const btn = document.createElement('button');
                 btn.className = 'config-group-btn';
                 btn.setAttribute('data-group-key', key);
-                btn.onclick = (e) => { e.preventDefault(); showConfigGroup(key, CONFIG.groupOrder[key], btn); };
-                btn.innerHTML = `<i class="bi bi-folder"></i><span class="group-name">${CONFIG.groupOrder[key]}</span><span class="item-count">${configGroups[key].length}</span>`;
+                btn.onclick = (e) => { e.preventDefault(); showConfigGroup(key, displayName, btn); };
+                btn.innerHTML = `<i class="bi bi-folder"></i><span class="group-name">${displayName}</span><span class="item-count">${configGroups[key].length}</span>`;
                 groupsSelector.appendChild(btn);
             });
             
@@ -342,7 +331,8 @@ function showConfigGroup(groupKey, groupTitle, btnElement) {
     if (currentGroupKey && currentGroupKey !== groupKey) saveCurrentFormData();
     document.querySelectorAll('.config-group-btn').forEach(btn => btn.classList.remove('active'));
     if (btnElement) btnElement.classList.add('active');
-    showConfigGroupInternal(groupKey, groupTitle);
+    const displayTitle = groupTitle || groupDisplayNames[groupKey] || groupKey;
+    showConfigGroupInternal(groupKey, displayTitle);
 }
 
 // 保存当前表单数据
@@ -356,7 +346,11 @@ function saveCurrentFormData() {
         if (!input) return;
         
         if (item.type === 'boolean') item.value = input.checked;
-        else if (item.type === 'list') item.value = input.value.trim() ? input.value.split('\n').filter(line => line.trim()) : [];
+        else if (item.type === 'list') {
+            item.value = input.value.trim() ? input.value.split('\n')
+                .map(line => line.trim())
+                .filter(line => line && !line.startsWith('#')) : [];
+        }
         else if (item.type === 'number') item.value = parseFloat(input.value) || 0;
         else item.value = input.value;
         
@@ -390,7 +384,8 @@ function showConfigGroupInternal(groupKey, groupTitle) {
             itemDiv.innerHTML = `<div class="config-label">${labelHtml}</div><input type="number" class="form-control" id="config-${item.index}" data-index="${item.index}" value="${item.value}">`;
         } else if (item.type === 'list') {
             const listValue = Array.isArray(item.value) ? item.value.join('\n') : '';
-            itemDiv.innerHTML = `<div class="config-label">${labelHtml}</div><textarea class="form-control" id="config-${item.index}" data-index="${item.index}" rows="3" placeholder="每行输入一个项目">${listValue}</textarea><small class="text-muted">每行一个项目，空行将被忽略</small>`;
+            const rows = Math.max(3, Math.min(15, (item.value || []).length + 2));
+            itemDiv.innerHTML = `<div class="config-label">${labelHtml}</div><textarea class="form-control" id="config-${item.index}" data-index="${item.index}" rows="${rows}" placeholder="每行输入一个项目">${listValue}</textarea><small class="text-muted">每行一个项目，空行和注释行(#开头)将被忽略</small>`;
         } else {
             const escapedValue = String(item.value).replace(/"/g, '&quot;');
             itemDiv.innerHTML = `<div class="config-label">${labelHtml}</div><input type="text" class="form-control" id="config-${item.index}" data-index="${item.index}" value="${escapedValue}">`;
@@ -550,7 +545,7 @@ window.addEventListener('beforeunload', function(e) {
             if (input) {
                 let currentValue = item.type === 'boolean' ? input.checked : 
                                  item.type === 'number' ? parseFloat(input.value) :
-                                 item.type === 'list' ? JSON.stringify(input.value.split('\n').map(line => line.trim()).filter(line => line.length > 0)) :
+                                 item.type === 'list' ? JSON.stringify(input.value.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'))) :
                                  input.value;
                 const originalValue = item.type === 'list' ? JSON.stringify(item.value) : item.value;
                 if (currentValue !== originalValue) hasChanges = true;

@@ -17,7 +17,7 @@ import uuid
 import random
 from datetime import datetime, timedelta
 from collections import deque
-from flask import Flask, render_template, request, jsonify, Blueprint, make_response
+from flask import Flask, render_template, request, jsonify, Blueprint, make_response, current_app
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import psutil
@@ -661,6 +661,75 @@ def get_changelog():
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取更新日志失败: {str(e)}'}), 500
 
+@web.route('/api/update/version')
+@require_token
+@require_auth
+@catch_error
+def get_current_version():
+    try:
+        from function.updater import get_updater
+        return jsonify({'success': True, 'data': get_updater().get_version_info()})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取版本信息失败: {str(e)}'}), 500
+
+@web.route('/api/update/check')
+@require_token
+@require_auth
+@catch_error
+def check_update():
+    try:
+        from function.updater import get_updater
+        return jsonify({'success': True, 'data': get_updater().check_for_updates()})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'检查更新失败: {str(e)}'}), 500
+
+@web.route('/api/update/start', methods=['POST'])
+@require_token
+@require_auth
+@catch_error
+def start_update():
+    try:
+        version = (request.get_json() or {}).get('version')
+        from function.updater import get_updater
+        updater = get_updater()
+        def do_update():
+            try:
+                result = updater.update_to_version(version) if version else updater.update_to_latest()
+            except Exception as e:
+                updater._report_progress('failed', f'更新出错: {str(e)}', 0)
+        threading.Thread(target=do_update, daemon=True).start()
+        return jsonify({'success': True, 'message': '更新已开始'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'启动更新失败: {str(e)}'}), 500
+
+@web.route('/api/update/status')
+@require_token
+@require_auth
+@catch_error
+def get_update_status():
+    try:
+        from function.updater import get_updater
+        updater = get_updater()
+        return jsonify({'success': True, 'data': {
+            'auto_update_enabled': updater.config.get('enabled', False),
+            'auto_update_on': updater.config.get('auto_update', False),
+            'check_interval': updater.config.get('check_interval', 1800),
+            'is_checking': updater._update_thread and updater._update_thread.is_alive()
+        }})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取更新状态失败: {str(e)}'}), 500
+
+@web.route('/api/update/progress')
+@require_token
+@require_auth
+@catch_error
+def get_update_progress():
+    try:
+        from function.updater import get_updater
+        return jsonify({'success': True, 'data': get_updater().get_progress()})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取更新进度失败: {str(e)}'}), 500
+
 @web.route('/api/config/get')
 @require_token
 @require_auth
@@ -708,9 +777,11 @@ def parse_config():
         
         # 解析配置项
         config_items = []
+        group_display_names = {}  # 存储配置组的显示名称
         lines = content.split('\n')
-        current_dict = None  # 当前正在解析的字典名称
-        dict_indent = 0      # 字典的缩进级别
+        current_dict = None
+        dict_indent = 0
+        last_comment = None  # 记录最后一个注释
         
         for i, line in enumerate(lines):
             stripped = line.strip()
@@ -719,8 +790,9 @@ def parse_config():
             if not stripped or stripped.startswith('"""') or stripped.startswith("'''") or stripped.startswith('import ') or stripped.startswith('from '):
                 continue
             
-            # 如果是注释行，只处理作为section标题的注释（后面会有相关配置）
+            # 记录注释行，可能是配置组的描述
             if stripped.startswith('#'):
+                last_comment = stripped.lstrip('#').strip()
                 continue
             
             # 检测字典的开始: VAR_NAME = {
@@ -729,6 +801,14 @@ def parse_config():
             if dict_match:
                 current_dict = dict_match.group(1)
                 dict_indent = len(line) - len(line.lstrip())
+                
+                # 提取配置组的显示名称（从注释中）
+                if last_comment and '-' in last_comment:
+                    display_name = last_comment.split('-')[0].strip()
+                    group_display_names[current_dict] = display_name
+                
+                last_comment = None  # 清除已使用的注释
+                
                 # 如果是单行字典定义（如 VAR = {}），则不进入字典解析模式
                 if dict_match.group(2).strip() == '}':
                     current_dict = None
@@ -754,7 +834,10 @@ def parse_config():
                         parsed_value = ast.literal_eval(value_str)
                         
                         # 确定类型
-                        if isinstance(parsed_value, bool):
+                        if parsed_value is None:
+                            value_type = 'string'
+                            value = ''
+                        elif isinstance(parsed_value, bool):
                             value_type = 'boolean'
                             value = parsed_value
                         elif isinstance(parsed_value, (int, float)):
@@ -802,11 +885,13 @@ def parse_config():
                 
                 # 使用ast安全解析值
                 try:
-                    # 尝试使用ast.literal_eval解析值
                     parsed_value = ast.literal_eval(value_str)
                     
                     # 确定类型
-                    if isinstance(parsed_value, bool):
+                    if parsed_value is None:
+                        value_type = 'string'
+                        value = ''
+                    elif isinstance(parsed_value, bool):
                         value_type = 'boolean'
                         value = parsed_value
                     elif isinstance(parsed_value, (int, float)):
@@ -816,7 +901,6 @@ def parse_config():
                         value_type = 'string'
                         value = parsed_value
                     elif isinstance(parsed_value, list):
-                        # 只处理简单的字符串列表
                         if all(isinstance(item, str) for item in parsed_value):
                             value_type = 'list'
                             value = parsed_value
@@ -834,8 +918,6 @@ def parse_config():
                         'is_dict_item': False
                     })
                 except (ValueError, SyntaxError):
-                    # 如果ast解析失败，尝试简单处理
-                    # 可能是f-string或其他复杂表达式，跳过
                     continue
         
         # 确定配置文件来源
@@ -846,7 +928,8 @@ def parse_config():
             'success': True,
             'items': config_items,
             'is_new': is_new,
-            'source': source
+            'source': source,
+            'group_names': group_display_names
         })
     except Exception as e:
         return jsonify({
@@ -894,11 +977,16 @@ def update_config_items():
             is_dict_item = item.get('is_dict_item', False)
             
             # 格式化新值
-            formatted_value = (f'"{new_value}"' if value_type == 'string' else
-                             'True' if (value_type == 'boolean' and new_value) else 'False' if value_type == 'boolean' else
-                             str(new_value) if value_type == 'number' else
-                             '[' + ', '.join([f'"{item}"' for item in new_value]) + ']' if (value_type == 'list' and isinstance(new_value, list)) else
-                             '[]' if value_type == 'list' else str(new_value))
+            if value_type == 'string':
+                formatted_value = 'None' if new_value == '' else f'"{new_value}"'
+            elif value_type == 'boolean':
+                formatted_value = 'True' if new_value else 'False'
+            elif value_type == 'number':
+                formatted_value = str(new_value)
+            elif value_type == 'list':
+                formatted_value = '[' + ', '.join([f'"{item}"' for item in new_value]) + ']' if isinstance(new_value, list) else '[]'
+            else:
+                formatted_value = str(new_value)
             
             # 在文件中查找并替换，保留行尾注释
             if is_dict_item:
@@ -3309,7 +3397,7 @@ if __name__ == "__main__":
         is_windows = platform.system().lower() == 'windows'
         
         if is_windows:
-            subprocess.Popen(['python', restart_script_path], cwd=current_dir,
+            subprocess.Popen([sys.executable, restart_script_path], cwd=current_dir,
                            creationflags=subprocess.CREATE_NEW_CONSOLE)
         else:
             subprocess.Popen([sys.executable, restart_script_path], cwd=current_dir,

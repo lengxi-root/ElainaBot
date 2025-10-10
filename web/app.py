@@ -24,21 +24,12 @@ import psutil
 import requests
 from config import LOG_DB_CONFIG, WEB_SECURITY, WEB_INTERFACE, ROBOT_QQ, appid, WEBSOCKET_CONFIG
 
-try:
-    from function.log_db import add_log_to_db, add_sent_message_to_db
-except ImportError:
-    def add_log_to_db(log_type, log_data):
-        return False
-    def add_sent_message_to_db(chat_type, chat_id, content, raw_message=None, timestamp=None):
-        return False
+from function.log_db import add_log_to_db, add_sent_message_to_db
 
 def get_websocket_status():
-    try:
-        from function.ws_client import get_client
-        client = get_client("qq_bot")
-        return "连接成功" if (client and hasattr(client, 'connected') and client.connected) else "连接失败"
-    except Exception:
-        return "连接失败"
+    from function.ws_client import get_client
+    client = get_client("qq_bot")
+    return "连接成功" if (client and hasattr(client, 'connected') and client.connected) else "连接失败"
 
 PREFIX = '/web'
 web = Blueprint('web', __name__, 
@@ -63,8 +54,6 @@ IP_DATA_FILE = os.path.join(WEB_DATA_DIR, 'ip.json')
 SESSION_DATA_FILE = os.path.join(WEB_DATA_DIR, 'sessions.json')
 ip_access_data = {}
 _last_ip_cleanup = 0
-
-# 初始化：确保数据目录存在
 os.makedirs(WEB_DATA_DIR, exist_ok=True)
 
 historical_data_cache = None
@@ -75,10 +64,8 @@ TODAY_CACHE_DURATION = 600
 statistics_cache = None
 statistics_cache_time = 0
 STATISTICS_CACHE_DURATION = 300
-
-# 异步任务管理
-statistics_tasks = {}  # 存储统计任务状态
-task_results = {}      # 存储任务结果
+statistics_tasks = {}
+task_results = {}
 
 def format_datetime(dt_str):
     try:
@@ -161,42 +148,27 @@ def save_ip_data():
     safe_file_operation('write', IP_DATA_FILE, ip_access_data)
 
 def load_session_data():
-    """加载持久化的会话数据"""
     global valid_sessions
-    try:
-        if os.path.exists(SESSION_DATA_FILE):
-            with open(SESSION_DATA_FILE, 'r', encoding='utf-8') as f:
-                sessions = json.load(f)
-                # 将字符串格式的时间转换回datetime对象
-                for session_token, session_info in sessions.items():
-                    try:
-                        session_info['created'] = datetime.fromisoformat(session_info['created'])
-                        session_info['expires'] = datetime.fromisoformat(session_info['expires'])
-                        # 只加载未过期的会话
-                        if datetime.now() < session_info['expires']:
-                            valid_sessions[session_token] = session_info
-                    except Exception:
-                        continue
-    except Exception:
-        valid_sessions = {}
+    if os.path.exists(SESSION_DATA_FILE):
+        with open(SESSION_DATA_FILE, 'r', encoding='utf-8') as f:
+            sessions = json.load(f)
+            for session_token, session_info in sessions.items():
+                session_info['created'] = datetime.fromisoformat(session_info['created'])
+                session_info['expires'] = datetime.fromisoformat(session_info['expires'])
+                if datetime.now() < session_info['expires']:
+                    valid_sessions[session_token] = session_info
 
 def save_session_data():
-    """保存会话数据到文件"""
-    try:
-        # 将datetime对象转换为字符串格式
-        sessions_to_save = {}
-        for session_token, session_info in valid_sessions.items():
-            sessions_to_save[session_token] = {
-                'created': session_info['created'].isoformat(),
-                'expires': session_info['expires'].isoformat(),
-                'ip': session_info.get('ip', ''),
-                'user_agent': session_info.get('user_agent', '')
-            }
-        
-        with open(SESSION_DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(sessions_to_save, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    sessions_to_save = {}
+    for session_token, session_info in valid_sessions.items():
+        sessions_to_save[session_token] = {
+            'created': session_info['created'].isoformat(),
+            'expires': session_info['expires'].isoformat(),
+            'ip': session_info.get('ip', ''),
+            'user_agent': session_info.get('user_agent', '')
+        }
+    with open(SESSION_DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(sessions_to_save, f, ensure_ascii=False, indent=2)
 
 def record_ip_access(ip_address, access_type='token_success', device_info=None):
     global ip_access_data
@@ -1360,18 +1332,13 @@ def ai_save_plugin():
 @require_auth
 @catch_error
 def toggle_plugin():
-    """启用或禁用插件"""
     data = request.get_json()
     plugin_path = data.get('path')
-    action = data.get('action')  # 'enable' 或 'disable'
+    action = data.get('action')
     
-    if not plugin_path or not action:
-        return jsonify({'success': False, 'message': '缺少必要参数'}), 400
+    if not plugin_path or not action or action not in ['enable', 'disable']:
+        return jsonify({'success': False, 'message': '参数错误'}), 400
     
-    if action not in ['enable', 'disable']:
-        return jsonify({'success': False, 'message': '无效的操作类型'}), 400
-    
-    # 安全检查：确保路径在 plugins 目录下
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     plugins_dir = os.path.join(script_dir, 'plugins')
     abs_plugin_path = os.path.abspath(plugin_path)
@@ -1379,51 +1346,227 @@ def toggle_plugin():
     if not abs_plugin_path.startswith(os.path.abspath(plugins_dir)):
         return jsonify({'success': False, 'message': '无效的插件路径'}), 403
     
-    try:
-        if action == 'disable':
-            # 禁用插件：将 .py 改为 .py.ban
-            if not plugin_path.endswith('.py'):
-                return jsonify({'success': False, 'message': '只能禁用 .py 文件'}), 400
-            
-            new_path = plugin_path + '.ban'
-            if os.path.exists(new_path):
-                return jsonify({'success': False, 'message': '禁用文件已存在'}), 409
-            
-            os.rename(plugin_path, new_path)
-            add_framework_log(f"插件已禁用: {os.path.basename(plugin_path)}")
-            
-            return jsonify({
-                'success': True,
-                'message': '插件已禁用',
-                'new_path': new_path
-            })
-            
-        elif action == 'enable':
-            # 启用插件：将 .py.ban 改为 .py
-            if not plugin_path.endswith('.py.ban'):
-                return jsonify({'success': False, 'message': '只能启用 .py.ban 文件'}), 400
-            
-            new_path = plugin_path[:-4]  # 移除 .ban
-            if os.path.exists(new_path):
-                return jsonify({'success': False, 'message': '启用文件已存在'}), 409
-            
-            os.rename(plugin_path, new_path)
-            add_framework_log(f"插件已启用: {os.path.basename(new_path)}")
-            
-            return jsonify({
-                'success': True,
-                'message': '插件已启用',
-                'new_path': new_path
-            })
-            
-    except PermissionError:
-        return jsonify({'success': False, 'message': '没有权限操作该文件'}), 403
-    except FileNotFoundError:
+    if action == 'disable':
+        if not plugin_path.endswith('.py'):
+            return jsonify({'success': False, 'message': '只能禁用 .py 文件'}), 400
+        new_path = plugin_path + '.ban'
+        if os.path.exists(new_path):
+            return jsonify({'success': False, 'message': '禁用文件已存在'}), 409
+        os.rename(plugin_path, new_path)
+        add_framework_log(f"插件已禁用: {os.path.basename(plugin_path)}")
+        return jsonify({'success': True, 'message': '插件已禁用', 'new_path': new_path})
+    else:
+        if not plugin_path.endswith('.py.ban'):
+            return jsonify({'success': False, 'message': '只能启用 .py.ban 文件'}), 400
+        new_path = plugin_path[:-4]
+        if os.path.exists(new_path):
+            return jsonify({'success': False, 'message': '启用文件已存在'}), 409
+        os.rename(plugin_path, new_path)
+        add_framework_log(f"插件已启用: {os.path.basename(new_path)}")
+        return jsonify({'success': True, 'message': '插件已启用', 'new_path': new_path})
+
+@web.route('/api/plugin/read', methods=['POST'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def read_plugin():
+    data = request.get_json()
+    plugin_path = data.get('path')
+    
+    if not plugin_path:
+        return jsonify({'success': False, 'message': '缺少插件路径'}), 400
+    
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(script_dir, 'plugins')
+    abs_plugin_path = os.path.abspath(plugin_path)
+    
+    if not abs_plugin_path.startswith(os.path.abspath(plugins_dir)):
+        return jsonify({'success': False, 'message': '无效的插件路径'}), 403
+    
+    if not os.path.isfile(abs_plugin_path):
         return jsonify({'success': False, 'message': '文件不存在'}), 404
-    except Exception as e:
-        error_msg = f"操作插件失败: {str(e)}"
-        add_error_log(error_msg, traceback.format_exc())
-        return jsonify({'success': False, 'message': error_msg}), 500
+    
+    with open(abs_plugin_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    return jsonify({
+        'success': True,
+        'content': content,
+        'path': plugin_path,
+        'filename': os.path.basename(plugin_path)
+    })
+
+@web.route('/api/plugin/save', methods=['POST'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def save_plugin():
+    data = request.get_json()
+    plugin_path = data.get('path')
+    content = data.get('content')
+    
+    if not plugin_path or content is None:
+        return jsonify({'success': False, 'message': '缺少必要参数'}), 400
+    
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(script_dir, 'plugins')
+    abs_plugin_path = os.path.abspath(plugin_path)
+    
+    if not abs_plugin_path.startswith(os.path.abspath(plugins_dir)):
+        return jsonify({'success': False, 'message': '无效的插件路径'}), 403
+    
+    if os.path.exists(abs_plugin_path):
+        import shutil
+        shutil.copy2(abs_plugin_path, abs_plugin_path + '.backup')
+    
+    with open(abs_plugin_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    
+    add_framework_log(f"插件已保存: {os.path.basename(plugin_path)}")
+    
+    return jsonify({'success': True, 'message': '插件保存成功'})
+
+@web.route('/api/plugin/create', methods=['POST'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def create_plugin():
+    data = request.get_json()
+    directory = data.get('directory')
+    filename = data.get('filename')
+    
+    if not directory or not filename:
+        return jsonify({'success': False, 'message': '缺少必要参数'}), 400
+    
+    if not filename.endswith('.py'):
+        filename += '.py'
+    
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(script_dir, 'plugins')
+    target_dir = os.path.join(plugins_dir, directory)
+    
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(plugins_dir)):
+        return jsonify({'success': False, 'message': '无效的目录路径'}), 403
+    
+    plugin_path = os.path.join(target_dir, filename)
+    
+    if os.path.exists(plugin_path):
+        return jsonify({'success': False, 'message': '文件已存在'}), 409
+    
+    os.makedirs(target_dir, exist_ok=True)
+    
+    template = '''from core.plugin.PluginManager import Plugin
+
+class plugin_name(Plugin):
+    priority = 10
+    
+    @classmethod
+    def get_regex_handlers(cls):
+        return {
+            r'^指令$': {'handler': 'handle_command', 'owner_only': False},
+        }
+    
+    @staticmethod
+    def handle_command(event):
+        event.reply("Hello, World!")
+'''
+    
+    with open(plugin_path, 'w', encoding='utf-8') as f:
+        f.write(template)
+    
+    add_framework_log(f"新插件已创建: {filename}")
+    
+    return jsonify({'success': True, 'message': '插件创建成功', 'path': plugin_path})
+
+@web.route('/api/plugin/create_folder', methods=['POST'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def create_plugin_folder():
+    data = request.get_json()
+    parent_dir = data.get('parent_dir', '')
+    folder_name = data.get('folder_name')
+    
+    if not folder_name:
+        return jsonify({'success': False, 'message': '缺少文件夹名'}), 400
+    
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(script_dir, 'plugins')
+    target_dir = os.path.join(plugins_dir, parent_dir, folder_name) if parent_dir else os.path.join(plugins_dir, folder_name)
+    
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(plugins_dir)):
+        return jsonify({'success': False, 'message': '无效的目录路径'}), 403
+    
+    if os.path.exists(target_dir):
+        return jsonify({'success': False, 'message': '文件夹已存在'}), 409
+    
+    os.makedirs(target_dir, exist_ok=True)
+    add_framework_log(f"新文件夹已创建: {folder_name}")
+    
+    return jsonify({'success': True, 'message': '文件夹创建成功', 'path': target_dir})
+
+@web.route('/api/plugin/folders', methods=['GET'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def get_plugin_folders():
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(script_dir, 'plugins')
+    
+    folders = []
+    for item in os.listdir(plugins_dir):
+        item_path = os.path.join(plugins_dir, item)
+        if os.path.isdir(item_path) and not item.startswith('.') and not item.startswith('__'):
+            folders.append({'name': item, 'path': item, 'display_name': item})
+    
+    folders.sort(key=lambda x: x['name'])
+    
+    return jsonify({'success': True, 'folders': folders})
+
+@web.route('/api/plugin/upload', methods=['POST'])
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def upload_plugin():
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': '没有文件'}), 400
+    
+    file = request.files['file']
+    directory = request.form.get('directory', 'alone')
+    
+    if file.filename == '' or not file.filename.endswith('.py'):
+        return jsonify({'success': False, 'message': '只能上传 .py 文件'}), 400
+    
+    safe_filename = re.sub(r'[^\w\u4e00-\u9fa5\-\.]', '_', file.filename)
+    
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(script_dir, 'plugins')
+    target_dir = os.path.join(plugins_dir, directory)
+    
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(plugins_dir)):
+        return jsonify({'success': False, 'message': '无效的目录路径'}), 403
+    
+    plugin_path = os.path.join(target_dir, safe_filename)
+    
+    if os.path.exists(plugin_path):
+        base_name = safe_filename[:-3]
+        counter = 1
+        while os.path.exists(plugin_path):
+            plugin_path = os.path.join(target_dir, f"{base_name}_{counter}.py")
+            counter += 1
+        safe_filename = os.path.basename(plugin_path)
+    
+    os.makedirs(target_dir, exist_ok=True)
+    file.save(plugin_path)
+    add_framework_log(f"插件已上传: {safe_filename} 到 {directory}/")
+    
+    return jsonify({'success': True, 'message': f'插件上传成功: {safe_filename}', 'path': plugin_path, 'filename': safe_filename})
 
 @catch_error
 def get_system_info():

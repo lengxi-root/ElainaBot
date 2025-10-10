@@ -19,6 +19,7 @@
     </script>
     
     <link rel="stylesheet" href="{{ url_for('web.static', filename='css/common.css') }}">
+    {% block extra_styles %}{% endblock %}
 </head>
 <body>
     <div class="page-header">

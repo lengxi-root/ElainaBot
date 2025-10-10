@@ -4,6 +4,27 @@
 <!-- 插件列表 -->
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h5 class="mb-0">插件列表</h5>
+    <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-info btn-sm" onclick="showUploadPluginModal()">
+            <i class="bi bi-cloud-upload"></i> 上传插件
+        </button>
+        <button class="btn btn-success btn-sm" onclick="showCreatePluginModal()">
+            <i class="bi bi-file-earmark-plus"></i> 新建插件
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="showCreateFolderModal()">
+            <i class="bi bi-folder-plus"></i> 新建文件夹
+        </button>
+    </div>
+</div>
+
+<!-- 拖拽上传区域 -->
+<div id="upload-drop-zone" class="upload-drop-zone mb-4" style="display: none;">
+    <div class="upload-drop-content">
+        <i class="bi bi-cloud-upload upload-icon"></i>
+        <h6>拖拽 .py 文件到此处上传</h6>
+        <p class="text-muted mb-0">或点击选择文件</p>
+    </div>
+    <input type="file" id="upload-file-input" accept=".py" style="display: none;" multiple>
 </div>
 
 <div class="plugins-container-wrapper">
@@ -19,11 +40,164 @@
         <div id="plugins-container"></div>
     </div>
 </div>
+
+<!-- 编辑插件模态框 -->
+<div class="modal fade" id="editPluginModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-pencil-square"></i> 编辑插件: <span id="edit-plugin-name"></span>
+                </h5>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="savePluginCode()">
+                        <i class="bi bi-save"></i> 保存
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">
+                        <i class="bi bi-x-lg"></i> 取消
+                    </button>
+                </div>
+            </div>
+            <div class="modal-body p-0">
+                <div id="edit-plugin-loading" class="text-center py-4">
+                    <div class="spinner-border text-primary"></div>
+                    <p class="mt-2 text-muted">加载中...</p>
+                </div>
+                <div id="edit-plugin-editor" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 创建插件模态框 -->
+<div class="modal fade" id="createPluginModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-file-earmark-plus"></i> 创建新插件
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="create-plugin-dir" class="form-label">选择目录</label>
+                    <select class="form-select" id="create-plugin-dir">
+                        <option value="">加载中...</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="create-plugin-name" class="form-label">插件文件名</label>
+                    <input type="text" class="form-control" id="create-plugin-name" placeholder="例如: 我的插件.py">
+                    <small class="text-muted">将自动添加 .py 后缀（如果未提供）</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" onclick="createNewPlugin()">
+                    <i class="bi bi-plus-circle"></i> 创建
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 创建文件夹模态框 -->
+<div class="modal fade" id="createFolderModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-folder-plus"></i> 创建新文件夹
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="create-folder-parent" class="form-label">父目录（可选）</label>
+                    <select class="form-select" id="create-folder-parent">
+                        <option value="">加载中...</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="create-folder-name" class="form-label">文件夹名称</label>
+                    <input type="text" class="form-control" id="create-folder-name" placeholder="例如: my_plugins">
+                    <small class="text-muted">只能包含字母、数字、下划线和中文</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="createNewFolder()">
+                    <i class="bi bi-plus-circle"></i> 创建
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 上传插件模态框 -->
+<div class="modal fade" id="uploadPluginModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-cloud-upload"></i> 上传插件
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="upload-plugin-dir" class="form-label">上传到目录</label>
+                    <select class="form-select" id="upload-plugin-dir">
+                        <option value="">加载中...</option>
+                    </select>
+                </div>
+                
+                <!-- 拖拽上传区域 -->
+                <div id="modal-drop-zone" class="modal-drop-zone">
+                    <i class="bi bi-cloud-arrow-up" style="font-size: 3rem; color: #667eea;"></i>
+                    <h6 class="mt-3">拖拽文件到此处</h6>
+                    <p class="text-muted mb-3">或</p>
+                    <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-file-input').click()">
+                        <i class="bi bi-folder2-open"></i> 选择文件
+                    </button>
+                    <input type="file" id="modal-file-input" accept=".py" style="display: none;" multiple>
+                    <small class="text-muted d-block mt-3">支持 .py 文件，可同时上传多个</small>
+                </div>
+                
+                <!-- 上传进度 -->
+                <div id="upload-progress-area" style="display: none;">
+                    <div class="mb-2">
+                        <strong>上传进度</strong>
+                    </div>
+                    <div id="upload-files-list"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_styles %}
+<!-- CodeMirror 代码编辑器 -->
+<link rel="stylesheet" href="{{ url_for('web.static', filename='css/vendor/codemirror.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('web.static', filename='css/vendor/codemirror-monokai.min.css') }}">
 {% endblock %}
 
 {% block scripts %}
+<!-- CodeMirror 编辑器脚本 -->
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-python.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-matchbrackets.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-closebrackets.min.js') }}"></script>
+<script src="{{ url_for('web.static', filename='js/vendor/codemirror-active-line.min.js') }}"></script>
+
 <script>
 const getToken = () => new URLSearchParams(window.location.search).get('token');
+let pluginCodeMirror = null;
 
 function loadPlugins() {
     const container = document.getElementById('plugins-container');
@@ -46,20 +220,40 @@ function updatePluginsInfo(plugins) {
     
     pluginsLoading.style.display = 'none';
     
-    if (!plugins || plugins.length === 0) {
-        pluginsContainer.innerHTML = '<div class="alert alert-info">未发现任何插件</div>';
+    // 获取所有插件目录
+    const pluginsByDirectory = {};
+    
+    // 先初始化所有目录（包括空目录）
+    loadPluginFolders().then(folders => {
+        folders.forEach(folder => {
+            if (!pluginsByDirectory[folder.name]) {
+                pluginsByDirectory[folder.name] = [];
+            }
+        });
+        
+        // 然后将插件分配到对应目录
+        if (plugins && plugins.length > 0) {
+            plugins.forEach(plugin => {
+                const directory = plugin.directory || (plugin.name.startsWith('example/') ? 'example' : 
+                                   plugin.name.startsWith('system/') ? 'system' : 'other');
+                if (!pluginsByDirectory[directory]) {
+                    pluginsByDirectory[directory] = [];
+                }
+                pluginsByDirectory[directory].push(plugin);
+            });
+        }
+        
+        renderPluginsList(pluginsByDirectory);
+    });
+}
+
+function renderPluginsList(pluginsByDirectory) {
+    const pluginsContainer = document.getElementById('plugins-container');
+    
+    if (!pluginsByDirectory || Object.keys(pluginsByDirectory).length === 0) {
+        pluginsContainer.innerHTML = '<div class="alert alert-info">未发现任何插件目录</div>';
         return;
     }
-    
-    const pluginsByDirectory = {};
-    plugins.forEach(plugin => {
-        const directory = plugin.directory || (plugin.name.startsWith('example/') ? 'example' : 
-                           plugin.name.startsWith('system/') ? 'system' : 'other');
-        if (!pluginsByDirectory[directory]) {
-            pluginsByDirectory[directory] = [];
-        }
-        pluginsByDirectory[directory].push(plugin);
-    });
     
     const directoryOrder = ['system', 'example', 'alone'];
     const sortedDirectories = Object.keys(pluginsByDirectory).sort((a, b) => {
@@ -73,145 +267,162 @@ function updatePluginsInfo(plugins) {
     
     let html = '';
     sortedDirectories.forEach(directory => {
-        const directoryPlugins = pluginsByDirectory[directory];
-        if (directoryPlugins && directoryPlugins.length > 0) {
-            const directoryNames = {
-                'system': '系统插件',
-                'example': '示例插件', 
-                'alone': '独立插件',
-                'other': '其他插件'
-            };
-            const dirDisplayName = directoryNames[directory] || directory.toUpperCase();
-            
-            html += `
-            <div class="mb-4">
-                <div class="directory-title" onclick="togglePluginFolder('${directory}')">
-                    <div class="directory-badge">
-                        <i class="bi bi-chevron-right folder-chevron" id="folder-chevron-${directory}"></i>
-                        <i class="bi bi-folder-fill"></i>
-                        ${dirDisplayName}
-                        <span class="count-badge">${directoryPlugins.length}</span>
-                    </div>
+        const directoryPlugins = pluginsByDirectory[directory] || [];
+        const directoryNames = {
+            'system': '系统插件',
+            'example': '示例插件', 
+            'alone': '独立插件',
+            'other': '其他插件'
+        };
+        const dirDisplayName = directoryNames[directory] || directory.toUpperCase();
+        
+        html += `
+        <div class="mb-4">
+            <div class="directory-title" onclick="togglePluginFolder('${directory}')">
+                <div class="directory-badge">
+                    <i class="bi bi-chevron-right folder-chevron" id="folder-chevron-${directory}"></i>
+                    <i class="bi bi-folder-fill"></i>
+                    ${dirDisplayName}
+                    <span class="count-badge">${directoryPlugins.length}</span>
                 </div>
-                <div class="directory-plugins" id="directory-plugins-${directory}">`;
+            </div>
+            <div class="directory-plugins" id="directory-plugins-${directory}">`;
             
-            directoryPlugins.forEach(plugin => {
-                const statusClass = plugin.status === 'loaded' ? 'loaded' : (plugin.status === 'disabled' ? 'disabled' : 'error');
-                let statusBadge = '';
-                if (plugin.status === 'loaded') {
-                    statusBadge = `<span class="badge bg-success plugin-badge"><i class="bi bi-check-circle-fill"></i> 已加载</span>`;
-                } else if (plugin.status === 'disabled') {
-                    statusBadge = `<span class="badge bg-warning plugin-badge"><i class="bi bi-dash-circle-fill"></i> 已禁用</span>`;
-                } else {
-                    statusBadge = `<span class="badge bg-danger plugin-badge"><i class="bi bi-exclamation-triangle-fill"></i> 错误</span>`;
-                }
-                let handlerCountBadge = '';
-                if (plugin.status === 'loaded') {
-                    const handlerCount = plugin.handlers || 0;
-                    handlerCountBadge = `<span class="badge bg-secondary plugin-badge"><i class="bi bi-code-slash"></i> ${handlerCount}个处理器</span>`;
-                }
-                
-                let errorHtml = '';
-                if (plugin.status === 'error' && plugin.error) {
-                    errorHtml = `<div class="plugin-error">${plugin.error}</div>`;
-                    if (plugin.traceback) {
-                        errorHtml += `<div class="plugin-error mt-2">${plugin.traceback}</div>`;
+            if (directoryPlugins.length === 0) {
+                // 空目录显示提示
+                html += `<div class="text-center text-muted py-3" style="font-size: 0.9rem;">
+                    <i class="bi bi-inbox"></i> 该目录暂无插件
+                </div>`;
+            } else {
+                // 有插件则显示插件列表
+                directoryPlugins.forEach(plugin => {
+                    const statusClass = plugin.status === 'loaded' ? 'loaded' : (plugin.status === 'disabled' ? 'disabled' : 'error');
+                    let statusBadge = '';
+                    if (plugin.status === 'loaded') {
+                        statusBadge = `<span class="badge bg-success plugin-badge"><i class="bi bi-check-circle-fill"></i> 已加载</span>`;
+                    } else if (plugin.status === 'disabled') {
+                        statusBadge = `<span class="badge bg-warning plugin-badge"><i class="bi bi-dash-circle-fill"></i> 已禁用</span>`;
+                    } else {
+                        statusBadge = `<span class="badge bg-danger plugin-badge"><i class="bi bi-exclamation-triangle-fill"></i> 错误</span>`;
                     }
-                }
-                let handlersHtml = '';
-                if (plugin.status === 'loaded' && plugin.handlers_list && plugin.handlers_list.length > 0) {
-                    const handlers_owner_only = plugin.handlers_owner_only || {};
-                    const handlers_group_only = plugin.handlers_group_only || {};
-                    handlersHtml = `
-                    <div class="plugin-handlers">
-                        <div class="handlers-container">
-                            ${plugin.handlers_list.map(handler => {
-                                const isOwnerOnly = handlers_owner_only[handler] === true;
-                                const isGroupOnly = handlers_group_only[handler] === true;
-                                let handlerClass = 'handler-item handler-item-public';
-                                let handlerIcon = '';
-                                if (isOwnerOnly) {
-                                    handlerClass = 'handler-item handler-item-owner';
-                                    handlerIcon = '<i class="bi bi-shield-lock-fill"></i> ';
-                                }
-                                if (isGroupOnly) {
-                                    handlerClass = 'handler-item handler-item-group';
-                                    handlerIcon = '<i class="bi bi-people-fill"></i> ';
-                                }
-                                if (isOwnerOnly && isGroupOnly) {
-                                    handlerIcon = '<i class="bi bi-shield-lock-fill"></i> <i class="bi bi-people-fill"></i> ';
-                                }
-                                let titleText = '所有人可用';
-                                if (isOwnerOnly && isGroupOnly) {
-                                    titleText = '主人专属且仅限群聊';
-                                } else if (isOwnerOnly) {
-                                    titleText = '主人专属命令';
-                                } else if (isGroupOnly) {
-                                    titleText = '仅限群聊使用';
-                                }
-                                return `<span class="${handlerClass}" title="${titleText}">${handlerIcon}${handler}</span>`;
-                            }).join('')}
+                    let handlerCountBadge = '';
+                    if (plugin.status === 'loaded') {
+                        const handlerCount = plugin.handlers || 0;
+                        handlerCountBadge = `<span class="badge bg-secondary plugin-badge"><i class="bi bi-code-slash"></i> ${handlerCount}个处理器</span>`;
+                    }
+                    
+                    let errorHtml = '';
+                    if (plugin.status === 'error' && plugin.error) {
+                        errorHtml = `<div class="plugin-error">${plugin.error}</div>`;
+                        if (plugin.traceback) {
+                            errorHtml += `<div class="plugin-error mt-2">${plugin.traceback}</div>`;
+                        }
+                    }
+                    let handlersHtml = '';
+                    if (plugin.status === 'loaded' && plugin.handlers_list && plugin.handlers_list.length > 0) {
+                        const handlers_owner_only = plugin.handlers_owner_only || {};
+                        const handlers_group_only = plugin.handlers_group_only || {};
+                        handlersHtml = `
+                        <div class="plugin-handlers">
+                            <div class="handlers-container">
+                                ${plugin.handlers_list.map(handler => {
+                                    const isOwnerOnly = handlers_owner_only[handler] === true;
+                                    const isGroupOnly = handlers_group_only[handler] === true;
+                                    let handlerClass = 'handler-item handler-item-public';
+                                    let handlerIcon = '';
+                                    if (isOwnerOnly) {
+                                        handlerClass = 'handler-item handler-item-owner';
+                                        handlerIcon = '<i class="bi bi-shield-lock-fill"></i> ';
+                                    }
+                                    if (isGroupOnly) {
+                                        handlerClass = 'handler-item handler-item-group';
+                                        handlerIcon = '<i class="bi bi-people-fill"></i> ';
+                                    }
+                                    if (isOwnerOnly && isGroupOnly) {
+                                        handlerIcon = '<i class="bi bi-shield-lock-fill"></i> <i class="bi bi-people-fill"></i> ';
+                                    }
+                                    let titleText = '所有人可用';
+                                    if (isOwnerOnly && isGroupOnly) {
+                                        titleText = '主人专属且仅限群聊';
+                                    } else if (isOwnerOnly) {
+                                        titleText = '主人专属命令';
+                                    } else if (isGroupOnly) {
+                                        titleText = '仅限群聊使用';
+                                    }
+                                    return `<span class="${handlerClass}" title="${titleText}">${handlerIcon}${handler}</span>`;
+                                }).join('')}
+                            </div>
+                        </div>`;
+                    }
+                    let displayName = plugin.name;
+                    if (displayName.includes('/')) {
+                        const parts = displayName.split('/');
+                        if (parts.length >= 3) {
+                            displayName = `${parts[1]} <span class="text-secondary">(${parts[2]})</span>`;
+                        } else {
+                            displayName = parts[parts.length - 1];
+                        }
+                    }
+                    let priorityDisplay = '';
+                    if (plugin.status === 'loaded') {
+                        const priority = plugin.priority !== undefined ? plugin.priority : 10;
+                        priorityDisplay = `<span class="plugin-priority"><i class="bi bi-sort-numeric-down"></i> ${priority}</span>`;
+                    }
+                    let pathDisplay = `<span class="plugin-path" title="${plugin.path}">${plugin.path.split('/').slice(-3).join('/')}</span>`;
+                    let timeDisplay = '';
+                    if (plugin.last_modified) {
+                        timeDisplay = `<span class="plugin-path text-muted ms-2"><i class="bi bi-clock-history"></i> ${plugin.last_modified}</span>`;
+                    }
+                    
+                    let toggleSwitch = '';
+                    if (plugin.status === 'loaded' || plugin.status === 'disabled') {
+                        const isEnabled = plugin.enabled !== false && plugin.status === 'loaded';
+                        const switchId = `plugin-switch-${plugin.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                        toggleSwitch = `<div class="form-check form-switch plugin-toggle-switch">
+                                            <input class="form-check-input" type="checkbox" 
+                                                   id="${switchId}" ${isEnabled ? 'checked' : ''}
+                                                   onchange="togglePluginSwitch('${plugin.path}', this)">
+                                            <label class="form-check-label" for="${switchId}">
+                                                ${isEnabled ? '已启用' : '已禁用'}
+                                            </label>
+                                        </div>`;
+                    }
+                    
+                    // 添加编辑按钮
+                    let editButton = '';
+                    if (plugin.path && (plugin.path.endsWith('.py') || plugin.path.endsWith('.py.ban'))) {
+                        editButton = `<button class="btn btn-sm btn-outline-primary plugin-edit-btn" 
+                                             onclick="editPlugin('${plugin.path}')" 
+                                             title="编辑插件">
+                                          <i class="bi bi-pencil-square"></i>
+                                      </button>`;
+                    }
+                    
+                    html += `
+                    <div class="card plugin-card ${statusClass}">
+                    <div class="plugin-content">
+                            <div class="plugin-info">
+                                <div class="plugin-name-container">
+                                    <h6 class="mb-0 me-2">${displayName}</h6>
+                                    ${priorityDisplay}
+                                    ${pathDisplay}
+                                    ${timeDisplay}
+                                </div>
+                                    <div class="plugin-badges">
+                                        ${statusBadge}
+                                    ${handlerCountBadge}
+                                    ${toggleSwitch}
+                                    ${editButton}
+                                </div>
+                            </div>
+                            ${handlersHtml}
+                            ${errorHtml}
                         </div>
                     </div>`;
-                }
-                let displayName = plugin.name;
-                if (displayName.includes('/')) {
-                    const parts = displayName.split('/');
-                    if (parts.length >= 3) {
-                        displayName = `${parts[1]} <span class="text-secondary">(${parts[2]})</span>`;
-                    } else {
-                        displayName = parts[parts.length - 1];
-                    }
-                }
-                let priorityDisplay = '';
-                if (plugin.status === 'loaded') {
-                    const priority = plugin.priority !== undefined ? plugin.priority : 10;
-                    priorityDisplay = `<span class="plugin-priority"><i class="bi bi-sort-numeric-down"></i> ${priority}</span>`;
-                }
-                let pathDisplay = `<span class="plugin-path" title="${plugin.path}">${plugin.path.split('/').slice(-3).join('/')}</span>`;
-                let timeDisplay = '';
-                if (plugin.last_modified) {
-                    timeDisplay = `<span class="plugin-path text-muted ms-2"><i class="bi bi-clock-history"></i> ${plugin.last_modified}</span>`;
-                }
-                
-                let toggleSwitch = '';
-                if (plugin.status === 'loaded' || plugin.status === 'disabled') {
-                    const isEnabled = plugin.enabled !== false && plugin.status === 'loaded';
-                    const switchId = `plugin-switch-${plugin.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
-                    toggleSwitch = `<div class="form-check form-switch plugin-toggle-switch">
-                                        <input class="form-check-input" type="checkbox" 
-                                               id="${switchId}" ${isEnabled ? 'checked' : ''}
-                                               onchange="togglePluginSwitch('${plugin.path}', this)">
-                                        <label class="form-check-label" for="${switchId}">
-                                            ${isEnabled ? '已启用' : '已禁用'}
-                                        </label>
-                                    </div>`;
-                }
-                
-                html += `
-                <div class="card plugin-card ${statusClass}">
-                <div class="plugin-content">
-                        <div class="plugin-info">
-                            <div class="plugin-name-container">
-                                <h6 class="mb-0 me-2">${displayName}</h6>
-                                ${priorityDisplay}
-                                ${pathDisplay}
-                                ${timeDisplay}
-                            </div>
-                                <div class="plugin-badges">
-                                    ${statusBadge}
-                                ${handlerCountBadge}
-                                ${toggleSwitch}
-                            </div>
-                        </div>
-                        ${handlersHtml}
-                        ${errorHtml}
-                    </div>
-                </div>`;
-            });
+                });
+            }
             
             html += `</div></div>`;
-        }
     });
     
     pluginsContainer.innerHTML = html;
@@ -312,10 +523,397 @@ function showToast(message, type = 'success') {
     setTimeout(() => toast.remove(), 3000);
 }
 
+// 编辑插件
+let currentEditingPath = null;
+
+async function editPlugin(pluginPath) {
+    currentEditingPath = pluginPath;
+    const modal = new bootstrap.Modal(document.getElementById('editPluginModal'));
+    const loading = document.getElementById('edit-plugin-loading');
+    const editorContainer = document.getElementById('edit-plugin-editor');
+    const nameEl = document.getElementById('edit-plugin-name');
+    
+    nameEl.textContent = pluginPath.split('/').pop();
+    loading.style.display = 'block';
+    editorContainer.style.display = 'none';
+    editorContainer.innerHTML = '';
+    
+    if (pluginCodeMirror) {
+        pluginCodeMirror = null;
+    }
+    
+    modal.show();
+    
+    const response = await fetch(`/web/api/plugin/read?token=${getToken()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: pluginPath })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+        let codeContent = result.content || '# 文件为空\n\n';
+        
+        setTimeout(() => {
+            loading.style.display = 'none';
+            editorContainer.style.display = 'block';
+            
+            if (typeof CodeMirror !== 'undefined') {
+                pluginCodeMirror = CodeMirror(editorContainer, {
+                    value: codeContent,
+                    mode: 'python',
+                    theme: 'monokai',
+                    lineNumbers: true,
+                    matchBrackets: true,
+                    autoCloseBrackets: true,
+                    styleActiveLine: true,
+                    indentUnit: 4,
+                    indentWithTabs: false,
+                    lineWrapping: true
+                });
+                
+                pluginCodeMirror.setSize('100%', '650px');
+                
+                setTimeout(() => pluginCodeMirror && pluginCodeMirror.refresh(), 50);
+            }
+        }, 300);
+    } else {
+        showToast('读取失败: ' + result.message, 'error');
+        modal.hide();
+    }
+}
+
+async function savePluginCode() {
+    if (!currentEditingPath || !confirm('确定要保存修改吗？原文件将被备份为 .backup')) return;
+    
+    const content = pluginCodeMirror ? pluginCodeMirror.getValue() : '';
+    
+    const response = await fetch(`/web/api/plugin/save?token=${getToken()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: currentEditingPath, content })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+        showToast('保存成功！请重启框架使更改生效', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('editPluginModal')).hide();
+        
+        if (window.socket) {
+            setTimeout(() => window.socket.emit('get_plugins_info'), 500);
+        }
+    } else {
+        showToast('保存失败: ' + result.message, 'error');
+    }
+}
+
+// 加载插件文件夹列表
+async function loadPluginFolders() {
+    try {
+        const response = await fetch(`/web/api/plugin/folders?token=${getToken()}`);
+        const result = await response.json();
+        
+        if (result.success) {
+            return result.folders;
+        } else {
+            console.error('获取文件夹列表失败:', result.message);
+            return [];
+        }
+    } catch (error) {
+        console.error('获取文件夹列表失败:', error);
+        return [];
+    }
+}
+
+// 填充文件夹选择下拉框
+function populateFolderSelect(selectElement, folders) {
+    selectElement.innerHTML = '';
+    
+    folders.forEach(folder => {
+        const option = document.createElement('option');
+        option.value = folder.path;
+        option.textContent = folder.display_name;
+        selectElement.appendChild(option);
+    });
+}
+
+// 显示创建插件模态框
+async function showCreatePluginModal() {
+    const modal = new bootstrap.Modal(document.getElementById('createPluginModal'));
+    document.getElementById('create-plugin-name').value = '';
+    
+    // 加载并填充文件夹列表
+    const folders = await loadPluginFolders();
+    const selectElement = document.getElementById('create-plugin-dir');
+    populateFolderSelect(selectElement, folders);
+    
+    modal.show();
+}
+
+// 创建新插件
+async function createNewPlugin() {
+    const directory = document.getElementById('create-plugin-dir').value;
+    const filename = document.getElementById('create-plugin-name').value.trim();
+    
+    if (!filename) {
+        showToast('请输入插件文件名', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/web/api/plugin/create?token=${getToken()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ directory, filename })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast('插件创建成功！', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('createPluginModal')).hide();
+            
+            // 刷新插件列表
+            if (window.socket) {
+                setTimeout(() => window.socket.emit('get_plugins_info'), 500);
+            }
+            
+            // 打开编辑器编辑新插件
+            setTimeout(() => editPlugin(result.path), 800);
+        } else {
+            throw new Error(result.message || '创建失败');
+        }
+    } catch (error) {
+        showToast('创建插件失败: ' + error.message, 'error');
+    }
+}
+
+// 显示创建文件夹模态框
+async function showCreateFolderModal() {
+    const modal = new bootstrap.Modal(document.getElementById('createFolderModal'));
+    document.getElementById('create-folder-name').value = '';
+    
+    // 加载并填充父目录列表
+    const folders = await loadPluginFolders();
+    const selectElement = document.getElementById('create-folder-parent');
+    selectElement.innerHTML = '<option value="">plugins/ (根目录)</option>';
+    
+    folders.forEach(folder => {
+        const option = document.createElement('option');
+        option.value = folder.path;
+        option.textContent = folder.display_name + '/';
+        selectElement.appendChild(option);
+    });
+    
+    modal.show();
+}
+
+// 创建新文件夹
+async function createNewFolder() {
+    const parentDir = document.getElementById('create-folder-parent').value;
+    const folderName = document.getElementById('create-folder-name').value.trim();
+    
+    if (!folderName) {
+        showToast('请输入文件夹名称', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/web/api/plugin/create_folder?token=${getToken()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                parent_dir: parentDir,
+                folder_name: folderName 
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast('文件夹创建成功！请重启框架后即可在文件夹列表中看到', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('createFolderModal')).hide();
+            
+            // 立即刷新插件列表
+            if (window.socket) {
+                setTimeout(() => window.socket.emit('get_plugins_info'), 500);
+            }
+        } else {
+            throw new Error(result.message || '创建失败');
+        }
+    } catch (error) {
+        showToast('创建文件夹失败: ' + error.message, 'error');
+    }
+}
+
+// 显示上传插件模态框
+async function showUploadPluginModal() {
+    const modal = new bootstrap.Modal(document.getElementById('uploadPluginModal'));
+    const dropZone = document.getElementById('modal-drop-zone');
+    const progressArea = document.getElementById('upload-progress-area');
+    const filesList = document.getElementById('upload-files-list');
+    
+    dropZone.style.display = 'block';
+    progressArea.style.display = 'none';
+    filesList.innerHTML = '';
+    
+    // 加载并填充文件夹列表
+    const folders = await loadPluginFolders();
+    const selectElement = document.getElementById('upload-plugin-dir');
+    populateFolderSelect(selectElement, folders);
+    
+    modal.show();
+}
+
+// 上传单个文件
+async function uploadFile(file, directory) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('directory', directory);
+    
+    try {
+        const response = await fetch(`/web/api/plugin/upload?token=${getToken()}`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        return result;
+    } catch (error) {
+        return { success: false, message: error.message };
+    }
+}
+
+// 处理文件上传
+async function handleFileUpload(files) {
+    const directory = document.getElementById('upload-plugin-dir').value;
+    const dropZone = document.getElementById('modal-drop-zone');
+    const progressArea = document.getElementById('upload-progress-area');
+    const filesList = document.getElementById('upload-files-list');
+    
+    // 过滤只保留.py文件
+    const pyFiles = Array.from(files).filter(f => f.name.endsWith('.py'));
+    
+    if (pyFiles.length === 0) {
+        showToast('请选择 .py 文件', 'error');
+        return;
+    }
+    
+    // 显示进度区域
+    dropZone.style.display = 'none';
+    progressArea.style.display = 'block';
+    filesList.innerHTML = '';
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const file of pyFiles) {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'upload-file-item';
+        fileItem.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-file-earmark-code me-2"></i>
+                    <span>${file.name}</span>
+                </div>
+                <span class="upload-status">
+                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                </span>
+            </div>
+        `;
+        filesList.appendChild(fileItem);
+        
+        const result = await uploadFile(file, directory);
+        const statusEl = fileItem.querySelector('.upload-status');
+        
+        if (result.success) {
+            statusEl.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i>';
+            successCount++;
+        } else {
+            statusEl.innerHTML = `<i class="bi bi-x-circle-fill text-danger" title="${result.message}"></i>`;
+            failCount++;
+        }
+    }
+    
+    // 显示总结
+    const summary = document.createElement('div');
+    summary.className = 'alert alert-info mt-3';
+    summary.innerHTML = `
+        <i class="bi bi-info-circle"></i>
+        上传完成！成功: ${successCount}，失败: ${failCount}
+    `;
+    filesList.appendChild(summary);
+    
+    if (successCount > 0) {
+        showToast(`成功上传 ${successCount} 个插件！`, 'success');
+        
+        // 刷新插件列表
+        if (window.socket) {
+            setTimeout(() => window.socket.emit('get_plugins_info'), 500);
+        }
+    }
+}
+
+// 初始化拖拽上传
+function initDragDropUpload() {
+    const dropZone = document.getElementById('modal-drop-zone');
+    const fileInput = document.getElementById('modal-file-input');
+    
+    if (!dropZone || !fileInput) return;
+    
+    // 防止默认拖拽行为
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+    
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    // 拖拽进入和离开时的视觉反馈
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.add('drop-zone-active');
+        }, false);
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.remove('drop-zone-active');
+        }, false);
+    });
+    
+    // 处理文件拖放
+    dropZone.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        handleFileUpload(files);
+    }, false);
+    
+    // 点击选择文件
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFileUpload(e.target.files);
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     window.updatePluginsInfo = updatePluginsInfo;
     window.togglePluginSwitch = togglePluginSwitch;
+    window.editPlugin = editPlugin;
+    window.savePluginCode = savePluginCode;
+    window.showCreatePluginModal = showCreatePluginModal;
+    window.createNewPlugin = createNewPlugin;
+    window.showCreateFolderModal = showCreateFolderModal;
+    window.createNewFolder = createNewFolder;
+    window.showUploadPluginModal = showUploadPluginModal;
+    window.handleFileUpload = handleFileUpload;
+    
     initSocket('plugins');
+    initDragDropUpload();
 });
 </script>
 
@@ -349,6 +947,188 @@ document.addEventListener('DOMContentLoaded', function() {
     margin: 0;
     white-space: nowrap;
     font-size: 0.85rem;
+}
+
+/* 插件编辑按钮 */
+.plugin-edit-btn {
+    margin-left: 8px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.plugin-edit-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(67, 97, 238, 0.3);
+}
+
+/* 代码编辑器样式 */
+#plugin-code-editor {
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+#plugin-code-editor:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+}
+
+/* CodeMirror 编辑器样式 */
+#edit-plugin-editor .CodeMirror {
+    height: 650px;
+    border: none;
+    border-radius: 0;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 14px;
+    background: #272822;
+}
+
+#edit-plugin-editor .CodeMirror-scroll {
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+#edit-plugin-editor .CodeMirror-gutters {
+    background: #272822;
+    border-right: 1px solid #3e3d32;
+}
+
+#edit-plugin-editor .CodeMirror-linenumber {
+    color: #75715e;
+    padding: 0 10px 0 5px;
+}
+
+#edit-plugin-editor .CodeMirror-activeline-background {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+#edit-plugin-editor .CodeMirror-cursor {
+    border-left: 2px solid #f8f8f0;
+}
+
+#edit-plugin-editor .CodeMirror-selected {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* 模态框优化 */
+.modal-xl {
+    max-width: 90%;
+}
+
+@media (max-width: 1200px) {
+    .modal-xl {
+        max-width: 95%;
+    }
+}
+
+/* 编辑器模态框header样式 */
+#editPluginModal .modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+#editPluginModal .modal-header .modal-title {
+    color: white;
+}
+
+#editPluginModal .modal-header .btn-primary {
+    background: white;
+    color: #667eea;
+    border: none;
+    font-weight: 600;
+}
+
+#editPluginModal .modal-header .btn-primary:hover {
+    background: #f0f0f0;
+    color: #4361ee;
+}
+
+#editPluginModal .modal-header .btn-secondary {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: none;
+}
+
+#editPluginModal .modal-header .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+/* 拖拽上传区域 */
+.upload-drop-zone {
+    border: 2px dashed #667eea;
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.upload-drop-zone:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    border-color: #4361ee;
+}
+
+.upload-drop-zone.drop-zone-active {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+    border-color: #4361ee;
+    border-width: 3px;
+    transform: scale(1.02);
+}
+
+.upload-drop-content {
+    pointer-events: none;
+}
+
+.upload-icon {
+    font-size: 4rem;
+    color: #667eea;
+    margin-bottom: 1rem;
+}
+
+.modal-drop-zone {
+    border: 2px dashed #dee2e6;
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    background: #f8f9fa;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.modal-drop-zone:hover {
+    background: #e9ecef;
+    border-color: #667eea;
+}
+
+.modal-drop-zone.drop-zone-active {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    border-color: #4361ee;
+    border-width: 3px;
+    transform: scale(1.02);
+}
+
+.upload-file-item {
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.upload-file-item:last-child {
+    margin-bottom: 0;
+}
+
+#upload-progress-area {
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 /* 移动端适配 */
@@ -393,9 +1173,31 @@ document.addEventListener('DOMContentLoaded', function() {
         font-size: 0.75rem;
     }
     
+    .plugin-edit-btn {
+        margin-left: 4px;
+        margin-top: 4px;
+        padding: 0.2rem 0.4rem;
+        font-size: 0.7rem;
+    }
+    
     .handler-item {
         font-size: 0.6rem;
         padding: 1px 4px;
+    }
+    
+    #plugin-code-editor {
+        height: 400px !important;
+        font-size: 12px;
+    }
+    
+    #edit-plugin-editor .CodeMirror {
+        height: 500px !important;
+        font-size: 12px;
+    }
+    
+    .modal-xl {
+        max-width: 98%;
+        margin: 0.5rem;
     }
     
     .handlers-container {
@@ -423,6 +1225,41 @@ document.addEventListener('DOMContentLoaded', function() {
         font-size: 0.7rem;
         padding: 0.4rem;
         max-height: 100px;
+    }
+    
+    /* 上传区域移动端优化 */
+    .modal-drop-zone {
+        padding: 30px 15px;
+    }
+    
+    .modal-drop-zone i {
+        font-size: 2.5rem !important;
+    }
+    
+    .modal-drop-zone h6 {
+        font-size: 0.9rem;
+    }
+    
+    .modal-drop-zone p {
+        font-size: 0.85rem;
+    }
+    
+    .modal-drop-zone .btn {
+        font-size: 0.85rem;
+        padding: 0.5rem 1rem;
+    }
+    
+    .upload-file-item {
+        padding: 6px 10px;
+        font-size: 0.85rem;
+    }
+    
+    .upload-file-item i {
+        font-size: 1rem;
+    }
+    
+    #upload-progress-area {
+        max-height: 300px;
     }
 }
 
@@ -466,15 +1303,73 @@ document.addEventListener('DOMContentLoaded', function() {
         font-size: 0.7rem;
     }
     
+    .plugin-edit-btn {
+        padding: 0.15rem 0.35rem;
+        font-size: 0.65rem;
+    }
+    
     .handler-item {
         font-size: 0.55rem;
         padding: 0 3px;
         margin: 0 2px 2px 0;
     }
     
+    #plugin-code-editor {
+        height: 350px !important;
+        font-size: 11px;
+        padding: 8px;
+    }
+    
+    #edit-plugin-editor .CodeMirror {
+        height: 450px !important;
+        font-size: 11px;
+    }
+    
+    .modal-xl .modal-header {
+        padding: 0.6rem 0.75rem;
+    }
+    
+    .modal-xl .modal-header h5 {
+        font-size: 0.95rem;
+    }
+    
+    .modal-xl .modal-header .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .btn-success.btn-sm,
+    .btn-primary.btn-sm,
+    .btn-info.btn-sm {
+        font-size: 0.7rem;
+        padding: 0.3rem 0.5rem;
+    }
+    
     .handlers-container {
         padding: 2px;
         max-height: 60px;
+    }
+    
+    /* 上传区域小屏优化 */
+    .modal-drop-zone {
+        padding: 25px 12px;
+    }
+    
+    .modal-drop-zone i {
+        font-size: 2rem !important;
+    }
+    
+    .modal-drop-zone h6 {
+        font-size: 0.85rem;
+    }
+    
+    .modal-drop-zone .btn {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.8rem;
+    }
+    
+    .upload-file-item {
+        font-size: 0.8rem;
     }
     
     .directory-title {

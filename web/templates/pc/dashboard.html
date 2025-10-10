@@ -41,7 +41,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="col-auto">
+                    <div class="col-auto d-none d-md-block">
                         <button class="btn btn-outline-light btn-sm" onclick="refreshRobotInfo()">
                             <i class="bi bi-arrow-clockwise"></i> 刷新
                         </button>
@@ -317,10 +317,183 @@
     background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
 }
 
+/* 移动端适配 */
 @media (max-width: 768px) {
-    .compact-stat-card h4 { font-size: 1.25rem; }
-    .stat-icon-box { width: 48px; height: 48px; }
-    .stat-icon-box i { font-size: 1.25rem !important; }
+    .compact-stat-card h4 { 
+        font-size: 1.1rem; 
+    }
+    
+    .compact-stat-card small {
+        font-size: 0.75rem;
+    }
+    
+    .stat-icon-box { 
+        width: 48px; 
+        height: 48px; 
+    }
+    
+    .stat-icon-box i { 
+        font-size: 1.1rem !important; 
+    }
+    
+    .compact-stat-card:hover {
+        transform: none;
+    }
+    
+    /* 机器人信息卡片 - 移动端优化布局 */
+    .robot-info-card .row {
+        flex-direction: row !important;
+        align-items: flex-start;
+    }
+    
+    .robot-info-card .col-auto {
+        flex: 0 0 auto;
+        padding-right: 12px;
+    }
+    
+    .robot-info-card .col {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    
+    .robot-avatar {
+        width: 60px !important;
+        height: 60px !important;
+        display: block !important;
+    }
+    
+    .robot-info h5 {
+        font-size: 0.95rem;
+        line-height: 1.3;
+        margin-bottom: 0.4rem !important;
+        word-break: break-word;
+    }
+    
+    .robot-info p {
+        font-size: 0.8rem;
+        margin-bottom: 0.6rem !important;
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .robot-info .d-flex {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 6px;
+    }
+    
+    .robot-info span {
+        font-size: 0.75rem;
+        line-height: 1.3;
+    }
+    
+    .robot-info .badge {
+        font-size: 0.7rem;
+        padding: 2px 6px;
+    }
+    
+    .robot-info .btn-sm {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.5rem;
+    }
+    
+    .info-item {
+        padding: 0.6rem !important;
+    }
+    
+    .info-item i {
+        font-size: 1rem !important;
+    }
+    
+    .info-item small {
+        font-size: 0.7rem;
+    }
+    
+    .info-item span {
+        font-size: 0.8rem;
+    }
+    
+    .stat-card {
+        padding: 0.8rem !important;
+    }
+    
+    .stat-card i {
+        font-size: 1.5rem !important;
+    }
+    
+    .stat-card .small {
+        font-size: 0.7rem !important;
+    }
+    
+    .stat-card:hover {
+        transform: none;
+    }
+}
+
+@media (max-width: 576px) {
+    .compact-stat-card h4 { 
+        font-size: 1rem; 
+    }
+    
+    .compact-stat-card .card-body {
+        padding: 0.75rem !important;
+    }
+    
+    .stat-icon-box { 
+        width: 42px; 
+        height: 42px; 
+    }
+    
+    .stat-icon-box i { 
+        font-size: 1rem !important; 
+    }
+    
+    .robot-avatar {
+        width: 55px !important;
+        height: 55px !important;
+    }
+    
+    .robot-info h5 {
+        font-size: 0.85rem;
+    }
+    
+    .robot-info h5 .badge {
+        display: block;
+        margin-top: 4px;
+        margin-left: 0 !important;
+    }
+    
+    .robot-info p {
+        font-size: 0.75rem;
+        margin-bottom: 0.5rem !important;
+        -webkit-line-clamp: 2;
+    }
+    
+    .robot-info span {
+        font-size: 0.7rem;
+    }
+    
+    .robot-info-card .card-body {
+        padding: 0.75rem !important;
+    }
+    
+    .info-item {
+        padding: 0.5rem !important;
+        margin-bottom: 0.5rem;
+    }
+    
+    .info-item .d-inline-block {
+        display: block !important;
+        margin-top: 4px;
+    }
+    
+    .card-header h6 {
+        font-size: 0.9rem;
+    }
 }
 </style>
 {% endblock %}

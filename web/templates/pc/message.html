@@ -257,27 +257,71 @@
 /* 响应式：小屏幕上调整 */
 @media (max-width: 768px) {
     .chat-list-col {
-        flex: 0 0 30%;
-        max-width: 30%;
+        flex: 0 0 100%;
+        max-width: 100%;
+        padding-right: 10px;
+        padding-left: 10px;
     }
     .chat-window-col {
-        flex: 0 0 70%;
-        max-width: 70%;
+        flex: 0 0 100%;
+        max-width: 100%;
+        padding-right: 10px;
+        padding-left: 10px;
+        margin-top: 15px;
+    }
+    
+    /* 优化聊天列表 */
+    .list-group-item {
+        padding: 0.75rem;
+    }
+    
+    .chat-item .d-flex {
+        width: 100%;
+    }
+    
+    .chat-avatar,
+    .chat-avatar-placeholder {
+        width: 45px !important;
+        height: 45px !important;
+        font-size: 1rem;
+    }
+    
+    .list-group-item h6 {
+        font-size: 0.9rem;
+        margin-bottom: 0.3rem;
+        line-height: 1.3;
+    }
+    
+    .list-group-item h6 span {
+        display: inline-block;
+        max-width: calc(100% - 80px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .list-group-item small {
+        font-size: 0.75rem;
+        line-height: 1.3;
     }
 }
 
 /* 缩小聊天列表标题和按钮文字 */
 .chat-list-header {
-    font-size: 0.85rem;
+    font-size: 0.9rem;
 }
 
 .chat-list-header #chat-list-title {
     font-weight: normal;
 }
 
+.chat-type-buttons {
+    margin-right: 8px;
+}
+
 .chat-type-buttons .btn {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    padding: 0.35rem 0.7rem;
 }
 
 .chat-item {
@@ -334,6 +378,28 @@
     align-items: center;
     justify-content: center;
     font-weight: bold;
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+    .chat-list-header {
+        font-size: 0.85rem;
+    }
+    
+    .chat-type-buttons .btn {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+    }
+    
+    #chat-list {
+        height: 400px;
+    }
+    
+    .list-group-item .chat-avatar,
+    .list-group-item .chat-avatar-placeholder {
+        width: 45px !important;
+        height: 45px !important;
+    }
 }
 
 

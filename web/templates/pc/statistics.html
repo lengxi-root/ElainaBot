@@ -19,7 +19,7 @@
     <div class="col-12">
         <div class="card">
             <div class="card-body">
-                <h6 class="card-title">数据趋势图表 (最近30天)</h6>
+                <h6 class="card-title"><span class="chart-days-text">数据趋势图表 (最近30天)</span></h6>
                 <div class="d-flex flex-wrap gap-2 mb-3">
                     <button class="btn btn-sm btn-outline-primary chart-toggle active" data-metric="messages_combined">消息数据</button>
                     <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="active_combined">活跃数据</button>
@@ -167,6 +167,20 @@
         font-size: 0.8rem;
         padding: 0.25rem 0.5rem;
     }
+    
+    .chart-days-text::after {
+        content: ' (最近15天)';
+    }
+    
+    .chart-days-text {
+        font-size: 0.9rem;
+    }
+}
+
+@media (min-width: 769px) {
+    .chart-days-text::after {
+        content: '';
+    }
 }
 </style>
 {% endblock %}
@@ -239,8 +253,14 @@ function getStat(item, statType, field) {
 function extractDataArrays(data, fields, statType = 'message_stats') {
     const arrays = fields.map(() => []);
     
+    // 移动端只显示最近15天数据
+    const isMobile = window.innerWidth <= 768;
+    const maxDays = isMobile ? 15 : 30;
+    
     if (data.historical && Array.isArray(data.historical)) {
-        data.historical.forEach(item => {
+        const historicalData = data.historical.slice(-maxDays);
+        
+        historicalData.forEach(item => {
             fields.forEach((field, i) => {
                 const value = typeof field === 'function' ? field(item) : getStat(item, statType, field);
                 arrays[i].push(value);
@@ -469,8 +489,15 @@ function updateChart(metric) {
     let total = 0;
     let count = 0;
     
+    // 移动端只显示最近15天数据
+    const isMobile = window.innerWidth <= 768;
+    const maxDays = isMobile ? 15 : 30;
+    
     if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
-        statisticsData.historical.forEach(item => {
+        // 取最后N天的数据
+        const historicalData = statisticsData.historical.slice(-maxDays);
+        
+        historicalData.forEach(item => {
             const displayLabel = item.display_date || item.date || '未知';
             labels.push(displayLabel);
             
@@ -594,7 +621,9 @@ function updateChart(metric) {
         
         const averageElement = document.getElementById('chart-average-display');
         if (averageElement && count > 0) {
-            averageElement.textContent = `30天平均: ${formatNumber(Math.round(average))}`;
+            const isMobile = window.innerWidth <= 768;
+            const daysText = isMobile ? '15天' : '30天';
+            averageElement.textContent = `${daysText}平均: ${formatNumber(Math.round(average))}`;
             averageElement.style.color = info.color;
             averageElement.style.display = 'block';
         }

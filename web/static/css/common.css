@@ -549,8 +549,167 @@ body {
     font-size: 10px;
 }
 
-/* 响应式设计 */
+/* 响应式设计 - 平板设备 */
+@media (max-width: 992px) {
+    :root {
+        --sidebar-width: 200px;
+    }
+    
+    .page-header h1 {
+        font-size: 1.2rem !important;
+    }
+    
+    .page-header .btn {
+        font-size: 0.85rem;
+        padding: 0.4rem 0.8rem;
+    }
+    
+    .main-content {
+        padding: 15px;
+    }
+    
+    .card-body {
+        padding: 15px;
+    }
+}
+
+/* 响应式设计 - 手机设备 */
 @media (max-width: 768px) {
+    :root {
+        --sidebar-width: 280px;
+    }
+    
+    /* 页面头部 */
+    .page-header {
+        padding: 10px 0;
+        height: 60px;
+    }
+    
+    .page-header .container-fluid > div {
+        flex-wrap: wrap;
+    }
+    
+    .page-title {
+        font-size: 1rem !important;
+        position: static !important;
+        transform: none !important;
+        margin-left: 50px !important;
+        margin-right: auto;
+    }
+    
+    .page-header .d-flex {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .page-header .me-3 {
+        margin-right: 0.5rem !important;
+        font-size: 0.8rem;
+    }
+    
+    .page-header #current-time {
+        display: none;
+    }
+    
+    .page-header .time-display {
+        display: none;
+    }
+    
+    .page-header .connection-indicator-wrapper {
+        font-size: 0.75rem;
+    }
+    
+    .page-header .restart-btn .btn-text {
+        display: none;
+    }
+    
+    .page-header .restart-btn i {
+        margin: 0;
+    }
+    
+    .toggle-sidebar {
+        left: 10px !important;
+        font-size: 1.5rem;
+        z-index: 1000;
+    }
+    
+    .header-actions {
+        gap: 6px;
+    }
+    
+    /* 侧边栏 */
+    .wrapper {
+        min-height: calc(100vh - 60px);
+        padding-top: 0;
+    }
+    
+    .sidebar {
+        position: fixed;
+        top: 60px;
+        left: -280px;
+        width: 280px;
+        height: calc(100vh - 60px);
+        transition: left 0.3s ease;
+        z-index: 999;
+        box-shadow: 2px 0 15px rgba(0,0,0,0.2);
+    }
+    
+    .sidebar.mobile-visible {
+        left: 0;
+    }
+    
+    .sidebar-item {
+        padding: 15px 20px;
+        font-size: 1rem;
+    }
+    
+    .sidebar-item i {
+        font-size: 1.3rem;
+        margin-right: 12px;
+    }
+    
+    /* 主内容区域 */
+    .content {
+        margin-left: 0 !important;
+        width: 100% !important;
+        padding-left: 0;
+    }
+    
+    .main-content {
+        padding: 12px;
+    }
+    
+    /* 卡片样式 */
+    .card {
+        margin-bottom: 15px;
+    }
+    
+    .card:hover {
+        transform: none;
+    }
+    
+    .card-header {
+        padding: 12px 15px;
+        font-size: 0.95rem;
+    }
+    
+    .card-body {
+        padding: 12px;
+    }
+    
+    /* 遮罩层 */
+    body.sidebar-open::after {
+        content: '';
+        position: fixed;
+        top: 60px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 998;
+    }
+    
+    /* 日期选择器 */
     .date-selector-container .d-flex {
         flex-direction: column;
         gap: 10px !important;
@@ -568,6 +727,673 @@ body {
     
     .data-source-info small {
         font-size: 9px;
+    }
+    
+    /* 日志容器 */
+    .logs-container {
+        height: 450px;
+    }
+    
+    /* 插件卡片 */
+    .plugin-path {
+        max-width: 180px;
+        font-size: 0.7rem;
+    }
+    
+    .plugin-badges {
+        flex-wrap: wrap;
+        margin-left: 0;
+        margin-top: 8px;
+        width: 100%;
+    }
+    
+    .plugin-info {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .plugin-toggle-switch {
+        margin-left: 0 !important;
+    }
+    
+    /* 统计图表 */
+    #statisticsChart {
+        max-height: 300px !important;
+        height: 300px !important;
+    }
+    
+    /* 表格响应式 */
+    .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .log-table th,
+    .log-table td {
+        font-size: 0.85rem;
+        padding: 8px 10px;
+    }
+    
+    .log-table .col-time {
+        width: 120px;
+        font-size: 0.75rem;
+    }
+    
+    .log-table .col-group-id,
+    .log-table .col-user-id {
+        width: 100px;
+        font-size: 0.8rem;
+    }
+    
+    /* 按钮 */
+    .btn {
+        font-size: 0.85rem;
+        padding: 0.4rem 0.8rem;
+    }
+    
+    .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    /* 插件目录标题 */
+    .directory-title {
+        padding: 10px 12px;
+        font-size: 0.95rem;
+    }
+    
+    .directory-badge {
+        font-size: 0.9rem;
+    }
+    
+    .count-badge {
+        font-size: 0.7rem;
+        padding: 1px 6px;
+    }
+}
+
+/* 小屏手机设备 */
+@media (max-width: 576px) {
+    .page-title {
+        font-size: 0.9rem !important;
+        margin-left: 45px !important;
+    }
+    
+    .page-title i {
+        display: none;
+    }
+    
+    .toggle-sidebar {
+        font-size: 1.3rem;
+    }
+    
+    .main-content {
+        padding: 10px;
+    }
+    
+    .card-body {
+        padding: 10px;
+    }
+    
+    /* 机器人信息卡片 */
+    .robot-info h5 {
+        font-size: 1rem;
+    }
+    
+    .robot-avatar {
+        width: 60px !important;
+        height: 60px !important;
+    }
+    
+    /* 系统信息网格 */
+    .row.g-3 > [class*='col-'] {
+        padding: 0.5rem;
+    }
+    
+    /* 插件处理器 */
+    .handler-item {
+        font-size: 0.65rem;
+        padding: 1px 4px;
+        margin: 0 2px 2px 0;
+    }
+    
+    .handlers-container {
+        max-height: 80px;
+    }
+    
+    /* 表单控件 */
+    .form-control,
+    .form-select {
+        font-size: 0.9rem;
+    }
+    
+    /* 减少间距 */
+    .mb-4 {
+        margin-bottom: 1rem !important;
+    }
+    
+    .mb-3 {
+        margin-bottom: 0.75rem !important;
+    }
+    
+    /* 插件路径显示 */
+    .plugin-path {
+        max-width: 150px;
+        font-size: 0.65rem;
+    }
+    
+    .plugin-name-container {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .plugin-name-container h6 {
+        font-size: 0.9rem;
+        margin-bottom: 4px !important;
+    }
+    
+    .plugin-priority {
+        font-size: 0.65rem;
+        margin-bottom: 4px;
+    }
+}
+
+/* 超小屏设备 */
+@media (max-width: 380px) {
+    :root {
+        --sidebar-width: 260px;
+    }
+    
+    .sidebar {
+        left: -260px;
+        width: 260px;
+    }
+    
+    .page-title {
+        font-size: 0.85rem !important;
+    }
+    
+    .robot-info h5 {
+        font-size: 0.9rem;
+    }
+    
+    .robot-info p {
+        font-size: 0.8rem;
+    }
+}
+
+/* 页面特定移动端适配 - 日志页面 */
+@media (max-width: 768px) {
+    .nav-tabs {
+        margin-bottom: 15px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .nav-tabs .nav-link {
+        padding: 8px 12px;
+        font-size: 0.85rem;
+    }
+    
+    .log-table {
+        font-size: 0.8rem;
+    }
+    
+    .log-table th,
+    .log-table td {
+        padding: 6px 8px;
+    }
+    
+    .auto-scroll-toggle {
+        font-size: 0.8rem;
+    }
+}
+
+/* 页面特定移动端适配 - 统计页面 */
+@media (max-width: 768px) {
+    .chart-toggle {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+    }
+    
+    .date-selector-dropdown {
+        width: 100% !important;
+        max-width: 180px;
+    }
+    
+    .btn-control {
+        font-size: 0.75rem;
+        padding: 0.4rem 0.7rem;
+    }
+    
+    .table-responsive {
+        font-size: 0.85rem;
+    }
+    
+    .table-sm td,
+    .table-sm th {
+        padding: 0.4rem;
+    }
+}
+
+/* 页面特定移动端适配 - 沙盒测试页面 */
+@media (max-width: 768px) {
+    .sandbox-markdown {
+        font-size: 0.9rem;
+    }
+    
+    .sandbox-markdown pre {
+        font-size: 0.75rem;
+        padding: 8px;
+    }
+    
+    .sandbox-markdown code {
+        font-size: 0.8rem;
+    }
+    
+    .empty-results {
+        padding: 2rem 1rem !important;
+    }
+    
+    .empty-results i {
+        font-size: 2rem !important;
+    }
+}
+
+/* 页面特定移动端适配 - 消息发送页面 */
+@media (max-width: 768px) {
+    .chat-list-col,
+    .chat-window-col {
+        width: 100%;
+        max-width: 100%;
+        flex: 0 0 100%;
+    }
+    
+    .chat-list-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .chat-type-buttons {
+        font-size: 0.8rem;
+    }
+    
+    .chat-type-buttons .btn {
+        padding: 0.4rem 0.8rem;
+    }
+    
+    #chat-list {
+        height: 350px !important;
+    }
+    
+    /* 优化列表项显示 */
+    .list-group-item {
+        padding: 0.75rem;
+    }
+    
+    .list-group-item .chat-item {
+        width: 100%;
+    }
+    
+    .list-group-item .chat-avatar,
+    .list-group-item .chat-avatar-placeholder {
+        width: 45px !important;
+        height: 45px !important;
+        flex-shrink: 0;
+    }
+    
+    .list-group-item h6 {
+        font-size: 0.9rem;
+        margin-bottom: 0.3rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .list-group-item h6 span[data-user-id] {
+        max-width: 150px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .list-group-item small {
+        font-size: 0.75rem;
+    }
+    
+    /* 消息区域 */
+    #message-area {
+        font-size: 0.9rem;
+    }
+    
+    .message-bubble {
+        margin-bottom: 1rem;
+    }
+    
+    .chat-avatar {
+        width: 40px !important;
+        height: 40px !important;
+    }
+    
+    /* 优化发送区域 */
+    #send-area {
+        padding: 0.75rem !important;
+    }
+    
+    #send-area .form-label {
+        font-size: 0.85rem;
+        margin-bottom: 0.4rem;
+    }
+    
+    #send-area .form-select {
+        font-size: 0.85rem;
+        padding: 0.5rem;
+    }
+    
+    #send-area .form-control,
+    #send-area textarea {
+        font-size: 0.85rem;
+        padding: 0.5rem;
+    }
+    
+    #send-area textarea {
+        min-height: 80px !important;
+    }
+    
+    #send-area .btn {
+        font-size: 0.85rem;
+        padding: 0.5rem 1rem;
+    }
+    
+    #send-area .input-group-text {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.6rem;
+    }
+    
+    #send-area small.text-muted {
+        font-size: 0.75rem;
+        line-height: 1.4;
+        display: block;
+        margin-top: 0.3rem;
+    }
+    
+    .send-method-hints {
+        font-size: 0.75rem;
+        margin-top: 0.4rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .list-group-item h6 span[data-user-id] {
+        max-width: 120px;
+    }
+    
+    .chat-type-buttons .btn {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.75rem;
+    }
+}
+
+/* 页面特定移动端适配 - 开放平台页面 */
+@media (max-width: 768px) {
+    #openapi-qr-image {
+        max-width: 180px !important;
+    }
+    
+    .bot-card {
+        font-size: 0.9rem;
+    }
+    
+    .bot-card .badge {
+        font-size: 0.7rem;
+    }
+    
+    .modal-dialog {
+        margin: 20px auto !important;
+        max-width: 90% !important;
+    }
+}
+
+/* 页面特定移动端适配 - 配置管理页面 */
+@media (max-width: 768px) {
+    .config-section {
+        padding: 1rem;
+    }
+    
+    /* 配置分组按钮 - 移动端紧凑布局 */
+    #config-groups-selector {
+        gap: 6px !important;
+        padding: 10px !important;
+    }
+    
+    .config-group-btn {
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        flex: 1 1 calc(33.333% - 6px);
+        min-width: calc(33.333% - 6px);
+        max-width: calc(33.333% - 6px);
+        justify-content: center;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        text-align: center;
+    }
+    
+    .config-group-btn i {
+        font-size: 1rem;
+        margin: 0;
+    }
+    
+    .config-group-btn .group-name {
+        font-size: 0.7rem;
+        line-height: 1.2;
+    }
+    
+    .config-group-btn .item-count {
+        font-size: 0.6rem;
+        padding: 1px 5px;
+        margin: 0;
+    }
+    
+    .config-selector-title {
+        font-size: 0.85rem;
+        padding: 6px 10px;
+    }
+    
+    /* 配置表单优化 */
+    .config-form-container {
+        margin: 0 10px 15px 10px;
+    }
+    
+    .config-form-header {
+        padding: 8px 12px;
+    }
+    
+    .config-form-header h5 {
+        font-size: 0.9rem;
+    }
+    
+    .config-form-content {
+        padding-bottom: 6px;
+    }
+    
+    /* 配置项样式 - 移动端优化 */
+    .config-item {
+        padding: 10px 12px;
+        margin-bottom: 0;
+    }
+    
+    .config-item-header {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 8px;
+    }
+    
+    .config-item-label {
+        font-size: 0.85rem;
+        width: 100%;
+        font-weight: 600;
+    }
+    
+    /* 注释显示在类名下面 */
+    .config-item-comment {
+        font-size: 0.75rem;
+        width: 100% !important;
+        margin-top: 4px;
+        margin-left: 0 !important;
+        padding: 6px 10px;
+        background: #f8f9fa;
+        border-left: 3px solid #4361ee;
+        border-radius: 4px;
+        order: 2;
+        line-height: 1.4;
+    }
+    
+    .config-item-value {
+        width: 100%;
+        order: 1;
+    }
+    
+    .form-label {
+        font-size: 0.85rem;
+        margin-bottom: 0.3rem;
+    }
+    
+    .form-control,
+    .form-select {
+        font-size: 0.85rem;
+        padding: 0.4rem;
+    }
+    
+    /* 模式提示 */
+    .mode-hint {
+        font-size: 0.75rem;
+        padding: 6px 10px;
+        flex-wrap: wrap;
+    }
+    
+    .mode-hint i {
+        font-size: 0.85rem;
+    }
+    
+    /* 配置来源标签 */
+    .config-source-badge {
+        font-size: 0.7rem;
+        padding: 3px 8px;
+    }
+    
+    /* 编辑器 */
+    #config-editor .CodeMirror {
+        font-size: 12px !important;
+        min-height: 300px !important;
+    }
+    
+    .config-selector-wrapper {
+        margin: 0 10px 15px 10px;
+    }
+}
+
+@media (max-width: 576px) {
+    /* 更小屏幕：配置按钮改为2列 */
+    .config-group-btn {
+        padding: 8px 8px;
+        font-size: 0.7rem;
+        flex: 1 1 calc(50% - 6px);
+        min-width: calc(50% - 6px);
+        max-width: calc(50% - 6px);
+    }
+    
+    .config-group-btn .group-name {
+        font-size: 0.7rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+    
+    .config-item-label {
+        font-size: 0.8rem;
+    }
+    
+    .config-item-comment {
+        font-size: 0.7rem;
+        padding: 5px 8px;
+    }
+    
+    .form-control,
+    .form-select {
+        font-size: 0.8rem;
+    }
+}
+
+/* 页面特定移动端适配 - AI编写页面 */
+@media (max-width: 768px) {
+    .CodeMirror {
+        font-size: 0.8rem;
+        height: 300px !important;
+    }
+    
+    .code-editor-container {
+        margin-bottom: 1rem;
+    }
+}
+
+@media (max-width: 576px) {
+    /* 导航标签更小 */
+    .nav-tabs .nav-link {
+        padding: 6px 8px;
+        font-size: 0.75rem;
+    }
+    
+    .nav-tabs .nav-link i {
+        display: none;
+    }
+    
+    /* 按钮组紧凑布局 */
+    .d-flex.gap-2 {
+        flex-wrap: wrap;
+        gap: 0.5rem !important;
+    }
+    
+    /* 表格更紧凑 */
+    .table {
+        font-size: 0.8rem;
+    }
+    
+    /* 卡片标题更小 */
+    .card-title {
+        font-size: 0.9rem;
+    }
+    
+    /* 表单标签和输入框 */
+    .form-label {
+        font-size: 0.85rem;
+        margin-bottom: 0.3rem;
+    }
+    
+    .form-control,
+    .form-select,
+    textarea {
+        font-size: 0.85rem;
+        padding: 0.4rem;
+    }
+    
+    /* 模态框适配 */
+    .modal-dialog {
+        margin: 10px !important;
+        max-width: 95% !important;
+    }
+    
+    .modal-header,
+    .modal-footer {
+        padding: 0.75rem;
+    }
+    
+    .modal-body {
+        padding: 0.75rem;
+        font-size: 0.9rem;
     }
 }
 
@@ -1204,73 +2030,4 @@ tr:hover .log-copy-btn {
 .update-time-badge i {
     margin-right: 4px;
     font-size: 0.7rem;
-}
-
-@media (max-width: 992px) {
-    .plugins-container-wrapper {
-        flex-direction: column;
-    }
-    
-    .memory-info-sidebar {
-        width: 100%;
-    }
-    
-    .content {
-        margin-left: 0;
-        width: 100%;
-        padding-left: var(--sidebar-width);
-    }
-    
-    .content.expanded {
-        padding-left: var(--sidebar-collapsed-width);
-    }
-    
-    .sidebar {
-        width: var(--sidebar-collapsed-width);
-    }
-    
-    .sidebar-item .item-text {
-        opacity: 0;
-        width: 0;
-        display: none;
-    }
-    
-    .sidebar.expanded {
-        width: var(--sidebar-width);
-    }
-    
-    .sidebar.expanded .sidebar-item .item-text {
-        opacity: 1;
-        width: auto;
-        display: inline;
-    }
-}
-
-@media (max-width: 576px) {
-    .content {
-        padding-left: 0;
-    }
-    
-    .sidebar {
-        transform: translateX(-100%);
-    }
-    
-    .sidebar.mobile-visible {
-        transform: translateX(0);
-        width: var(--sidebar-width);
-    }
-    
-    .sidebar.mobile-visible .sidebar-item .item-text {
-        opacity: 1;
-        width: auto;
-        display: inline;
-    }
-    
-    .page-header {
-        position: fixed;
-    }
-    
-    .wrapper {
-        padding-top: 70px;
-    }
 }

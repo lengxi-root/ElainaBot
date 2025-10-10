@@ -486,12 +486,54 @@ function setupSidebarToggle() {
     const sidebar = document.getElementById('sidebar');
     const mainContent = document.getElementById('main-content');
     
-    if (toggleSidebar && sidebar && mainContent) {
-        toggleSidebar.addEventListener('click', () => {
+    if (!toggleSidebar || !sidebar || !mainContent) return;
+    
+    toggleSidebar.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // 移动端: 切换侧边栏显示/隐藏
+        if (window.innerWidth <= 768) {
+            const isVisible = sidebar.classList.contains('mobile-visible');
+            
+            if (isVisible) {
+                sidebar.classList.remove('mobile-visible');
+                document.body.classList.remove('sidebar-open');
+            } else {
+                sidebar.classList.add('mobile-visible');
+                document.body.classList.add('sidebar-open');
+            }
+        } else {
+            // 桌面端: 切换侧边栏展开/收起
             sidebar.classList.toggle('collapsed');
             mainContent.classList.toggle('expanded');
+        }
+    });
+    
+    // 点击遮罩层关闭侧边栏
+    document.addEventListener('click', (e) => {
+        if (window.innerWidth <= 768) {
+            const isClickInsideSidebar = sidebar.contains(e.target);
+            const isClickOnToggle = toggleSidebar.contains(e.target);
+            
+            if (!isClickInsideSidebar && !isClickOnToggle && sidebar.classList.contains('mobile-visible')) {
+                sidebar.classList.remove('mobile-visible');
+                document.body.classList.remove('sidebar-open');
+            }
+        }
+    });
+    
+    // 侧边栏菜单项点击后自动关闭(移动端)
+    const sidebarItems = sidebar.querySelectorAll('.sidebar-item');
+    sidebarItems.forEach(item => {
+        item.addEventListener('click', () => {
+            if (window.innerWidth <= 768 && sidebar.classList.contains('mobile-visible')) {
+                setTimeout(() => {
+                    sidebar.classList.remove('mobile-visible');
+                    document.body.classList.remove('sidebar-open');
+                }, 200);
+            }
         });
-    }
+    });
 }
 
 function setupMobileNavigation() {
@@ -501,24 +543,69 @@ function setupMobileNavigation() {
     
     if (!toggleSidebar || !sidebar || !mainContent) return;
     
+    // 响应式布局调整
     const checkScreenSize = () => {
-        if (window.innerWidth <= 576) {
+        const width = window.innerWidth;
+        
+        // 清理所有状态类
+        sidebar.classList.remove('mobile-visible');
+        document.body.classList.remove('sidebar-open');
+        
+        if (width <= 768) {
+            // 移动端: 侧边栏默认隐藏
             sidebar.classList.remove('collapsed', 'expanded');
             mainContent.classList.remove('expanded');
-        } else if (window.innerWidth <= 992) {
+        } else if (width <= 992) {
+            // 平板端: 侧边栏默认收起
             sidebar.classList.add('collapsed');
             mainContent.classList.add('expanded');
+        } else {
+            // 桌面端: 侧边栏默认展开
+            sidebar.classList.remove('collapsed');
+            mainContent.classList.remove('expanded');
         }
     };
     
     checkScreenSize();
-    window.addEventListener('resize', checkScreenSize);
     
-    mainContent.addEventListener('click', () => {
-        if (window.innerWidth <= 576 && sidebar.classList.contains('mobile-visible')) {
-            sidebar.classList.remove('mobile-visible');
-        }
+    // 防抖处理窗口大小变化
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(checkScreenSize, 200);
     });
+    
+    // 触摸滑动手势支持(移动端)
+    let touchStartX = 0;
+    let touchEndX = 0;
+    
+    document.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+    
+    document.addEventListener('touchend', (e) => {
+        if (window.innerWidth > 768) return;
+        
+        touchEndX = e.changedTouches[0].screenX;
+        handleSwipeGesture();
+    }, { passive: true });
+    
+    function handleSwipeGesture() {
+        const swipeDistance = touchEndX - touchStartX;
+        const minSwipeDistance = 50;
+        
+        // 从左边缘向右滑动 - 打开侧边栏
+        if (touchStartX < 50 && swipeDistance > minSwipeDistance && !sidebar.classList.contains('mobile-visible')) {
+            sidebar.classList.add('mobile-visible');
+            document.body.classList.add('sidebar-open');
+        }
+        
+        // 从任意位置向左滑动 - 关闭侧边栏
+        if (swipeDistance < -minSwipeDistance && sidebar.classList.contains('mobile-visible')) {
+            sidebar.classList.remove('mobile-visible');
+            document.body.classList.remove('sidebar-open');
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

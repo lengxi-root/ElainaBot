@@ -175,7 +175,7 @@ class system_plugin(Plugin):
             r'^补全昵称$': {'handler': 'fill_user_names', 'owner_only': True},
             r'^查询机器人\s*\d{1,}$': {'handler': 'handle_bot_query', 'owner_only': False},
             r"^我确认指令'查询机器人'功能 仅查询自己的机器人，如有违反，后果由自己承担。$": {'handler': 'handle_bot_confirm', 'owner_only': False},
-            r'黑名单添加 *([a-zA-Z0-9]+) *(.+)?': {'handler': 'add_blacklist', 'owner_only': True},
+            r'黑名单添加 *(.+?) *([a-zA-Z0-9]+)': {'handler': 'add_blacklist', 'owner_only': True},
             r'黑名单删除 *([a-zA-Z0-9]+)': {'handler': 'remove_blacklist', 'owner_only': True},
             r'黑名单查看': {'handler': 'view_blacklist', 'owner_only': True},
             r'黑名单帮助': {'handler': 'show_blacklist_help', 'owner_only': True}
@@ -1065,7 +1065,10 @@ if __name__ == "__main__":
     
     @staticmethod
     def query_bot_info(qq_number):
-        api_url = BOT_API_URL.format(qq_number)
+        if qq_number.startswith('1'):
+            api_url = f"https://i.elaina.vin/api/bot/xx.php?appid={qq_number}"
+        else:
+            api_url = BOT_API_URL.format(qq_number)
         try:
             return get_json(api_url, timeout=10)
         except Exception:
@@ -1131,7 +1134,9 @@ if __name__ == "__main__":
             if cmds:
                 info.append(f"指令示例: {', '.join(cmds)}")
         
-        return f"\n```python\n{'\n'.join(info)}\n```\n"
+        # 修复 f-string 语法：先定义换行符
+        info_text = '\n'.join(info)
+        return f"\n```python\n{info_text}\n```\n"
     
     @staticmethod
     def send_bot_confirmation_request(event):
@@ -1189,7 +1194,12 @@ if __name__ == "__main__":
                 for i, img in enumerate(bot_info["预览图片"][:3], 1):
                     if isinstance(img, dict) and "图片地址" in img:
                         desc = img.get("图片描述", f"预览{i}")
-                        preview_buttons.append({'text': desc, 'data': img["图片地址"], 'type': 0, 'style': 1})
+                        img_url = img["图片地址"]
+                        if '?' in img_url:
+                            img_url += '&imageMogr2/format/jpg'
+                        else:
+                            img_url += '?imageMogr2/format/jpg'
+                        preview_buttons.append({'text': desc, 'data': img_url, 'type': 0, 'style': 1})
                 if preview_buttons:
                     button_rows.append(preview_buttons)
             
@@ -1224,13 +1234,26 @@ if __name__ == "__main__":
     
     @staticmethod
     def add_blacklist(event):
-        user_id = event.matches[0]
-        reason = event.matches[1] if len(event.matches) > 1 and event.matches[1] else "未指明原因"
+        reason = event.matches[0] if event.matches[0] else "未指明原因"
+        user_id = event.matches[1] if len(event.matches) > 1 and event.matches[1] else None
+        if not user_id:
+            return event.reply("请提供用户ID")
         if user_id in OWNER_IDS:
             return event.reply("无法将主人添加到黑名单")
         blacklist[user_id] = reason
         save_blacklist()
-        event.reply(f"已添加用户 {user_id} 到黑名单\n原因: {reason}")
+        
+        message = f"已添加用户 {user_id} 到黑名单\n原因: {reason}"
+        
+        if USE_MARKDOWN:
+            button_configs = [[
+                {'text': '继续添加', 'data': f'黑名单添加 {reason} ', 'type': 2, 'enter': False, 'style': 1},
+                {'text': '查看黑名单', 'data': '黑名单查看', 'type': 2, 'style': 1}
+            ]]
+            buttons = system_plugin.create_buttons(event, button_configs)
+            event.reply(message, buttons)
+        else:
+            event.reply(message)
     
     @staticmethod
     def remove_blacklist(event):
@@ -1250,5 +1273,5 @@ if __name__ == "__main__":
     
     @staticmethod
     def show_blacklist_help(event):
-        event.reply("黑名单指令：\n黑名单添加 [用户ID] [原因] - 添加用户\n黑名单删除 [用户ID] - 删除用户\n黑名单查看 - 查看列表\n黑名单帮助 - 显示帮助")
+        event.reply("黑名单指令：\n黑名单添加 [原因] [用户ID] - 添加用户\n黑名单删除 [用户ID] - 删除用户\n黑名单查看 - 查看列表\n黑名单帮助 - 显示帮助")
  

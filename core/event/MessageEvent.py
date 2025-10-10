@@ -294,7 +294,9 @@ class MessageEvent:
         message_id = self._send_with_error_handling(payload, endpoint, "消息", f"content: {content}")
         if message_id and auto_delete_time and isinstance(auto_delete_time, (int, float)) and auto_delete_time > 0:
             import threading
-            threading.Timer(auto_delete_time, self.recall_message, args=[message_id], daemon=True).start()
+            timer = threading.Timer(auto_delete_time, self.recall_message, args=[message_id])
+            timer.daemon = True
+            timer.start()
         return message_id
 
     def reply_image(self, image_data, content='', auto_delete_time=None):

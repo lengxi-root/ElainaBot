@@ -58,9 +58,14 @@ from core.event.MessageEvent import MessageEvent
 
 valid_sessions = {}
 _last_session_cleanup = 0
-IP_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'ip.json')
+WEB_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'web')
+IP_DATA_FILE = os.path.join(WEB_DATA_DIR, 'ip.json')
+SESSION_DATA_FILE = os.path.join(WEB_DATA_DIR, 'sessions.json')
 ip_access_data = {}
 _last_ip_cleanup = 0
+
+# 初始化：确保数据目录存在
+os.makedirs(WEB_DATA_DIR, exist_ok=True)
 
 historical_data_cache = None
 historical_cache_loaded = False
@@ -155,6 +160,44 @@ def load_ip_data():
 def save_ip_data():
     safe_file_operation('write', IP_DATA_FILE, ip_access_data)
 
+def load_session_data():
+    """加载持久化的会话数据"""
+    global valid_sessions
+    try:
+        if os.path.exists(SESSION_DATA_FILE):
+            with open(SESSION_DATA_FILE, 'r', encoding='utf-8') as f:
+                sessions = json.load(f)
+                # 将字符串格式的时间转换回datetime对象
+                for session_token, session_info in sessions.items():
+                    try:
+                        session_info['created'] = datetime.fromisoformat(session_info['created'])
+                        session_info['expires'] = datetime.fromisoformat(session_info['expires'])
+                        # 只加载未过期的会话
+                        if datetime.now() < session_info['expires']:
+                            valid_sessions[session_token] = session_info
+                    except Exception:
+                        continue
+    except Exception:
+        valid_sessions = {}
+
+def save_session_data():
+    """保存会话数据到文件"""
+    try:
+        # 将datetime对象转换为字符串格式
+        sessions_to_save = {}
+        for session_token, session_info in valid_sessions.items():
+            sessions_to_save[session_token] = {
+                'created': session_info['created'].isoformat(),
+                'expires': session_info['expires'].isoformat(),
+                'ip': session_info.get('ip', ''),
+                'user_agent': session_info.get('user_agent', '')
+            }
+        
+        with open(SESSION_DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(sessions_to_save, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
 def record_ip_access(ip_address, access_type='token_success', device_info=None):
     global ip_access_data
     current_time = datetime.now()
@@ -235,6 +278,7 @@ def cleanup_expired_ip_bans():
         save_ip_data()
 
 load_ip_data()
+load_session_data()
 
 def create_response(success=True, data=None, error=None, status_code=200, response_type='api', **extra):
     if success:
@@ -295,8 +339,10 @@ def require_auth(f):
                 if not WEB_SECURITY.get('production_mode', False) or (session_info.get('ip') == request.remote_addr and session_info.get('user_agent', '')[:200] == request.headers.get('User-Agent', '')[:200]):
                     return f(*args, **kwargs)
                 del valid_sessions[session_token]
+                save_session_data()
             elif session_token in valid_sessions:
                 del valid_sessions[session_token]
+                save_session_data()
         return render_template('login.html', token=request.args.get('token', ''), web_interface=WEB_INTERFACE)
     return decorated_function
 
@@ -326,12 +372,14 @@ def require_socketio_token(f):
         
         if datetime.now() >= session_info['expires']:
             del valid_sessions[session_token]
+            save_session_data()
             return False
         
         if WEB_SECURITY.get('production_mode', False):
             if (session_info.get('ip') != client_ip or 
                 session_info.get('user_agent', '')[:200] != request.headers.get('User-Agent', '')[:200]):
                 del valid_sessions[session_token]
+                save_session_data()
                 return False
         
         device_info = extract_device_info(request)
@@ -347,10 +395,23 @@ def cleanup_expired_sessions():
     if (current_time := time.time()) - _last_session_cleanup < 300:
         return
     _last_session_cleanup, current_datetime = current_time, datetime.now()
+    expired_count = 0
     for session_token in [s for s, info in valid_sessions.items() if current_datetime >= info['expires']]:
         del valid_sessions[session_token]
+        expired_count += 1
+    # 如果清理了过期会话，保存到文件
+    if expired_count > 0:
+        save_session_data()
 
-limit_session_count = lambda: [valid_sessions.pop(sorted(valid_sessions.items(), key=lambda x: x[1]['created'])[i][0]) for i in range(len(valid_sessions) - 10)] if len(valid_sessions) > 10 else None
+def limit_session_count():
+    """限制会话数量，最多保留10个最新会话"""
+    if len(valid_sessions) > 10:
+        # 按创建时间排序，删除最旧的会话
+        sorted_sessions = sorted(valid_sessions.items(), key=lambda x: x[1]['created'])
+        for i in range(len(valid_sessions) - 10):
+            valid_sessions.pop(sorted_sessions[i][0])
+        # 保存会话数据
+        save_session_data()
 
 class LogHandler:
     def __init__(self, log_type, max_logs=MAX_LOGS):
@@ -425,10 +486,52 @@ def login():
         cleanup_expired_sessions()
         limit_session_count()
         record_ip_access(request.remote_addr, 'password_success', extract_device_info(request))
-        session_token, expires = generate_session_token(), datetime.now() + timedelta(days=7)
-        valid_sessions[session_token] = {'created': datetime.now(), 'expires': expires, 'ip': request.remote_addr, 'user_agent': request.headers.get('User-Agent', '')[:200]}
+        
+        # 检查该IP是否有未过期的会话，如果有则复用并延长时间
+        current_ip = request.remote_addr
+        current_ua = request.headers.get('User-Agent', '')[:200]
+        existing_session_token = None
+        
+        for session_token, session_info in valid_sessions.items():
+            if (session_info.get('ip') == current_ip and 
+                datetime.now() < session_info['expires']):
+                # 找到该IP的未过期会话，复用它
+                existing_session_token = session_token
+                break
+        
+        if existing_session_token:
+            # 复用现有会话，延长过期时间
+            session_token = existing_session_token
+            expires = datetime.now() + timedelta(days=7)
+            valid_sessions[session_token]['expires'] = expires
+            valid_sessions[session_token]['user_agent'] = current_ua
+        else:
+            # 创建新会话
+            session_token = generate_session_token()
+            expires = datetime.now() + timedelta(days=7)
+            valid_sessions[session_token] = {
+                'created': datetime.now(), 
+                'expires': expires, 
+                'ip': current_ip, 
+                'user_agent': current_ua
+            }
+        
+        # 保存会话到文件
+        save_session_data()
+        
         response = make_response(f'<script>window.location.href = "/web/?token={token}";</script>')
-        response.set_cookie('elaina_admin_session', sign_cookie_value(session_token, 'elaina_cookie_secret_key_2024_v1'), max_age=604800, httponly=True, secure=False, samesite='Lax', path='/')
+        # 设置 cookie，同时设置 max_age 和 expires 确保浏览器关闭后仍然保持登录
+        cookie_expires = datetime.now() + timedelta(days=7)
+        response.set_cookie(
+            'elaina_admin_session', 
+            sign_cookie_value(session_token, 'elaina_cookie_secret_key_2024_v1'), 
+            max_age=604800,  # 7天（秒）
+            expires=cookie_expires,  # 明确的过期时间
+            httponly=True, 
+            secure=False, 
+            samesite='Lax', 
+            path='/'
+        )
         return response
     record_ip_access(request.remote_addr, 'password_fail')
     return render_template('login.html', token=token, error='密码错误，请重试', web_interface=WEB_INTERFACE)

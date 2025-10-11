@@ -1,6 +1,16 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
+<style>
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+</style>
 <!-- 单独进程Web警告 -->
 <div id="standalone-web-warning" class="alert alert-warning alert-dismissible fade show" style="display: none;" role="alert">
     <i class="bi bi-exclamation-triangle-fill"></i>
@@ -320,11 +330,82 @@ function checkStandaloneWeb() {
     .catch(() => {});
 }
 
+function loadTodayLogs() {
+    /**
+     * 从数据库加载今日的历史日志
+     * 每次进入日志界面都会重新加载，不使用缓存
+     */
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    if (!token) {
+        console.warn('未找到token，跳过加载今日日志');
+        return;
+    }
+    
+    // 显示加载提示
+    Object.keys(logContainers).forEach(type => {
+        const container = logContainers[type].container;
+        if (logContainers[type].isTable) {
+            container.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;"><i class="bi bi-arrow-clockwise spin"></i> 正在加载今日日志...</td></tr>`;
+        } else {
+            container.innerHTML = `<div class="text-center py-3"><i class="bi bi-arrow-clockwise spin"></i> 正在加载今日日志...</div>`;
+        }
+    });
+    
+    fetch(`/web/api/logs/today?token=${encodeURIComponent(token)}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.data) {
+            // 处理每种类型的日志
+            Object.keys(logContainers).forEach(type => {
+                const logData = data.data[type];
+                if (logData && logData.logs) {
+                    // 将历史日志添加到对应的容器中
+                    updateLogDisplay(type, logData.logs);
+                    
+                    // 更新日志统计信息
+                    const logInfo = logContainers[type];
+                    logInfo.totalLogs = logData.total;
+                    updatePaginationInfo(type);
+                    
+                    console.log(`已加载 ${type} 类型的今日日志: ${logData.total} 条`);
+                } else {
+                    // 如果没有日志，显示空状态
+                    updateLogDisplay(type, []);
+                }
+            });
+            
+            console.log(`成功加载今日日志，日期: ${data.date}，每种类型最多: ${data.limit} 条`);
+        } else {
+            console.error('加载今日日志失败:', data.message || '未知错误');
+            // 加载失败时显示空状态
+            Object.keys(logContainers).forEach(type => {
+                updateLogDisplay(type, []);
+            });
+        }
+    })
+    .catch(error => {
+        console.error('加载今日日志请求失败:', error);
+        // 请求失败时显示空状态
+        Object.keys(logContainers).forEach(type => {
+            updateLogDisplay(type, []);
+        });
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     initLogPanels();
     checkStandaloneWeb();
     
-    Object.keys(logContainers).forEach(type => goToPage(type, 1));
+    // 加载今日历史日志
+    loadTodayLogs();
+    
+    // 初始化分页（但不立即加载，因为已经加载了今日日志）
+    Object.keys(logContainers).forEach(type => {
+        logContainers[type].currentPage = 1;
+        updatePaginationButtons(type);
+    });
     
     window.updateLogDisplay = updateLogDisplay;
     window.handleNewLog = function(data) {

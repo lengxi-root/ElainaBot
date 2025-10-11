@@ -311,6 +311,15 @@ function renderPluginsList(pluginsByDirectory) {
                         handlerCountBadge = `<span class="badge bg-secondary plugin-badge"><i class="bi bi-code-slash"></i> ${handlerCount}个处理器</span>`;
                     }
                     
+                    // Web插件徽章
+                    let webRouteBadge = '';
+                    if (plugin.is_web_plugin && plugin.web_route && plugin.web_route.menu_name) {
+                        const webIcon = plugin.web_route.menu_icon || 'bi-globe';
+                        const menuName = plugin.web_route.menu_name;
+                        const description = plugin.web_route.description || '';
+                        webRouteBadge = `<span class="badge bg-gradient-web plugin-badge" title="${description}"><i class="${webIcon}"></i> ${menuName}</span>`;
+                    }
+                    
                     let errorHtml = '';
                     if (plugin.status === 'error' && plugin.error) {
                         errorHtml = `<div class="plugin-error">${plugin.error}</div>`;
@@ -411,6 +420,7 @@ function renderPluginsList(pluginsByDirectory) {
                                     <div class="plugin-badges">
                                         ${statusBadge}
                                     ${handlerCountBadge}
+                                    ${webRouteBadge}
                                     ${toggleSwitch}
                                     ${editButton}
                                 </div>
@@ -1014,6 +1024,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 #edit-plugin-editor .CodeMirror-selected {
     background: rgba(255, 255, 255, 0.15);
+}
+
+/* Web插件徽章样式 */
+.bg-gradient-web {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-weight: 500;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.bg-gradient-web:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+    transition: all 0.2s ease;
 }
 
 /* 模态框优化 */

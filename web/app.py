@@ -514,13 +514,151 @@ def login():
 @require_auth
 @catch_error
 def index():
-    response = make_response(render_template('index.html', prefix=PREFIX, device_type='pc', ROBOT_QQ=ROBOT_QQ, appid=appid, WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_INTERFACE))
+    # 获取插件web路由
+    from core.plugin.PluginManager import PluginManager
+    plugin_routes = PluginManager.get_web_routes()
+    
+    response = make_response(render_template('index.html', prefix=PREFIX, device_type='pc', ROBOT_QQ=ROBOT_QQ, appid=appid, WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_INTERFACE, plugin_routes=plugin_routes))
     for header, value in [('X-Content-Type-Options', 'nosniff'), ('X-Frame-Options', 'DENY'), ('X-XSS-Protection', '1; mode=block'),
         ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"),
         ('Referrer-Policy', 'strict-origin-when-cross-origin'), ('Permissions-Policy', 'geolocation=(), microphone=(), camera=()'),
         ('Strict-Transport-Security', 'max-age=0'), ('Cache-Control', 'no-cache, no-store, must-revalidate'), ('Pragma', 'no-cache'), ('Expires', '0')]:
         response.headers[header] = value
     return response
+
+@web.route('/plugin/<plugin_path>')
+@check_ip_ban
+@require_token
+@require_auth
+@catch_error
+def plugin_page(plugin_path):
+    """处理插件web页面请求"""
+    from core.plugin.PluginManager import PluginManager
+    
+    # 获取插件路由信息
+    plugin_routes = PluginManager.get_web_routes()
+    
+    if plugin_path not in plugin_routes:
+        return jsonify({'error': '插件页面不存在'}), 404
+    
+    route_info = plugin_routes[plugin_path]
+    plugin_class = route_info['class']
+    handler_name = route_info['handler']
+    
+    try:
+        # 调用插件的处理函数
+        if hasattr(plugin_class, handler_name):
+            handler = getattr(plugin_class, handler_name)
+            result = handler()
+            
+            # 支持两种返回格式
+            if isinstance(result, dict):
+                # 字典格式 {'html': ..., 'script': ..., 'css': ...}
+                html_content = result.get('html', '')
+                script_content = result.get('script', '')
+                css_content = result.get('css', '')
+                
+                return jsonify({
+                    'success': True,
+                    'html': html_content,
+                    'script': script_content,
+                    'css': css_content,
+                    'title': route_info['menu_name']
+                })
+            elif isinstance(result, str):
+                # 字符串格式（纯HTML）
+                return jsonify({
+                    'success': True,
+                    'html': result,
+                    'script': '',
+                    'css': '',
+                    'title': route_info['menu_name']
+                })
+            else:
+                return jsonify({'error': '插件返回格式错误'}), 500
+        else:
+            return jsonify({'error': f'插件处理函数 {handler_name} 不存在'}), 500
+            
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        add_error_log(f"插件页面加载失败: {plugin_path}", error_trace)
+        return jsonify({'error': f'插件页面加载失败: {str(e)}'}), 500
+
+# ========== 插件动态API路由处理 ==========
+@web.route('/api/plugin/<path:api_path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@check_ip_ban
+def handle_plugin_api(api_path):
+    """处理插件注册的API路由"""
+    from core.plugin.PluginManager import PluginManager
+    
+    # 获取插件API路由信息
+    full_api_path = f'/api/{api_path}'
+    api_routes = PluginManager.get_api_routes()
+    
+    if full_api_path not in api_routes:
+        return jsonify({'success': False, 'message': 'API路由不存在'}), 404
+    
+    route_info = api_routes[full_api_path]
+    
+    # 检查请求方法
+    if request.method not in route_info.get('methods', ['GET']):
+        return jsonify({'success': False, 'message': f'不支持的请求方法: {request.method}'}), 405
+    
+    # 权限检查
+    if route_info.get('require_token', True):
+        token = request.args.get('token') or request.form.get('token')
+        if not token or token != WEB_SECURITY['access_token']:
+            return jsonify({'success': False, 'message': '无效的token'}), 403
+    
+    if route_info.get('require_auth', True):
+        # 检查会话认证
+        cleanup_expired_sessions()
+        cookie_value = request.cookies.get('elaina_admin_session')
+        if not cookie_value:
+            return jsonify({'success': False, 'message': '未登录'}), 401
+        
+        is_valid, session_token = verify_cookie_value(cookie_value, 'elaina_cookie_secret_key_2024_v1')
+        if not is_valid or session_token not in valid_sessions:
+            return jsonify({'success': False, 'message': '会话无效'}), 401
+        
+        session_info = valid_sessions[session_token]
+        if datetime.now() >= session_info['expires']:
+            del valid_sessions[session_token]
+            save_session_data()
+            return jsonify({'success': False, 'message': '会话已过期'}), 401
+    
+    # 调用插件处理函数
+    plugin_class = route_info['class']
+    handler_name = route_info['handler']
+    
+    try:
+        if hasattr(plugin_class, handler_name):
+            handler = getattr(plugin_class, handler_name)
+            
+            # 获取请求数据
+            if request.method == 'GET':
+                request_data = request.args.to_dict()
+            else:
+                request_data = request.get_json() or {}
+            
+            # 调用处理函数 - 始终传递参数，即使是空字典
+            # 修复：空字典{}是False值，但仍应传递给处理函数
+            result = handler(request_data)
+            
+            # 返回结果
+            if isinstance(result, dict):
+                return jsonify(result)
+            else:
+                return jsonify({'success': True, 'data': result})
+        else:
+            return jsonify({'success': False, 'message': f'处理函数 {handler_name} 不存在'}), 500
+    
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        add_error_log(f"插件API处理失败: {full_api_path}", error_trace)
+        logging.error(f"插件API错误: {str(e)}\n{error_trace}")
+        return jsonify({'success': False, 'message': f'处理请求失败: {str(e)}'}), 500
 
 @web.route('/api/logs/<log_type>')
 @check_ip_ban
@@ -1210,122 +1348,6 @@ def cancel_pending_config():
         return jsonify({'success': True, 'message': '已取消待应用的配置'})
     return jsonify({'success': False, 'message': '没有待应用的配置文件'}), 404
 
-@web.route('/api/ai/generate_plugin', methods=['POST'])
-@check_ip_ban
-@require_token
-@require_auth
-@catch_error
-def ai_generate_plugin():
-    """AI生成插件代码"""
-    data = request.get_json()
-    prompt = data.get('prompt', '').strip()
-    filename = data.get('filename', '').strip()
-    
-    if not prompt:
-        return jsonify({'success': False, 'message': '请输入需求描述'}), 400
-    
-    if not filename or not filename.endswith('.py'):
-        return jsonify({'success': False, 'message': '文件名必须以 .py 结尾'}), 400
-    
-    try:
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        example_plugin_path = os.path.join(script_dir, 'plugins', 'example', '示例插件（可喂给AI）.py')
-        
-        example_code = ''
-        if os.path.exists(example_plugin_path):
-            with open(example_plugin_path, 'r', encoding='utf-8') as f:
-                example_code = f.read()
-        
-        # 构建提示词
-        ai_prompt = f"""参考示例插件代码：
-```python
-{example_code}
-```
-
-关键规范：
-- 继承 Plugin 类
-- get_regex_handlers() 返回字典
-- @staticmethod 装饰器
-- 不要用 async/await
-- 数据库用 MySQL（%s 占位符）
-
-用户需求：{prompt}
-
-直接输出完整的Python代码，不要解释，不要用markdown包裹："""
-        
-        # 调用 AI API
-        response = requests.post(
-            'https://i.elaina.vin/api/ai.php',
-            json={'text': ai_prompt},
-            headers={'Content-Type': 'application/json'},
-            timeout=60
-        )
-        
-        result = response.json()
-        
-        if result.get('status') == 'success' and result.get('response'):
-            code = result['response']
-            code = re.sub(r'^```(?:python)?\s*\n', '', code)
-            code = re.sub(r'\n```\s*$', '', code)
-            generated_code = code.strip()
-            
-            return jsonify({
-                'success': True,
-                'code': generated_code,
-                'message': '代码生成成功'
-            })
-        else:
-            error_msg = result.get('message', 'AI 调用失败')
-            return jsonify({'success': False, 'message': error_msg}), 500
-        
-    except Exception as e:
-        error_msg = f"生成插件失败: {str(e)}"
-        add_error_log(error_msg, traceback.format_exc())
-        return jsonify({'success': False, 'message': error_msg}), 500
-
-@web.route('/api/ai/save_plugin', methods=['POST'])
-@check_ip_ban
-@require_token
-@require_auth
-@catch_error
-def ai_save_plugin():
-    """保存 AI 生成的插件"""
-    data = request.get_json()
-    filename = data.get('filename', '').strip()
-    code = data.get('code', '').strip()
-    
-    if not filename or not filename.endswith('.py'):
-        return jsonify({'success': False, 'message': '无效的文件名'}), 400
-    
-    if not code:
-        return jsonify({'success': False, 'message': '代码内容不能为空'}), 400
-    
-    try:
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        ai_plugins_dir = os.path.join(script_dir, 'plugins', 'ai')
-        os.makedirs(ai_plugins_dir, exist_ok=True)
-        
-        target_path = os.path.join(ai_plugins_dir, filename)
-        
-        if os.path.exists(target_path):
-            return jsonify({'success': False, 'message': '文件已存在，请更换文件名'}), 409
-        
-        with open(target_path, 'w', encoding='utf-8') as f:
-            f.write(code)
-        
-        add_framework_log(f"AI 生成插件已保存: {filename}")
-        
-        return jsonify({
-            'success': True,
-            'message': '插件已保存',
-            'path': f'plugins/ai/{filename}'
-        })
-        
-    except Exception as e:
-        error_msg = f"保存插件失败: {str(e)}"
-        add_error_log(error_msg, traceback.format_exc())
-        return jsonify({'success': False, 'message': error_msg}), 500
-
 @web.route('/api/plugin/toggle', methods=['POST'])
 @check_ip_ban
 @require_token
@@ -1754,6 +1776,8 @@ def get_system_info():
 def process_plugin_module(module, plugin_path, module_name, is_system=False, dir_name=None):
     plugin_info_list, plugin_classes_found = [], False
     last_modified_str = datetime.fromtimestamp(os.path.getmtime(plugin_path)).strftime('%Y-%m-%d %H:%M:%S') if os.path.exists(plugin_path) else ""
+    # 检查是否为web.py插件
+    is_web_plugin = plugin_path.endswith('.web.py')
     for attr_name in dir(module):
         if attr_name.startswith('__') or not hasattr((attr := getattr(module, attr_name)), '__class__'):
             continue
@@ -1761,19 +1785,34 @@ def process_plugin_module(module, plugin_path, module_name, is_system=False, dir
             plugin_classes_found = True
             name = f"{'system' if is_system else dir_name}/{module_name}/{attr_name}"
             plugin_info = {'name': name, 'class_name': attr_name, 'status': 'loaded', 'error': '', 'path': plugin_path,
-                'is_system': is_system, 'directory': dir_name, 'last_modified': last_modified_str}
+                'is_system': is_system, 'directory': dir_name, 'last_modified': last_modified_str, 'is_web_plugin': is_web_plugin}
             try:
                 handlers = attr.get_regex_handlers()
                 plugin_info.update({'handlers': len(handlers) if handlers else 0, 'handlers_list': list(handlers.keys()) if handlers else [],
                     'priority': getattr(attr, 'priority', 10), 
                     'handlers_owner_only': {p: (h.get('owner_only', False) if isinstance(h, dict) else False) for p, h in handlers.items()},
                     'handlers_group_only': {p: (h.get('group_only', False) if isinstance(h, dict) else False) for p, h in handlers.items()}})
+                
+                # 检查并提取web路由信息
+                if is_web_plugin and hasattr(attr, 'get_web_routes') and callable(getattr(attr, 'get_web_routes')):
+                    try:
+                        web_route_info = attr.get_web_routes()
+                        if web_route_info and isinstance(web_route_info, dict):
+                            plugin_info['web_route'] = {
+                                'path': web_route_info.get('path', ''),
+                                'menu_name': web_route_info.get('menu_name', ''),
+                                'menu_icon': web_route_info.get('menu_icon', 'bi-puzzle'),
+                                'description': web_route_info.get('description', ''),
+                                'priority': web_route_info.get('priority', 100)
+                            }
+                    except Exception as e:
+                        logging.warning(f"获取插件 {attr_name} 的web路由信息失败: {str(e)}")
             except Exception as e:
                 plugin_info.update({'status': 'error', 'error': f"获取处理器失败: {str(e)}", 'traceback': traceback.format_exc()})
             plugin_info_list.append(plugin_info)
     if not plugin_classes_found:
         plugin_info_list.append({'name': f"{'system/' if is_system else ''}{dir_name}/{module_name}", 'class_name': 'unknown',
-            'status': 'error', 'error': '未在模块中找到有效的插件类', 'path': plugin_path, 'directory': dir_name, 'last_modified': last_modified_str})
+            'status': 'error', 'error': '未在模块中找到有效的插件类', 'path': plugin_path, 'directory': dir_name, 'last_modified': last_modified_str, 'is_web_plugin': is_web_plugin})
     return plugin_info_list
 
 @catch_error

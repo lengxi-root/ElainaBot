@@ -20,15 +20,15 @@
 {% elif page == 'message' %}
     {% set title = '消息发送' %}
     {% include 'pc/message.html' %}
-{% elif page == 'aicode' %}
-    {% set title = 'AI写代码' %}
-    {% include 'pc/aicode.html' %}
 {% elif page == 'config' %}
     {% set title = '配置管理' %}
     {% include 'pc/config.html' %}
 {% elif page == 'changelog' %}
     {% set title = '更新日志' %}
     {% include 'pc/changelog.html' %}
+{% elif page.startswith('plugin-') %}
+    {% set title = '插件页面' %}
+    {% include 'pc/plugin_page.html' %}
 {% else %}
     {% set title = '仪表盘' %}
     {% include 'pc/dashboard.html' %}

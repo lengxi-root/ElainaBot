@@ -81,10 +81,6 @@
                     <i class="bi bi-chat-dots"></i>
                     <span class="item-text">消息发送</span>
                 </a>
-                <a class="sidebar-item" href="?token={{ current_token }}&page=aicode" data-page="aicode">
-                    <i class="bi bi-robot"></i>
-                    <span class="item-text">AI编写</span>
-                </a>
                 <a class="sidebar-item" href="?token={{ current_token }}&page=config" data-page="config">
                     <i class="bi bi-gear-fill"></i>
                     <span class="item-text">配置管理</span>
@@ -93,6 +89,23 @@
                     <i class="bi bi-clock-history"></i>
                     <span class="item-text">更新日志</span>
                 </a>
+                
+                <!-- 调试信息 -->
+                <!-- Plugin routes: {{ plugin_routes|length if plugin_routes else 'None' }} -->
+                
+                {% if plugin_routes and plugin_routes|length > 0 %}
+                <div class="sidebar-divider"></div>
+                <div class="sidebar-section-title">
+                    <i class="bi bi-puzzle"></i>
+                    <span class="item-text">插件扩展</span>
+                </div>
+                {% for path, info in plugin_routes.items() %}
+                <a class="sidebar-item sidebar-plugin-item" href="?token={{ current_token }}&page=plugin-{{ path }}" data-page="plugin-{{ path }}">
+                    <i class="{{ info.menu_icon }}"></i>
+                    <span class="item-text">{{ info.menu_name }}</span>
+                </a>
+                {% endfor %}
+                {% endif %}
             </div>
         </div>
 
@@ -112,10 +125,18 @@
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const page = urlParams.get('page');
+            const pluginPath = urlParams.get('plugin');
+            
             const sidebarItems = document.querySelectorAll('.sidebar-item');
             sidebarItems.forEach(item => {
                 item.classList.remove('active');
-                if (item.dataset.page === currentPage) {
+                
+                // 检查插件页面
+                if (page === 'plugin' && item.dataset.page === 'plugin' && item.dataset.plugin === pluginPath) {
+                    item.classList.add('active');
+                } else if (item.dataset.page === page && page !== 'plugin') {
                     item.classList.add('active');
                 }
                 
@@ -130,7 +151,82 @@
             if (window.pageLoadOptimizer && currentPage) {
                 window.pageLoadOptimizer.currentPage = currentPage;
             }
+            
+            // 加载插件页面
+            if (page === 'plugin' && pluginPath) {
+                loadPluginPage(pluginPath);
+            }
         });
+        
+        // 加载插件页面的函数
+        async function loadPluginPage(pluginPath) {
+            const container = document.getElementById('main-content');
+            if (!container) return;
+            
+            // 显示加载中
+            container.innerHTML = `
+                <div class="plugin-page-container">
+                    <div class="plugin-page-loading">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="text-muted">正在加载插件页面...</p>
+                    </div>
+                </div>
+            `;
+            
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const token = urlParams.get('token');
+                const response = await fetch(`/web/plugin/${pluginPath}?token=${token}`);
+                
+                if (!response.ok) {
+                    throw new Error('加载失败');
+                }
+                
+                const data = await response.json();
+                
+                if (!data.success) {
+                    throw new Error(data.error || '未知错误');
+                }
+                
+                // 渲染插件页面
+                container.innerHTML = `
+                    <div class="plugin-page-container">
+                        <div class="mb-3">
+                            <h4><i class="bi bi-puzzle-fill me-2"></i>${data.title || '插件页面'}</h4>
+                            <hr>
+                        </div>
+                        ${data.html || ''}
+                    </div>
+                `;
+                
+                // 如果有自定义CSS，添加到页面
+                if (data.css) {
+                    const styleEl = document.createElement('style');
+                    styleEl.id = 'plugin-custom-css';
+                    styleEl.textContent = data.css;
+                    document.head.appendChild(styleEl);
+                }
+                
+                // 如果有自定义JavaScript，执行
+                if (data.script) {
+                    const scriptEl = document.createElement('script');
+                    scriptEl.textContent = data.script;
+                    document.body.appendChild(scriptEl);
+                }
+                
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="plugin-page-container">
+                        <div class="plugin-page-error">
+                            <h5><i class="bi bi-exclamation-triangle me-2"></i>加载失败</h5>
+                            <p class="mb-0">${error.message}</p>
+                        </div>
+                    </div>
+                `;
+            }
+        }
         
         async function restartBot() {
             const restartBtn = document.getElementById('restart-btn');

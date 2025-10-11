@@ -1,0 +1,80 @@
+{% extends "pc/base.html" %}
+
+{% block content %}
+<div id="plugin-page-container" class="plugin-page-wrapper">
+    <div class="d-flex justify-content-center align-items-center" style="min-height: 300px;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">加载中...</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_styles %}
+<style id="plugin-custom-css"></style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const page = urlParams.get('page');
+    
+    if (page && page.startsWith('plugin-')) {
+        const pluginPath = page.substring(7); // 移除 'plugin-' 前缀
+        loadPluginPage(pluginPath);
+    }
+});
+
+async function loadPluginPage(pluginPath) {
+    const container = document.getElementById('plugin-page-container');
+    const customCss = document.getElementById('plugin-custom-css');
+    const token = new URLSearchParams(window.location.search).get('token');
+    
+    try {
+        const response = await fetch(`/web/plugin/${pluginPath}?token=${token}`);
+        const result = await response.json();
+        
+        if (result.success) {
+            // 设置页面内容
+            container.innerHTML = result.html || '';
+            
+            // 设置自定义CSS
+            if (result.css) {
+                customCss.textContent = result.css;
+            }
+            
+            // 执行自定义脚本
+            if (result.script) {
+                try {
+                    const scriptFunc = new Function(result.script);
+                    scriptFunc();
+                } catch (e) {
+                    console.error('插件脚本执行错误:', e);
+                }
+            }
+            
+            // 更新页面标题
+            if (result.title) {
+                document.title = `${result.title} - ${document.title.split(' - ').slice(-1)[0]}`;
+            }
+        } else {
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <strong>加载失败：</strong> ${result.error || '未知错误'}
+                </div>
+            `;
+        }
+    } catch (error) {
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>加载失败：</strong> ${error.message}
+            </div>
+        `;
+        console.error('加载插件页面失败:', error);
+    }
+}
+</script>
+{% endblock %}

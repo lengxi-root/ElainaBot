@@ -67,6 +67,8 @@ class PluginManager:
     _regex_cache = {}
     _sorted_handlers = []
     _handler_patterns_cache = {}
+    _web_routes = {}  # 存储web插件路由信息
+    _api_routes = {}  # 存储插件自定义API路由
 
     # === 通用辅助方法 ===
     @classmethod
@@ -183,6 +185,49 @@ class PluginManager:
         return False, ""
 
     # === 插件加载管理 ===
+    @classmethod
+    def reload_plugin(cls, plugin_class):
+        """
+        插件主动申请热加载
+        
+        Args:
+            plugin_class: 插件类对象
+        
+        Returns:
+            bool: 重载成功返回True，失败返回False
+        """
+        try:
+            # 从插件类获取源文件路径
+            if not hasattr(plugin_class, '_source_file'):
+                add_error_log(f"插件类 {plugin_class.__name__} 没有 _source_file 属性，无法热加载", "")
+                return False
+            
+            file_path = plugin_class._source_file
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                add_error_log(f"插件文件不存在: {file_path}", "")
+                return False
+            
+            # 提取插件信息并重新加载
+            dir_name, module_name, _ = cls._extract_module_info(file_path)
+            add_framework_log(f"插件主动申请热加载: {dir_name}/{module_name}.py")
+            
+            loaded_count = cls._load_plugin_file(file_path, dir_name)
+            
+            if loaded_count > 0:
+                add_framework_log(f"插件热加载成功: {dir_name}/{module_name}.py")
+                return True
+            else:
+                add_framework_log(f"插件热加载失败: {dir_name}/{module_name}.py")
+                return False
+                
+        except Exception as e:
+            error_msg = f"插件热加载失败: {str(e)}"
+            error_trace = traceback.format_exc()
+            _log_error(error_msg, error_trace)
+            return False
+    
     @classmethod
     def load_plugins(cls):
         global _last_plugin_gc_time, _last_quick_check_time, _plugins_loaded, _last_cache_cleanup
@@ -572,6 +617,26 @@ class PluginManager:
             except Exception as e:
                 _log_error(f"清理正则处理器时出错: {str(e)}", traceback.format_exc())
         
+        # 清理web路由
+        for route_path, route_info in list(cls._web_routes.items()):
+            try:
+                plugin_class = route_info.get('class')
+                if plugin_class in plugin_classes_to_remove:
+                    del cls._web_routes[route_path]
+                    add_framework_log(f"注销Web路由: {route_path}")
+            except Exception as e:
+                _log_error(f"清理Web路由时出错: {str(e)}", traceback.format_exc())
+        
+        # 清理API路由
+        for api_path, api_info in list(cls._api_routes.items()):
+            try:
+                plugin_class = api_info.get('class')
+                if plugin_class in plugin_classes_to_remove:
+                    del cls._api_routes[api_path]
+                    add_framework_log(f"注销API路由: {api_path}")
+            except Exception as e:
+                _log_error(f"清理API路由时出错: {str(e)}", traceback.format_exc())
+        
         # 清理插件类和资源
         for plugin_class in plugin_classes_to_remove:
             cls._cleanup_plugin_class(plugin_class)
@@ -705,6 +770,40 @@ class PluginManager:
                 'original_pattern': pattern
             }
             handlers_count += 1
+        
+        # 检查并注册web路由
+        if hasattr(plugin_class, 'get_web_routes') and callable(getattr(plugin_class, 'get_web_routes')):
+            try:
+                web_route_info = plugin_class.get_web_routes()
+                if web_route_info and isinstance(web_route_info, dict):
+                    route_path = web_route_info.get('path')
+                    if route_path:
+                        cls._web_routes[route_path] = {
+                            'class': plugin_class,
+                            'menu_name': web_route_info.get('menu_name', route_path),
+                            'menu_icon': web_route_info.get('menu_icon', 'bi-puzzle'),
+                            'description': web_route_info.get('description', ''),
+                            'handler': web_route_info.get('handler', 'render_page'),
+                            'priority': web_route_info.get('priority', 100)
+                        }
+                        add_framework_log(f"插件 {plugin_class.__name__} 注册Web路由: {route_path}")
+                        
+                        # 检查并注册API路由
+                        api_routes = web_route_info.get('api_routes', [])
+                        if api_routes and isinstance(api_routes, list):
+                            for api_route in api_routes:
+                                api_path = api_route.get('path')
+                                if api_path:
+                                    cls._api_routes[api_path] = {
+                                        'class': plugin_class,
+                                        'handler': api_route.get('handler'),
+                                        'methods': api_route.get('methods', ['GET']),
+                                        'require_auth': api_route.get('require_auth', True),
+                                        'require_token': api_route.get('require_token', True)
+                                    }
+                                    add_framework_log(f"插件 {plugin_class.__name__} 注册API路由: {api_path}")
+            except Exception as e:
+                _log_error(f"注册Web路由失败: {plugin_class.__name__} - {str(e)}", traceback.format_exc())
         
         cls._rebuild_sorted_handlers()
         cls._handler_patterns_cache.clear()
@@ -1090,4 +1189,17 @@ class PluginManager:
             add_log_to_db('unmatched', log_data)
 
         except Exception as e:
-            _log_error(f"记录未匹配消息时出错: {str(e)}", traceback.format_exc()) 
+            _log_error(f"记录未匹配消息时出错: {str(e)}", traceback.format_exc())
+    
+    # === Web路由管理 ===
+    @classmethod
+    def get_web_routes(cls):
+        """获取所有已注册的web路由"""
+        # 按优先级排序
+        sorted_routes = sorted(cls._web_routes.items(), key=lambda x: x[1].get('priority', 100))
+        return {path: info for path, info in sorted_routes}
+    
+    @classmethod
+    def get_api_routes(cls):
+        """获取所有插件注册的API路由"""
+        return cls._api_routes.copy() 

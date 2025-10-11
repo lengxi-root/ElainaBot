@@ -1328,7 +1328,7 @@ body {
     }
 }
 
-/* 页面特定移动端适配 - AI编写页面 */
+/* 代码编辑器移动端适配 */
 @media (max-width: 768px) {
     .CodeMirror {
         font-size: 0.8rem;
@@ -2030,4 +2030,75 @@ tr:hover .log-copy-btn {
 .update-time-badge i {
     margin-right: 4px;
     font-size: 0.7rem;
+}
+
+/* 侧边栏分隔符 */
+.sidebar-divider {
+    margin: 10px 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(0,0,0,0.1), transparent);
+}
+
+/* 侧边栏栏目标题 */
+.sidebar-section-title {
+    padding: 8px 20px;
+    font-size: 0.75rem;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+}
+
+.sidebar-section-title i {
+    margin-right: 8px;
+    font-size: 1rem;
+}
+
+.collapsed .sidebar-section-title .item-text {
+    opacity: 0;
+    width: 0;
+    display: none;
+}
+
+/* 侧边栏插件菜单项 */
+.sidebar-plugin-item {
+    border-left: 3px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.sidebar-plugin-item:hover {
+    border-left-color: #667eea;
+    background: linear-gradient(90deg, rgba(102, 126, 234, 0.1), transparent);
+}
+
+.sidebar-plugin-item.active {
+    border-left-color: #667eea;
+    background: linear-gradient(90deg, rgba(102, 126, 234, 0.15), transparent);
+}
+
+/* 插件页面容器 */
+.plugin-page-container {
+    padding: 20px;
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    min-height: 400px;
+}
+
+.plugin-page-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.plugin-page-error {
+    padding: 20px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    color: #856404;
 }

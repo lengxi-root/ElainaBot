@@ -118,7 +118,7 @@ LOG_DB_CONFIG = {
     
     # 错误处理配置
     'max_retry': 3,                            # 写入失败最大重试次数
-    'retry_interval': 2                        # 重试间隔时间(秒)
+    'retry_interval': 2,                        # 重试间隔时间(秒)
 
     # 日志界面加载配置
     'initial_load_count': 50,  # 进入日志界面时自动加载的今日日志条数

@@ -21,47 +21,77 @@ class CustomAPIPlugin(Plugin):
     TEMP_DIR = os.path.join(DATA_DIR, 'temp')  # 临时文件目录
     
     def __init__(self):
-        # 确保数据目录存在
-        os.makedirs(self.DATA_DIR, exist_ok=True)
-        
-        # 如果配置文件不存在，创建示例配置
-        if not os.path.exists(self.CONFIG_FILE):
-            self._create_example_config()
+        try:
+            # 确保数据目录和临时目录存在
+            os.makedirs(self.DATA_DIR, exist_ok=True)
+            os.makedirs(self.TEMP_DIR, exist_ok=True)
+            
+            # 如果配置文件不存在，创建示例配置
+            if not os.path.exists(self.CONFIG_FILE):
+                print(f"[自定义API] 初始化：配置文件不存在，正在创建...")
+                self._create_example_config()
+            else:
+                print(f"[自定义API] 初始化完成，配置文件路径: {self.CONFIG_FILE}")
+        except Exception as e:
+            print(f"[自定义API] 初始化失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     @classmethod
     def _create_example_config(cls):
         """创建空配置文件"""
+        # 确保数据目录存在
+        os.makedirs(cls.DATA_DIR, exist_ok=True)
+        
         example_config = {
             "apis": []
         }
         
-        with open(cls.CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(example_config, f, ensure_ascii=False, indent=2)
+        try:
+            with open(cls.CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(example_config, f, ensure_ascii=False, indent=2)
+            print(f"[自定义API] 已创建配置文件: {cls.CONFIG_FILE}")
+        except Exception as e:
+            print(f"[自定义API] 创建配置文件失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     @classmethod
     def _load_config(cls):
         """加载API配置"""
         try:
+            # 确保数据目录存在
+            os.makedirs(cls.DATA_DIR, exist_ok=True)
+            
             if os.path.exists(cls.CONFIG_FILE):
                 with open(cls.CONFIG_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
             else:
+                # 配置文件不存在，创建默认配置
+                print(f"[自定义API] 配置文件不存在，正在创建: {cls.CONFIG_FILE}")
                 cls._create_example_config()
-                with open(cls.CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                return {"apis": []}
         except Exception as e:
-            print(f"加载自定义API配置失败: {str(e)}")
+            print(f"[自定义API] 加载配置失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # 返回默认空配置，确保不会中断程序运行
             return {"apis": []}
     
     @classmethod
     def _save_config(cls, config):
         """保存API配置"""
         try:
+            # 确保数据目录存在
+            os.makedirs(cls.DATA_DIR, exist_ok=True)
+            
             with open(cls.CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            print(f"保存自定义API配置失败: {str(e)}")
+            print(f"[自定义API] 保存配置失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @classmethod

@@ -183,22 +183,11 @@ class system_plugin(Plugin):
     
     @staticmethod
     def getid(event):
-        info_parts = [f"<@{event.user_id}>"]
-        
-        qq = system_plugin._get_user_qq(event.user_id)
-        if qq:
-            masked_qq = system_plugin.mask_id(qq)
-            info_parts.append(f"UIN: {masked_qq}")
-        else:
-            info_parts.append("UIN: 获取失败")
-        
-        info_parts.extend([
+        info_parts = [
+            f"<@{event.user_id}>",
             f"用户ID: {event.user_id}",
             f"群组ID: {event.group_id}"
-        ])
-        
-        perm_str = system_plugin._get_user_permission(event.user_id)
-        info_parts.append(f"用户权限：{perm_str}")
+        ]
         
         system_plugin.safe_reply(event, "\n".join(info_parts))
     
@@ -666,16 +655,11 @@ class system_plugin(Plugin):
         else:
             most_active_group = {'group_id': "无数据", 'member_count': 0}
         
-        uin_success = 64019
-        
         return {
             'user_count': user_count,
             'group_count': group_count,
             'private_users_count': private_users_count,
-            'most_active_group': most_active_group,
-            'uin_stats': {
-                'success': uin_success
-            }
+            'most_active_group': most_active_group
         }
     
     @classmethod
@@ -726,7 +710,6 @@ class system_plugin(Plugin):
         info.append(f'👥 群组总数量: {stats["group_count"]}')
         info.append(f'👥 所有用户总数量: {stats["user_count"]}')
         info.append(f'🔝 最大群: {stats["most_active_group"]["group_id"]} (群员: {stats["most_active_group"]["member_count"]})')
-        info.append(f'✅ UIN成功获取: {stats["uin_stats"]["success"]}')
         
         if event.group_id and group_results:
             group_info = cls._process_group_results(group_results, event.group_id)
@@ -1079,20 +1062,16 @@ if __name__ == "__main__":
         if "错误" in bot_info:
             return "该账号不是BOT账号" if bot_info["错误"] == "数据格式不正确" else "查询失败"
         
-        info = ["【QQ机器人信息】"]
+        info = []
         
         if "QQ号" in bot_info:
             info.append(f"UIN: {bot_info['QQ号']}")
-        if "名字" in bot_info:
-            info.append(f"名字: {bot_info['名字']}")
         if "介绍" in bot_info:
             intro = bot_info['介绍'].strip()
             if intro and len(intro) > 100:
                 intro = intro[:100] + "..."
             if intro:
                 info.append(f"介绍: {intro}")
-        if "开场白" in bot_info:
-            info.append(f"开场白: {bot_info['开场白']}")
         if "验证信息" in bot_info:
             info.append(f"验证信息: {bot_info['验证信息']}")
         if "APPID" in bot_info:
@@ -1134,9 +1113,9 @@ if __name__ == "__main__":
             if cmds:
                 info.append(f"指令示例: {', '.join(cmds)}")
         
-        # 修复 f-string 语法：先定义换行符
-        info_text = '\n'.join(info)
-        return f"\n```python\n{info_text}\n```\n"
+        # 使用引用格式
+        quoted_info = '\n'.join([f"> {line}" for line in info])
+        return f"\n{quoted_info}\n"
     
     @staticmethod
     def send_bot_confirmation_request(event):
@@ -1176,8 +1155,10 @@ if __name__ == "__main__":
         
         response_content = ""
         
+        # 头像和名字在同一行
         if "头像" in bot_info and bot_info["头像"]:
-            response_content += f"![机器人 #100px #100px]({bot_info['头像']})\n\n"
+            bot_name = bot_info.get("名字", "机器人")
+            response_content += f"![机器人 #50px #50px]({bot_info['头像']}) **{bot_name}**\n\n"
         
         response_content += system_plugin.format_bot_info(bot_info)
         response_content += "\n\n>你已确认使用条款，你将保证你是该机器人开发者，如有违反，将对违规者进行封禁。"

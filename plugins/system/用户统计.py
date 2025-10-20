@@ -4,7 +4,7 @@ import json
 import logging
 import time
 import datetime
-from config import LOG_DB_CONFIG, USE_MARKDOWN, OWNER_IDS
+from config import LOG_DB_CONFIG, USE_MARKDOWN, OWNER_IDS, DB_CONFIG
 import traceback
 from function.httpx_pool import sync_get, get_json
 from function.database import Database
@@ -19,6 +19,10 @@ from function.log_db import LogDatabasePool
 from core.plugin.PluginManager import PluginManager
 
 logger = logging.getLogger('user_stats')
+
+# 获取表前缀配置
+TABLE_PREFIX = DB_CONFIG.get('table_prefix', 'M_')
+LOG_TABLE_PREFIX = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
 
 BOT_API_URL = "https://i.elaina.vin/api/bot/xx.php?bot={}&type=0"
 BOT_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cxbot")
@@ -219,7 +223,8 @@ class system_plugin(Plugin):
     
     @staticmethod
     def _get_user_qq(user_id):
-        result = DatabaseService.execute_query("SELECT qq FROM M_users WHERE user_id = %s", (user_id,))
+        query = f"SELECT qq FROM {TABLE_PREFIX}users WHERE user_id = %s"
+        result = DatabaseService.execute_query(query, (user_id,))
         return result.get('qq') if result else None
     
     @staticmethod
@@ -301,7 +306,7 @@ class system_plugin(Plugin):
             return
         
         cursor = connection.cursor()
-        table_name = f"Mlog_{date_str}_message"
+        table_name = f"{LOG_TABLE_PREFIX}{date_str}_message"
         
         check_query = """
             SELECT COUNT(*) as count 
@@ -391,7 +396,7 @@ class system_plugin(Plugin):
         
         event_stats = {'group_join_count': 0, 'group_leave_count': 0, 'friend_add_count': 0, 'friend_remove_count': 0}
         if is_today:
-            dau_table_name = "Mlog_dau"
+            dau_table_name = f"{LOG_TABLE_PREFIX}dau"
             cursor.execute(f"""
                 SELECT COUNT(*) as count 
                 FROM information_schema.tables 
@@ -418,7 +423,7 @@ class system_plugin(Plugin):
         
         yesterday_data = None
         if yesterday_str and current_hour is not None and current_minute is not None:
-            yesterday_table = f"Mlog_{yesterday_str}_message"
+            yesterday_table = f"{LOG_TABLE_PREFIX}{yesterday_str}_message"
             cursor.execute(check_query, (yesterday_table,))
             y_result = cursor.fetchone()
             
@@ -515,7 +520,6 @@ class system_plugin(Plugin):
         
         query_time = round((time.time() - start_time) * 1000)
         info.append(f'🕒 查询耗时: {query_time}ms')
-        info.append(f'📁 数据源: 实时数据库查询')
         
         if USE_MARKDOWN:
             button_configs = [
@@ -591,7 +595,6 @@ class system_plugin(Plugin):
         
         query_time = round((time.time() - start_time) * 1000)
         info.append(f'🕒 查询耗时: {query_time}ms')
-        info.append(f'📁 数据源: 数据库')
         
         if dau_data.get('generated_at'):
             gen_time = datetime.datetime.fromisoformat(dau_data['generated_at'].replace('Z', '+00:00'))
@@ -613,12 +616,12 @@ class system_plugin(Plugin):
     @classmethod
     def _get_query_params(cls):
         return [
-            ("SELECT COUNT(*) as count FROM M_users", None, False),
-            ("SELECT COUNT(*) as count FROM M_groups", None, False),
-            ("SELECT COUNT(*) as count FROM M_members", None, False),
-            ("""
+            (f"SELECT COUNT(*) as count FROM {TABLE_PREFIX}users", None, False),
+            (f"SELECT COUNT(*) as count FROM {TABLE_PREFIX}groups", None, False),
+            (f"SELECT COUNT(*) as count FROM {TABLE_PREFIX}members", None, False),
+            (f"""
                 SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM M_groups_users
+                FROM {TABLE_PREFIX}groups_users
                 ORDER BY member_count DESC
                 LIMIT 1
             """, None, False),
@@ -628,10 +631,10 @@ class system_plugin(Plugin):
     @classmethod
     def _get_group_info_params(cls, group_id):
         return [
-            ("SELECT users FROM M_groups_users WHERE group_id = %s", (group_id,), False),
-            ("""
+            (f"SELECT users FROM {TABLE_PREFIX}groups_users WHERE group_id = %s", (group_id,), False),
+            (f"""
                 SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM M_groups_users
+                FROM {TABLE_PREFIX}groups_users
                 ORDER BY member_count DESC
             """, None, True)
         ]

@@ -428,8 +428,29 @@ class CustomAPIPlugin(Plugin):
         """从消息模板解析ARK参数"""
         # 直接从消息模板按特殊格式解析
         template_str = str(data)
-        params = CustomAPIPlugin._parse_params_from_template(template_str)
-        return params
+        all_params = CustomAPIPlugin._parse_params_from_template(template_str)
+        
+        # 对于ARK23格式，需要将所有列表项合并成一个数组
+        # 输入: "描述,提示,(项1),(项2,链接)" 
+        # 原始解析: ["描述", "提示", ["项1"], ["项2", "链接"]]
+        # 修正为: ["描述", "提示", [["项1"], ["项2", "链接"]]]
+        
+        normal_params = []
+        list_items = []
+        
+        for param in all_params:
+            if isinstance(param, list):
+                # 这是一个列表项
+                list_items.append(param)
+            else:
+                # 这是普通参数
+                normal_params.append(param)
+        
+        # 如果有列表项，将它们作为一个整体数组添加到普通参数后面
+        if list_items:
+            return normal_params + [list_items]
+        else:
+            return normal_params
     
     # ========== Web管理面板 ==========
     
@@ -709,10 +730,14 @@ class CustomAPIPlugin(Plugin):
                     <!-- ARK配置 -->
                     <div id="ark-config" style="display:none;">
                         <div class="alert alert-info small">
-                            <i class="bi bi-info-circle"></i> ARK参数从消息模板中提取，逗号分隔，括号表示数组。
-                            <br><strong>示例：</strong>
-                            <br>• JSON响应: <code>{data.desc},{data.prompt},(项1,{data.link1}),(项2,{data.link2})</code>
-                            <br>• 纯文本响应: <code>{data},{$1},(项1,链接1),(项2,链接2)</code>
+                            <i class="bi bi-info-circle"></i> ARK参数从消息模板中提取，逗号分隔，括号表示列表项。
+                            <br><strong>ARK23示例（列表卡片）：</strong>
+                            <br>• <code>描述,提示,(功能1),(功能2),(功能3,https://link.com)</code>
+                            <br>• JSON: <code>{data.desc},{data.prompt},({data.item1}),({data.item2},{data.link2})</code>
+                            <br><strong>ARK24示例（信息卡片）：</strong>
+                            <br>• <code>描述,提示,标题,元描述,图片URL,链接,子标题</code>
+                            <br><strong>ARK37示例（通知卡片）：</strong>
+                            <br>• <code>提示,标题,子标题,封面URL,链接</code>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">ARK类型</label>

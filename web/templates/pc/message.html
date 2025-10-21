@@ -1126,7 +1126,8 @@ function collectSendData() {
             if (!validate(arkType, '请选择ARK卡片类型') || !validate(arkParams, '请输入卡片参数')) return null;
             
             // 解析参数：支持括号格式的列表项
-            const params = [];
+            const normalParams = [];  // 普通参数
+            const listItems = [];      // 列表项（用于ark23）
             let current = '';
             let inBracket = false;
             let bracketContent = [];
@@ -1136,7 +1137,7 @@ function collectSendData() {
                 
                 if (char === '(') {
                     if (current.trim()) {
-                        params.push(current.trim());
+                        normalParams.push(current.trim());
                         current = '';
                     }
                     inBracket = true;
@@ -1146,7 +1147,8 @@ function collectSendData() {
                         if (current.trim()) {
                             bracketContent.push(current.trim());
                         }
-                        params.push(bracketContent);
+                        // 每个括号内容作为一个列表项
+                        listItems.push(bracketContent);
                         bracketContent = [];
                         current = '';
                         inBracket = false;
@@ -1156,7 +1158,7 @@ function collectSendData() {
                         bracketContent.push(current.trim());
                         current = '';
                     } else if (current.trim()) {
-                        params.push(current.trim());
+                        normalParams.push(current.trim());
                         current = '';
                     }
                 } else {
@@ -1165,8 +1167,11 @@ function collectSendData() {
             }
             
             if (current.trim()) {
-                params.push(current.trim());
+                normalParams.push(current.trim());
             }
+            
+            // 如果有列表项（ark23格式），将它们作为第三个参数
+            const params = listItems.length > 0 ? [...normalParams, listItems] : normalParams;
             
             return { ark_type: parseInt(arkType), ark_params: params };
         }

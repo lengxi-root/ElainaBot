@@ -209,8 +209,8 @@
                                     </select>
                                 </div>
                                 <div class="col">
-                                    <label class="form-label">卡片参数 (用逗号分隔):</label>
-                                    <input type="text" class="form-control" id="ark-params" placeholder="参数1,参数2,参数3...">
+                                    <label class="form-label">卡片参数 (逗号分隔，列表项用括号):</label>
+                                    <input type="text" class="form-control" id="ark-params" placeholder="描述,提示,(项1),(项2,链接)...">
                                 </div>
                                 <div class="col-auto d-flex align-items-end">
                                     <button class="btn btn-primary" onclick="sendMessage()">
@@ -697,7 +697,7 @@ function updateArkHelp() {
     const helpContent = document.getElementById('help-content');
     
     const arkHelp = {
-        '23': '列表卡片示例: 这是列表卡片,卡片测试,功能1,,功能2,,功能3,https://example.com',
+        '23': '列表卡片示例: 这是列表卡片,卡片测试,(功能1),(功能2),(功能3,https://example.com)',
         '24': '信息卡片示例: 描述文本,提示文本,卡片标题,元描述,https://image.jpg,https://link.com,子标题',
         '37': '通知卡片示例: 系统通知,更新标题,子标题,https://cover.jpg,https://link.com'
     };
@@ -1124,7 +1124,51 @@ function collectSendData() {
             const arkType = document.getElementById('ark-type').value;
             const arkParams = getVal('ark-params');
             if (!validate(arkType, '请选择ARK卡片类型') || !validate(arkParams, '请输入卡片参数')) return null;
-            return { ark_type: parseInt(arkType), ark_params: arkParams.split(',').map(p => p.trim()) };
+            
+            // 解析参数：支持括号格式的列表项
+            const params = [];
+            let current = '';
+            let inBracket = false;
+            let bracketContent = [];
+            
+            for (let i = 0; i < arkParams.length; i++) {
+                const char = arkParams[i];
+                
+                if (char === '(') {
+                    if (current.trim()) {
+                        params.push(current.trim());
+                        current = '';
+                    }
+                    inBracket = true;
+                    bracketContent = [];
+                } else if (char === ')') {
+                    if (inBracket) {
+                        if (current.trim()) {
+                            bracketContent.push(current.trim());
+                        }
+                        params.push(bracketContent);
+                        bracketContent = [];
+                        current = '';
+                        inBracket = false;
+                    }
+                } else if (char === ',') {
+                    if (inBracket) {
+                        bracketContent.push(current.trim());
+                        current = '';
+                    } else if (current.trim()) {
+                        params.push(current.trim());
+                        current = '';
+                    }
+                } else {
+                    current += char;
+                }
+            }
+            
+            if (current.trim()) {
+                params.push(current.trim());
+            }
+            
+            return { ark_type: parseInt(arkType), ark_params: params };
         }
     };
     return handlers[currentSendMethod]?.() || (alert('未知的发送方法'), null);

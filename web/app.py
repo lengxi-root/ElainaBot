@@ -4028,7 +4028,18 @@ def send_message():
                     return jsonify({'success': False, 'message': '请选择ARK卡片类型'})
                 if not (ark_params := data.get('ark_params', [])):
                     return jsonify({'success': False, 'message': '请输入卡片参数'})
-                message_id, display_content = event.reply_ark(ark_type, tuple(ark_params)), f'[ARK卡片: 类型{ark_type}]'
+                
+                # 处理ark参数：保持列表结构（用于ark23的嵌套列表）
+                processed_params = []
+                for param in ark_params:
+                    if isinstance(param, list):
+                        # 保持列表格式（用于ark23的列表项）
+                        processed_params.append(param)
+                    else:
+                        # 普通参数
+                        processed_params.append(param)
+                
+                message_id, display_content = event.reply_ark(ark_type, tuple(processed_params)), f'[ARK卡片: 类型{ark_type}]'
             else:
                 return jsonify({'success': False, 'message': '不支持的发送方法'})
             

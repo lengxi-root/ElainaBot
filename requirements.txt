@@ -19,3 +19,4 @@ Flask-SocketIO==5.3.6
 websockets==13.1
 cryptography==45.0.4
 cos_python_sdk_v5==1.9.30
+schedule==1.2.2

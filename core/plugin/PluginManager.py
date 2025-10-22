@@ -25,6 +25,15 @@ from function.log_db import add_log_to_db
 # 获取日志记录器
 _logger = logging.getLogger(__name__)
 
+# 模块初始化时缓存配置状态
+_maintenance_mode_enabled = MAINTENANCE_MODE
+# 如果config中没有BLACKLIST_ENABLED配置，默认为False
+try:
+    from config import BLACKLIST_ENABLED
+    _blacklist_enabled = BLACKLIST_ENABLED
+except ImportError:
+    _blacklist_enabled = False
+
 def _log_error(error_msg, error_trace=None):
     """统一的错误日志输出函数"""
     # 输出到控制台
@@ -144,7 +153,11 @@ class PluginManager:
     @classmethod
     def load_blacklist(cls):
         """加载黑名单数据"""
-        global _blacklist_cache, _blacklist_last_load, _blacklist_file
+        global _blacklist_cache, _blacklist_last_load, _blacklist_file, _blacklist_enabled
+        
+        # 如果黑名单功能未启用，返回空字典
+        if not _blacklist_enabled:
+            return {}
         
         # 确保文件存在
         data_dir = os.path.dirname(_blacklist_file)
@@ -173,6 +186,12 @@ class PluginManager:
     @classmethod
     def is_blacklisted(cls, user_id):
         """检查用户是否在黑名单中"""
+        global _blacklist_enabled
+        
+        # 如果黑名单功能未启用，直接返回False
+        if not _blacklist_enabled:
+            return False, ""
+            
         if not user_id:
             return False, ""
             
@@ -812,22 +831,54 @@ class PluginManager:
     # === 维护模式 ===
     @classmethod
     def is_maintenance_mode(cls):
-        return MAINTENANCE_MODE
+        """检查是否处于维护模式"""
+        global _maintenance_mode_enabled
+        return _maintenance_mode_enabled
 
     @classmethod
     def can_user_bypass_maintenance(cls, user_id):
+        """检查用户是否可以绕过维护模式"""
         return user_id in OWNER_IDS
+    
+    @classmethod
+    def reload_config_status(cls):
+        """
+        重新加载配置状态
+        用于在运行时更新维护模式和黑名单开关状态
+        """
+        global _maintenance_mode_enabled, _blacklist_enabled
+        try:
+            # 重新导入config模块以获取最新配置
+            import importlib
+            import config as config_module
+            importlib.reload(config_module)
+            
+            _maintenance_mode_enabled = config_module.MAINTENANCE_MODE
+            # 如果config中没有BLACKLIST_ENABLED配置，默认为False
+            _blacklist_enabled = getattr(config_module, 'BLACKLIST_ENABLED', False)
+            
+            status_msg = f"配置状态已更新 - 维护模式: {'启用' if _maintenance_mode_enabled else '关闭'}, 黑名单: {'启用' if _blacklist_enabled else '关闭'}"
+            add_framework_log(status_msg)
+            return True
+        except Exception as e:
+            error_msg = f"重新加载配置状态失败: {str(e)}"
+            _log_error(error_msg, traceback.format_exc())
+            return False
 
     # === 消息分发 ===
     @classmethod
     def dispatch_message(cls, event):
         try:
+            global _maintenance_mode_enabled, _blacklist_enabled
+            
             # 检测插件更新（支持热加载）
             cls.load_plugins()
             
             if hasattr(event, 'handled') and event.handled:
                 return True
-            if hasattr(event, 'user_id') and event.user_id:
+            
+            # 黑名单检查（仅在启用时执行）
+            if _blacklist_enabled and hasattr(event, 'user_id') and event.user_id:
                 is_blacklisted, reason = cls.is_blacklisted(event.user_id)
                 if is_blacklisted:
                     is_id_command = False
@@ -838,8 +889,9 @@ class PluginManager:
                     if not is_id_command:
                         MessageTemplate.send(event, MSG_TYPE_BLACKLIST, reason=reason)
                         return True
-                
-            if cls.is_maintenance_mode() and not cls.can_user_bypass_maintenance(event.user_id):
+            
+            # 维护模式检查（仅在启用时执行）
+            if _maintenance_mode_enabled and not cls.can_user_bypass_maintenance(event.user_id):
                 MessageTemplate.send(event, MSG_TYPE_MAINTENANCE)
                 return True
                 

@@ -1404,6 +1404,9 @@ def toggle_plugin():
     if not plugin_path or not action or action not in ['enable', 'disable']:
         return jsonify({'success': False, 'message': '参数错误'}), 400
     
+    # Windows路径兼容：将前端的正斜杠路径转换为系统路径分隔符
+    plugin_path = os.path.normpath(plugin_path)
+    
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     plugins_dir = os.path.join(script_dir, 'plugins')
     abs_plugin_path = os.path.abspath(plugin_path)
@@ -1419,7 +1422,8 @@ def toggle_plugin():
             return jsonify({'success': False, 'message': '禁用文件已存在'}), 409
         os.rename(plugin_path, new_path)
         add_framework_log(f"插件已禁用: {os.path.basename(plugin_path)}")
-        return jsonify({'success': True, 'message': '插件已禁用', 'new_path': new_path})
+        # 返回路径时转换为正斜杠
+        return jsonify({'success': True, 'message': '插件已禁用', 'new_path': new_path.replace('\\', '/')})
     else:
         if not plugin_path.endswith('.py.ban'):
             return jsonify({'success': False, 'message': '只能启用 .py.ban 文件'}), 400
@@ -1428,7 +1432,8 @@ def toggle_plugin():
             return jsonify({'success': False, 'message': '启用文件已存在'}), 409
         os.rename(plugin_path, new_path)
         add_framework_log(f"插件已启用: {os.path.basename(new_path)}")
-        return jsonify({'success': True, 'message': '插件已启用', 'new_path': new_path})
+        # 返回路径时转换为正斜杠
+        return jsonify({'success': True, 'message': '插件已启用', 'new_path': new_path.replace('\\', '/')})
 
 @web.route('/api/plugin/read', methods=['POST'])
 @check_ip_ban
@@ -1441,6 +1446,9 @@ def read_plugin():
     
     if not plugin_path:
         return jsonify({'success': False, 'message': '缺少插件路径'}), 400
+    
+    # Windows路径兼容：将前端的正斜杠路径转换为系统路径分隔符
+    plugin_path = os.path.normpath(plugin_path)
     
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     plugins_dir = os.path.join(script_dir, 'plugins')
@@ -1458,7 +1466,7 @@ def read_plugin():
     return jsonify({
         'success': True,
         'content': content,
-        'path': plugin_path,
+        'path': plugin_path.replace('\\', '/'),  # 返回正斜杠路径
         'filename': os.path.basename(plugin_path)
     })
 
@@ -1474,6 +1482,9 @@ def save_plugin():
     
     if not plugin_path or content is None:
         return jsonify({'success': False, 'message': '缺少必要参数'}), 400
+    
+    # Windows路径兼容：将前端的正斜杠路径转换为系统路径分隔符
+    plugin_path = os.path.normpath(plugin_path)
     
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     plugins_dir = os.path.join(script_dir, 'plugins')
@@ -1544,7 +1555,8 @@ class plugin_name(Plugin):
     
     add_framework_log(f"新插件已创建: {filename}")
     
-    return jsonify({'success': True, 'message': '插件创建成功', 'path': plugin_path})
+    # 返回路径时转换为正斜杠
+    return jsonify({'success': True, 'message': '插件创建成功', 'path': plugin_path.replace('\\', '/')})
 
 @web.route('/api/plugin/create_folder', methods=['POST'])
 @check_ip_ban
@@ -1572,7 +1584,8 @@ def create_plugin_folder():
     os.makedirs(target_dir, exist_ok=True)
     add_framework_log(f"新文件夹已创建: {folder_name}")
     
-    return jsonify({'success': True, 'message': '文件夹创建成功', 'path': target_dir})
+    # 返回路径时转换为正斜杠
+    return jsonify({'success': True, 'message': '文件夹创建成功', 'path': target_dir.replace('\\', '/')})
 
 @web.route('/api/plugin/folders', methods=['GET'])
 @check_ip_ban
@@ -1631,7 +1644,8 @@ def upload_plugin():
     file.save(plugin_path)
     add_framework_log(f"插件已上传: {safe_filename} 到 {directory}/")
     
-    return jsonify({'success': True, 'message': f'插件上传成功: {safe_filename}', 'path': plugin_path, 'filename': safe_filename})
+    # 返回路径时转换为正斜杠
+    return jsonify({'success': True, 'message': f'插件上传成功: {safe_filename}', 'path': plugin_path.replace('\\', '/'), 'filename': safe_filename})
 
 @catch_error
 def get_system_info():
@@ -1821,13 +1835,15 @@ def process_plugin_module(module, plugin_path, module_name, is_system=False, dir
     last_modified_str = datetime.fromtimestamp(os.path.getmtime(plugin_path)).strftime('%Y-%m-%d %H:%M:%S') if os.path.exists(plugin_path) else ""
     # 检查是否为web.py插件
     is_web_plugin = plugin_path.endswith('.web.py')
+    # Windows路径兼容：将反斜杠转换为正斜杠
+    normalized_path = plugin_path.replace('\\', '/')
     for attr_name in dir(module):
         if attr_name.startswith('__') or not hasattr((attr := getattr(module, attr_name)), '__class__'):
             continue
         if isinstance(attr, type) and attr.__module__ == module.__name__ and hasattr(attr, 'get_regex_handlers'):
             plugin_classes_found = True
             name = f"{'system' if is_system else dir_name}/{module_name}/{attr_name}"
-            plugin_info = {'name': name, 'class_name': attr_name, 'status': 'loaded', 'error': '', 'path': plugin_path,
+            plugin_info = {'name': name, 'class_name': attr_name, 'status': 'loaded', 'error': '', 'path': normalized_path,
                 'is_system': is_system, 'directory': dir_name, 'last_modified': last_modified_str, 'is_web_plugin': is_web_plugin}
             try:
                 handlers = attr.get_regex_handlers()
@@ -1855,22 +1871,24 @@ def process_plugin_module(module, plugin_path, module_name, is_system=False, dir
             plugin_info_list.append(plugin_info)
     if not plugin_classes_found:
         plugin_info_list.append({'name': f"{'system/' if is_system else ''}{dir_name}/{module_name}", 'class_name': 'unknown',
-            'status': 'error', 'error': '未在模块中找到有效的插件类', 'path': plugin_path, 'directory': dir_name, 'last_modified': last_modified_str, 'is_web_plugin': is_web_plugin})
+            'status': 'error', 'error': '未在模块中找到有效的插件类', 'path': normalized_path, 'directory': dir_name, 'last_modified': last_modified_str, 'is_web_plugin': is_web_plugin})
     return plugin_info_list
 
 @catch_error
 def load_plugin_module(plugin_file, module_name, is_system=False):
+    # Windows路径兼容：将反斜杠转换为正斜杠
+    normalized_path = plugin_file.replace('\\', '/')
     try:
         dir_name = os.path.basename(os.path.dirname(plugin_file))
         if not (spec := importlib.util.spec_from_file_location(f"plugins.{dir_name}.{module_name}", plugin_file)) or not spec.loader:
             return [{'name': f"{dir_name}/{module_name}", 'class_name': 'unknown', 'status': 'error', 
-                'error': '无法加载插件文件', 'path': plugin_file, 'directory': dir_name}]
+                'error': '无法加载插件文件', 'path': normalized_path, 'directory': dir_name}]
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return process_plugin_module(module, plugin_file, module_name, is_system=is_system, dir_name=dir_name)
     except Exception as e:
         return [{'name': f"{os.path.basename(os.path.dirname(plugin_file))}/{module_name}", 'class_name': 'unknown',
-            'status': 'error', 'error': str(e), 'path': plugin_file, 
+            'status': 'error', 'error': str(e), 'path': normalized_path, 
             'directory': os.path.basename(os.path.dirname(plugin_file)), 'traceback': traceback.format_exc()}]
 
 @catch_error
@@ -1913,12 +1931,13 @@ def scan_plugins():
                 last_modified_str = datetime.fromtimestamp(os.path.getmtime(plugin_file)).strftime('%Y-%m-%d %H:%M:%S')
                 
                 # 为禁用的插件创建信息条目
+                # Windows路径兼容：将反斜杠转换为正斜杠，避免在前端JSON/HTML中转义问题
                 plugins_info.append({
                     'name': f"{dir_name}/{plugin_name}",
                     'class_name': 'unknown',
                     'status': 'disabled',
                     'error': '插件已禁用',
-                    'path': plugin_file,
+                    'path': plugin_file.replace('\\', '/'),  # Windows路径兼容
                     'is_system': (dir_name == 'system'),
                     'directory': dir_name,
                     'last_modified': last_modified_str,
@@ -3526,9 +3545,61 @@ def restart_bot():
             # 获取当前Python进程的PID，传递给重启脚本
             current_python_pid = current_pid
             
-            # 构建要杀死的进程列表
-            if is_dual_process:
-                kill_ports_code = f"""
+            # Windows 使用简化的重启逻辑：延迟3秒后启动，主进程自杀
+            # Linux 保持原有的复杂逻辑
+            is_windows = platform.system().lower() == 'windows'
+            
+            if is_windows:
+                # Windows 简化重启脚本：只负责延迟启动
+                script_content = f'''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+import time
+import subprocess
+
+def main():
+    main_py_path = r"{main_py_path}"
+    
+    try:
+        # 延迟3秒，等待旧进程自杀
+        print("等待3秒后启动新进程...")
+        time.sleep(3)
+        
+        os.chdir(os.path.dirname(main_py_path))
+        print(f"正在重新启动主程序: {{main_py_path}}")
+        
+        subprocess.Popen(
+            [sys.executable, main_py_path],
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            cwd=os.path.dirname(main_py_path)
+        )
+        
+        print("重启命令已执行")
+        time.sleep(1)
+        
+        # 清理重启脚本
+        try:
+            script_path = __file__
+            if os.path.exists(script_path):
+                os.remove(script_path)
+        except:
+            pass
+        sys.exit(0)
+        
+    except Exception as e:
+        print(f"重启失败: {{e}}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+'''
+            else:
+                # Linux 保持原有的复杂逻辑
+                # 构建要杀死的进程列表
+                if is_dual_process:
+                    kill_ports_code = f"""
         # 独立进程模式：查找并杀死主程序和web面板进程
         ports_to_kill = [{main_port}, {web_port}]
         pids_to_kill = []
@@ -3549,65 +3620,36 @@ def restart_bot():
         # 杀死所有相关进程
         for pid in pids_to_kill:
             try:
-                if platform.system().lower() == 'windows':
-                    result = subprocess.run(['taskkill', '/PID', str(pid), '/F'], 
-                                         check=False, capture_output=True)
-                    print(f"Windows: 杀死进程 PID {{pid}}, 返回码: {{result.returncode}}")
-                else:
-                    proc = psutil.Process(pid)
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=3)
-                        print(f"Linux: 进程 PID {{pid}} 已正常终止")
-                    except psutil.TimeoutExpired:
-                        proc.kill()
-                        print(f"Linux: 强制杀死进程 PID {{pid}}")
+                proc = psutil.Process(pid)
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                    print(f"Linux: 进程 PID {{pid}} 已正常终止")
+                except psutil.TimeoutExpired:
+                    proc.kill()
+                    print(f"Linux: 强制杀死进程 PID {{pid}}")
             except Exception as e:
                 print(f"杀死进程{{pid}}失败: {{e}}")
         
         # 等待进程完全终止
         time.sleep(1)
-        
-        # 验证进程是否真的被杀死
-        for pid in pids_to_kill:
-            try:
-                proc = psutil.Process(pid)
-                if proc.is_running():
-                    print(f"警告: 进程 {{pid}} 仍在运行，尝试强制杀死")
-                    if platform.system().lower() == 'windows':
-                        subprocess.run(['taskkill', '/PID', str(pid), '/F', '/T'], check=False)
-                    else:
-                        proc.kill()
-            except psutil.NoSuchProcess:
-                print(f"确认: 进程 {{pid}} 已成功终止")
-            except Exception as e:
-                print(f"验证进程{{pid}}状态失败: {{e}}")
-                """
-            else:
-                kill_ports_code = f"""
+                    """
+                else:
+                    kill_ports_code = f"""
         # 单进程模式：杀死指定的Python进程
         target_pid = {current_python_pid}
         try:
             proc = psutil.Process(target_pid)
             print(f"准备杀死Python进程: PID {{target_pid}}")
             
-            if platform.system().lower() == 'windows':
-                # Windows下先尝试正常终止，再强制杀死
-                result = subprocess.run(['taskkill', '/PID', str(target_pid), '/T'], 
-                                     check=False, capture_output=True)
-                time.sleep(0.1)
-                subprocess.run(['taskkill', '/PID', str(target_pid), '/F', '/T'], 
-                             check=False, capture_output=True)
-                print(f"Windows: 已杀死进程 PID {{target_pid}}")
-            else:
-                # Linux下先发送SIGTERM，等待一段时间后发送SIGKILL
-                proc.terminate()
-                try:
-                    proc.wait(timeout=3)
-                    print(f"Linux: 进程 PID {{target_pid}} 已正常终止")
-                except psutil.TimeoutExpired:
-                    proc.kill()
-                    print(f"Linux: 强制杀死进程 PID {{target_pid}}")
+            # Linux下先发送SIGTERM，等待一段时间后发送SIGKILL
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+                print(f"Linux: 进程 PID {{target_pid}} 已正常终止")
+            except psutil.TimeoutExpired:
+                proc.kill()
+                print(f"Linux: 强制杀死进程 PID {{target_pid}}")
         except psutil.NoSuchProcess:
             print(f"进程 {{target_pid}} 不存在或已终止")
         except Exception as e:
@@ -3615,9 +3657,9 @@ def restart_bot():
         
         # 等待进程完全终止
         time.sleep(1)
-                """
-            
-            script_content = f'''#!/usr/bin/env python3
+                    """
+                
+                script_content = f'''#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import os
@@ -3639,7 +3681,7 @@ def main():
     time.sleep(1)
     
     # 最终验证：确保端口已经释放
-    ports_to_check = [{main_port}, {web_port}] if {str(is_dual_process)} else [5001]
+    ports_to_check = [{main_port}, {web_port}] if {is_dual_process} else [{main_port}]
     max_wait = 5  # 最多等待5秒
     wait_count = 0
     while wait_count < max_wait:
@@ -3666,42 +3708,25 @@ def main():
         
         print(f"正在重新启动主程序: {{main_py_path}}")
         
-        if platform.system().lower() == 'windows':
-            subprocess.Popen(
-                [sys.executable, main_py_path],
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-                cwd=os.path.dirname(main_py_path)
-            )
-        else:
-            # 清理重启脚本
-            try:
-                script_path = __file__
-                if os.path.exists(script_path):
-                    os.remove(script_path)
-            except:
-                pass
-            os.execv(sys.executable, [sys.executable, main_py_path])
+        # 清理重启脚本
+        try:
+            script_path = __file__
+            if os.path.exists(script_path):
+                os.remove(script_path)
+        except:
+            pass
+        os.execv(sys.executable, [sys.executable, main_py_path])
         
         print("重启命令已执行")
         
     except Exception as e:
         print(f"重启失败: {{e}}")
         sys.exit(1)
-    
-    if platform.system().lower() == 'windows':
-        time.sleep(1)
-        try:
-            # 清理重启脚本
-            script_path = __file__
-            if os.path.exists(script_path):
-                os.remove(script_path)
-        except:
-            pass
-        sys.exit(0)
 
 if __name__ == "__main__":
     main()
 '''
+            
             return script_content
         
         # 创建重启脚本时传递独立进程模式信息
@@ -3725,16 +3750,32 @@ if __name__ == "__main__":
         is_windows = platform.system().lower() == 'windows'
         
         if is_windows:
+            # Windows: 启动重启脚本（延迟3秒启动框架），主进程延迟1秒自杀
             subprocess.Popen([sys.executable, restart_script_path], cwd=current_dir,
                            creationflags=subprocess.CREATE_NEW_CONSOLE)
+            
+            # 返回响应
+            response = jsonify({
+                'success': True,
+                'message': f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 主进程将在1秒后退出，新进程将在3秒后启动'
+            })
+            
+            # 延迟1秒自杀，确保响应发送完成且避免端口冲突
+            def delayed_exit():
+                time.sleep(1)  # 延迟1秒后退出，新进程将在3秒后启动（2秒缓冲）
+                os._exit(0)  # 强制退出进程
+            
+            threading.Thread(target=delayed_exit, daemon=True).start()
+            return response
         else:
+            # Linux: 使用原有逻辑
             subprocess.Popen([sys.executable, restart_script_path], cwd=current_dir,
                            start_new_session=True)
-        
-        return jsonify({
-            'success': True,
-            'message': f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 预计重启时间: 1秒'
-        })
+            
+            return jsonify({
+                'success': True,
+                'message': f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 预计重启时间: 1秒'
+            })
         
     except Exception as e:
         return jsonify({

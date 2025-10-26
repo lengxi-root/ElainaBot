@@ -4,14 +4,13 @@ import json
 import logging
 import time
 import datetime
-from config import LOG_DB_CONFIG, USE_MARKDOWN, OWNER_IDS, DB_CONFIG
+from config import LOG_DB_CONFIG, USE_MARKDOWN, OWNER_IDS
 import traceback
 from function.httpx_pool import sync_get, get_json
 from function.database import Database
 
 import os
 import sys
-import subprocess
 import platform
 import re
 
@@ -19,10 +18,6 @@ from function.log_db import LogDatabasePool
 from core.plugin.PluginManager import PluginManager
 
 logger = logging.getLogger('user_stats')
-
-# 获取表前缀配置
-TABLE_PREFIX = DB_CONFIG.get('table_prefix', 'M_')
-LOG_TABLE_PREFIX = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
 
 BOT_API_URL = "https://i.elaina.vin/api/bot/xx.php?bot={}&type=0"
 BOT_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cxbot")
@@ -193,6 +188,9 @@ class system_plugin(Plugin):
             f"群组ID: {event.group_id}"
         ]
         
+        perm_str = system_plugin._get_user_permission(event.user_id)
+        info_parts.append(f"用户权限：{perm_str}")
+        
         system_plugin.safe_reply(event, "\n".join(info_parts))
     
     @staticmethod
@@ -223,8 +221,7 @@ class system_plugin(Plugin):
     
     @staticmethod
     def _get_user_qq(user_id):
-        query = f"SELECT qq FROM {TABLE_PREFIX}users WHERE user_id = %s"
-        result = DatabaseService.execute_query(query, (user_id,))
+        result = DatabaseService.execute_query("SELECT qq FROM M_users WHERE user_id = %s", (user_id,))
         return result.get('qq') if result else None
     
     @staticmethod
@@ -306,7 +303,8 @@ class system_plugin(Plugin):
             return
         
         cursor = connection.cursor()
-        table_name = f"{LOG_TABLE_PREFIX}{date_str}_message"
+        table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+        table_name = f"{table_prefix}{date_str}_message"
         
         check_query = """
             SELECT COUNT(*) as count 
@@ -396,7 +394,7 @@ class system_plugin(Plugin):
         
         event_stats = {'group_join_count': 0, 'group_leave_count': 0, 'friend_add_count': 0, 'friend_remove_count': 0}
         if is_today:
-            dau_table_name = f"{LOG_TABLE_PREFIX}dau"
+            dau_table_name = f"{table_prefix}dau"
             cursor.execute(f"""
                 SELECT COUNT(*) as count 
                 FROM information_schema.tables 
@@ -423,7 +421,7 @@ class system_plugin(Plugin):
         
         yesterday_data = None
         if yesterday_str and current_hour is not None and current_minute is not None:
-            yesterday_table = f"{LOG_TABLE_PREFIX}{yesterday_str}_message"
+            yesterday_table = f"{table_prefix}{yesterday_str}_message"
             cursor.execute(check_query, (yesterday_table,))
             y_result = cursor.fetchone()
             
@@ -520,6 +518,7 @@ class system_plugin(Plugin):
         
         query_time = round((time.time() - start_time) * 1000)
         info.append(f'🕒 查询耗时: {query_time}ms')
+        info.append(f'📁 数据源: 实时数据库查询')
         
         if USE_MARKDOWN:
             button_configs = [
@@ -595,6 +594,7 @@ class system_plugin(Plugin):
         
         query_time = round((time.time() - start_time) * 1000)
         info.append(f'🕒 查询耗时: {query_time}ms')
+        info.append(f'📁 数据源: 数据库')
         
         if dau_data.get('generated_at'):
             gen_time = datetime.datetime.fromisoformat(dau_data['generated_at'].replace('Z', '+00:00'))
@@ -616,12 +616,12 @@ class system_plugin(Plugin):
     @classmethod
     def _get_query_params(cls):
         return [
-            (f"SELECT COUNT(*) as count FROM {TABLE_PREFIX}users", None, False),
-            (f"SELECT COUNT(*) as count FROM {TABLE_PREFIX}groups", None, False),
-            (f"SELECT COUNT(*) as count FROM {TABLE_PREFIX}members", None, False),
-            (f"""
+            ("SELECT COUNT(*) as count FROM M_users", None, False),
+            ("SELECT COUNT(*) as count FROM M_groups", None, False),
+            ("SELECT COUNT(*) as count FROM M_members", None, False),
+            ("""
                 SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM {TABLE_PREFIX}groups_users
+                FROM M_groups_users
                 ORDER BY member_count DESC
                 LIMIT 1
             """, None, False),
@@ -631,10 +631,10 @@ class system_plugin(Plugin):
     @classmethod
     def _get_group_info_params(cls, group_id):
         return [
-            (f"SELECT users FROM {TABLE_PREFIX}groups_users WHERE group_id = %s", (group_id,), False),
-            (f"""
+            ("SELECT users FROM M_groups_users WHERE group_id = %s", (group_id,), False),
+            ("""
                 SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM {TABLE_PREFIX}groups_users
+                FROM M_groups_users
                 ORDER BY member_count DESC
             """, None, True)
         ]
@@ -658,11 +658,16 @@ class system_plugin(Plugin):
         else:
             most_active_group = {'group_id': "无数据", 'member_count': 0}
         
+        uin_success = 64019
+        
         return {
             'user_count': user_count,
             'group_count': group_count,
             'private_users_count': private_users_count,
-            'most_active_group': most_active_group
+            'most_active_group': most_active_group,
+            'uin_stats': {
+                'success': uin_success
+            }
         }
     
     @classmethod
@@ -748,249 +753,32 @@ class system_plugin(Plugin):
     
     @staticmethod
     def restart_bot(event):
-        import psutil
-        import importlib.util
-        
-        current_pid = os.getpid()
-        current_dir = os.getcwd()
-        main_py_path = os.path.join(current_dir, 'main.py')
-        
-        if not os.path.exists(main_py_path):
-            event.reply('❌ main.py文件不存在！')
-            return
-        
-        config_path = os.path.join(current_dir, 'config.py')
-        config = None
-        if os.path.exists(config_path):
-            spec = importlib.util.spec_from_file_location("config", config_path)
-            config = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(config)
-        
-        is_dual_process = False
-        main_port = 5001
-        web_port = 5002
-        
-        if config and hasattr(config, 'SERVER_CONFIG'):
-            server_config = config.SERVER_CONFIG
-            is_dual_process = server_config.get('web_dual_process', False)
-            main_port = server_config.get('port', 5001)
-            web_port = server_config.get('web_port', 5002)
-        
-        restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
-        event.reply(f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 预计重启时间: 1秒')
+        from web.app import execute_bot_restart
+        from config import SERVER_CONFIG
+        import threading
         
         restart_status = {
             'restart_time': datetime.datetime.now().isoformat(),
             'completed': False,
-            'message_id': event.message_id,
+            'message_id': getattr(event, 'message_id', None),
             'user_id': event.user_id,
             'group_id': event.group_id if hasattr(event, 'is_group') and event.is_group else 'c2c'
         }
         
-        restart_status_file = system_plugin._get_restart_status_file()
-        with open(restart_status_file, 'w', encoding='utf-8') as f:
-            json.dump(restart_status, f, ensure_ascii=False)
+        is_dual_process = SERVER_CONFIG.get('web_dual_process', False)
+        restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
+        event.reply(f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 预计重启时间: 1秒')
         
-        restart_script_content = system_plugin._create_restart_python_script(
-            main_py_path, is_dual_process, main_port, web_port, current_pid
-        )
-        restart_script_path = os.path.join(current_dir, 'bot_restarter.py')
-        
-        with open(restart_script_path, 'w', encoding='utf-8') as f:
-            f.write(restart_script_content)
-        
-        if is_dual_process:
-            main_pids = system_plugin._find_processes_by_port(main_port)
-            web_pids = system_plugin._find_processes_by_port(web_port)
-            logger.info(f"[重启] 主程序端口: {main_port}, Web面板端口: {web_port}")
-            logger.info(f"[重启] 主程序进程: {main_pids}, Web面板进程: {web_pids}")
-        
-        is_windows = platform.system().lower() == 'windows'
-        
-        if is_windows:
-            subprocess.Popen(['python', restart_script_path], cwd=current_dir,
-                           creationflags=subprocess.CREATE_NEW_CONSOLE)
-        else:
-            subprocess.Popen([sys.executable, restart_script_path], cwd=current_dir,
-                           start_new_session=True)
-    
-    @staticmethod
-    def _find_processes_by_port(port):
-        import psutil
-        pids = []
-        for conn in psutil.net_connections():
-            if conn.laddr.port == port and conn.status == 'LISTEN':
-                try:
-                    proc = psutil.Process(conn.pid)
-                    pids.append(conn.pid)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-        return pids
-    
-    @staticmethod
-    def _create_restart_python_script(main_py_path, is_dual_process=False, main_port=5001, web_port=5002, current_python_pid=None):
-        if current_python_pid is None:
-            current_python_pid = os.getpid()
-            
-        if is_dual_process:
-            kill_ports_code = f"""
-        ports_to_kill = [{main_port}, {web_port}]
-        pids_to_kill = []
-        
-        for port in ports_to_kill:
-            for conn in psutil.net_connections():
-                if conn.laddr.port == port and conn.status == 'LISTEN':
-                    try:
-                        proc = psutil.Process(conn.pid)
-                        pids_to_kill.append(conn.pid)
-                        print(f"找到端口{{port}}的进程: PID {{conn.pid}}")
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
-        
-        pids_to_kill = list(set(pids_to_kill))
-        
-        for pid in pids_to_kill:
+        def do_restart():
+            import time
+            time.sleep(0.5)
             try:
-                if platform.system().lower() == 'windows':
-                    result = subprocess.run(['taskkill', '/PID', str(pid), '/F'], 
-                                         check=False, capture_output=True)
-                    print(f"Windows: 杀死进程 PID {{pid}}, 返回码: {{result.returncode}}")
-                else:
-                    proc = psutil.Process(pid)
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=3)
-                        print(f"Linux: 进程 PID {{pid}} 已正常终止")
-                    except psutil.TimeoutExpired:
-                        proc.kill()
-                        print(f"Linux: 强制杀死进程 PID {{pid}}")
+                execute_bot_restart(restart_status)
             except Exception as e:
-                print(f"杀死进程{{pid}}失败: {{e}}")
+                logger.error(f"执行重启失败: {e}")
         
-        # 快速验证进程终止
-        time.sleep(0.3)
-        
-        # 快速验证关键进程是否已终止
-        for pid in pids_to_kill[:2]:  # 只检查前2个进程
-            try:
-                proc = psutil.Process(pid)
-                if proc.is_running():
-                    print(f"快速强杀进程: PID {{pid}}")
-                    if platform.system().lower() == 'windows':
-                        subprocess.run(['taskkill', '/PID', str(pid), '/F', '/T'], check=False, timeout=1)
-                    else:
-                        proc.kill()
-            except (psutil.NoSuchProcess, subprocess.TimeoutExpired):
-                pass
-            except Exception:
-                pass
-                """
-        else:
-            kill_ports_code = f"""
-        target_pid = {current_python_pid}
-        try:
-            proc = psutil.Process(target_pid)
-            print(f"准备杀死Python进程: PID {{target_pid}}")
-            
-            if platform.system().lower() == 'windows':
-                subprocess.run(['taskkill', '/PID', str(target_pid), '/F', '/T'], 
-                             check=False, capture_output=True, timeout=2)
-                print(f"Windows: 已杀死进程 PID {{target_pid}}")
-            else:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=1)
-                    print(f"Linux: 进程 PID {{target_pid}} 已正常终止")
-                except psutil.TimeoutExpired:
-                    proc.kill()
-                    print(f"Linux: 强制杀死进程 PID {{target_pid}}")
-        except psutil.NoSuchProcess:
-            print(f"进程 {{target_pid}} 不存在或已终止")
-        except Exception as e:
-            print(f"杀死进程{{target_pid}}失败: {{e}}")
-        
-        time.sleep(0.2)
-                """
-        
-        script_content = f'''#!/usr/bin/env python3
-
-import os
-import sys
-import time
-import signal
-import platform
-import subprocess
-import psutil
-
-def main():
-    main_py_path = r"{main_py_path}"
+        threading.Thread(target=do_restart, daemon=True).start()
     
-    try:{kill_ports_code}
-    except Exception as e:
-        print(f"杀死进程过程中出错: {{e}}")
-    
-    time.sleep(0.1)
-    
-    ports_to_check = [{main_port}, {web_port}] if {str(is_dual_process)} else [5001]
-    max_wait = 2
-    wait_count = 0
-    while wait_count < max_wait:
-        ports_still_occupied = False
-        try:
-            for conn in psutil.net_connections():
-                if conn.laddr.port in ports_to_check and conn.status == 'LISTEN':
-                    ports_still_occupied = True
-                    break
-        except:
-            pass
-            
-        if not ports_still_occupied:
-            print("端口已释放")
-            break
-        else:
-            time.sleep(0.2)
-            wait_count += 0.2
-    
-    try:
-        os.chdir(os.path.dirname(main_py_path))
-        
-        print(f"正在重新启动主程序: {{main_py_path}}")
-        
-        if platform.system().lower() == 'windows':
-            subprocess.Popen(
-                [sys.executable, main_py_path],
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-                cwd=os.path.dirname(main_py_path)
-            )
-        else:
-            try:
-                script_path = __file__
-                if os.path.exists(script_path):
-                    os.remove(script_path)
-            except:
-                pass
-            os.execv(sys.executable, [sys.executable, main_py_path])
-        
-        print("重启命令已执行")
-        
-    except Exception as e:
-        print(f"重启失败: {{e}}")
-        sys.exit(1)
-    
-    if platform.system().lower() == 'windows':
-        time.sleep(1)
-        try:
-            script_path = __file__
-            if os.path.exists(script_path):
-                os.remove(script_path)
-        except:
-            pass
-        sys.exit(0)
-
-if __name__ == "__main__":
-    main()
-'''
-        return script_content
     
     @staticmethod
     def fill_user_names(event):

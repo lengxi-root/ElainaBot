@@ -3455,103 +3455,88 @@ def get_system_status():
         return jsonify({'success': False, 'standalone_web': True, 'websocket_available': False,
             'error': str(e), 'config_source': 'fallback'})
 
-@web.route('/api/restart', methods=['POST'])
-@require_auth
-def restart_bot():
-    """重启机器人 - 使用与用户统计.py一致的重启逻辑"""
-    try:
-        import os
-        import sys
-        import json
-        import platform
-        import subprocess
-        import psutil
-        import importlib.util
-        
-        current_pid = os.getpid()
-        current_dir = os.getcwd()
-        main_py_path = os.path.join(current_dir, 'main.py')
-        
-        # 检查main.py文件是否存在
-        if not os.path.exists(main_py_path):
-            return jsonify({
-                'success': False,
-                'error': 'main.py文件不存在！'
-            })
-        
-        # 读取配置文件检查是否为独立进程模式
-        config_path = os.path.join(current_dir, 'config.py')
-        config = None
-        if os.path.exists(config_path):
-            try:
-                spec = importlib.util.spec_from_file_location("config", config_path)
-                config = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(config)
-            except Exception as e:
-                pass
-        
-        # 检查是否为独立进程模式
-        is_dual_process = False
-        main_port = 5001
-        web_port = 5002
-        
-        if config and hasattr(config, 'SERVER_CONFIG'):
-            server_config = config.SERVER_CONFIG
-            is_dual_process = server_config.get('web_dual_process', False)
-            main_port = server_config.get('port', 5001)
-            web_port = server_config.get('web_port', 5002)
-        
-        restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
-        
-        def _get_restart_status_file():
-            """获取重启状态文件路径"""
-            plugin_dir = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.join(os.path.dirname(plugin_dir), 'plugins', 'system', 'data')
-            if not os.path.exists(data_dir):
-                os.makedirs(data_dir)
-            return os.path.join(data_dir, 'restart_status.json')
-        
-        # 保存重启状态（模拟事件对象的信息）
+def execute_bot_restart(restart_status=None):
+    """执行机器人重启 - 可被插件直接调用的独立函数"""
+    import os
+    import sys
+    import json
+    import platform
+    import subprocess
+    import psutil
+    import importlib.util
+    import time
+    import threading
+    
+    current_pid = os.getpid()
+    current_dir = os.getcwd()
+    main_py_path = os.path.join(current_dir, 'main.py')
+    
+    if not os.path.exists(main_py_path):
+        return {'success': False, 'error': 'main.py文件不存在！'}
+    
+    config_path = os.path.join(current_dir, 'config.py')
+    config = None
+    if os.path.exists(config_path):
+        try:
+            spec = importlib.util.spec_from_file_location("config", config_path)
+            config = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(config)
+        except Exception as e:
+            pass
+    
+    is_dual_process = False
+    main_port = 5001
+    web_port = 5002
+    
+    if config and hasattr(config, 'SERVER_CONFIG'):
+        server_config = config.SERVER_CONFIG
+        is_dual_process = server_config.get('web_dual_process', False)
+        main_port = server_config.get('port', 5001)
+        web_port = server_config.get('web_port', 5002)
+    
+    restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
+    
+    def _get_restart_status_file():
+        plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(os.path.dirname(plugin_dir), 'plugins', 'system', 'data')
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+        return os.path.join(data_dir, 'restart_status.json')
+    
+    if restart_status is None:
         restart_status = {
             'restart_time': datetime.now().isoformat(),
             'completed': False,
-            'message_id': None,  # Web重启没有message_id
-            'user_id': 'web_admin',  # Web管理员标识
-            'group_id': 'web_panel'  # Web面板标识
+            'message_id': None,
+            'user_id': 'web_admin',
+            'group_id': 'web_panel'
         }
+    
+    restart_status_file = _get_restart_status_file()
+    with open(restart_status_file, 'w', encoding='utf-8') as f:
+        json.dump(restart_status, f, ensure_ascii=False)
+    
+    def _find_processes_by_port(port):
+        import psutil
+        pids = []
+        try:
+            for conn in psutil.net_connections():
+                if conn.laddr.port == port and conn.status == 'LISTEN':
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        pids.append(conn.pid)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+        except Exception as e:
+            pass
+        return pids
+    
+    def _create_restart_python_script(main_py_path, is_dual_process=False, main_port=5001, web_port=5002):
+        current_python_pid = current_pid
+        is_windows = platform.system().lower() == 'windows'
         
-        restart_status_file = _get_restart_status_file()
-        with open(restart_status_file, 'w', encoding='utf-8') as f:
-            json.dump(restart_status, f, ensure_ascii=False)
-        
-        def _find_processes_by_port(port):
-            """通过端口号查找进程ID"""
-            import psutil
-            pids = []
-            try:
-                for conn in psutil.net_connections():
-                    if conn.laddr.port == port and conn.status == 'LISTEN':
-                        try:
-                            proc = psutil.Process(conn.pid)
-                            pids.append(conn.pid)
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            continue
-            except Exception as e:
-                pass
-            return pids
-        
-        def _create_restart_python_script(main_py_path, is_dual_process=False, main_port=5001, web_port=5002):
-            """创建重启脚本，支持独立进程模式"""
-            # 获取当前Python进程的PID，传递给重启脚本
-            current_python_pid = current_pid
-            
-            # Windows 使用简化的重启逻辑：延迟3秒后启动，主进程自杀
-            # Linux 保持原有的复杂逻辑
-            is_windows = platform.system().lower() == 'windows'
-            
-            if is_windows:
-                # Windows 简化重启脚本：只负责延迟启动
-                script_content = f'''#!/usr/bin/env python3
+        if is_windows:
+            script_content = f'''#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import os
@@ -3595,11 +3580,9 @@ def main():
 if __name__ == "__main__":
     main()
 '''
-            else:
-                # Linux 保持原有的复杂逻辑
-                # 构建要杀死的进程列表
-                if is_dual_process:
-                    kill_ports_code = f"""
+        else:
+            if is_dual_process:
+                kill_ports_code = f"""
         # 独立进程模式：查找并杀死主程序和web面板进程
         ports_to_kill = [{main_port}, {web_port}]
         pids_to_kill = []
@@ -3633,9 +3616,9 @@ if __name__ == "__main__":
         
         # 等待进程完全终止
         time.sleep(1)
-                    """
-                else:
-                    kill_ports_code = f"""
+"""
+            else:
+                kill_ports_code = f"""
         # 单进程模式：杀死指定的Python进程
         target_pid = {current_python_pid}
         try:
@@ -3657,9 +3640,9 @@ if __name__ == "__main__":
         
         # 等待进程完全终止
         time.sleep(1)
-                    """
-                
-                script_content = f'''#!/usr/bin/env python3
+"""
+            
+            script_content = f'''#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import os
@@ -3726,10 +3709,10 @@ def main():
 if __name__ == "__main__":
     main()
 '''
-            
-            return script_content
         
-        # 创建重启脚本时传递独立进程模式信息
+        return script_content
+    
+    try:
         restart_script_content = _create_restart_python_script(
             main_py_path, is_dual_process, main_port, web_port
         )
@@ -3738,9 +3721,7 @@ if __name__ == "__main__":
         with open(restart_script_path, 'w', encoding='utf-8') as f:
             f.write(restart_script_content)
         
-        # 输出调试信息
         if is_dual_process:
-            # 显示当前监听的端口进程
             try:
                 main_pids = _find_processes_by_port(main_port)
                 web_pids = _find_processes_by_port(web_port)
@@ -3750,38 +3731,53 @@ if __name__ == "__main__":
         is_windows = platform.system().lower() == 'windows'
         
         if is_windows:
-            # Windows: 启动重启脚本（延迟3秒启动框架），主进程延迟1秒自杀
             subprocess.Popen([sys.executable, restart_script_path], cwd=current_dir,
                            creationflags=subprocess.CREATE_NEW_CONSOLE)
             
-            # 返回响应
-            response = jsonify({
-                'success': True,
-                'message': f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 主进程将在1秒后退出，新进程将在3秒后启动'
-            })
-            
-            # 延迟1秒自杀，确保响应发送完成且避免端口冲突
             def delayed_exit():
-                time.sleep(1)  # 延迟1秒后退出，新进程将在3秒后启动（2秒缓冲）
-                os._exit(0)  # 强制退出进程
+                time.sleep(1)
+                os._exit(0)
             
             threading.Thread(target=delayed_exit, daemon=True).start()
-            return response
+            return {
+                'success': True,
+                'message': f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 主进程将在1秒后退出，新进程将在3秒后启动'
+            }
         else:
-            # Linux: 使用原有逻辑
             subprocess.Popen([sys.executable, restart_script_path], cwd=current_dir,
                            start_new_session=True)
-            
-            return jsonify({
+            return {
                 'success': True,
                 'message': f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 预计重启时间: 1秒'
-            })
-        
+            }
     except Exception as e:
-        return jsonify({
+        return {
             'success': False,
             'error': str(e)
-        })
+        }
+
+@web.route('/api/restart', methods=['POST'])
+@require_auth
+def restart_bot():
+    """重启机器人 - Web路由"""
+    try:
+        request_data = request.get_json(silent=True) or {}
+        restart_status = {
+            'restart_time': request_data.get('restart_time') or datetime.now().isoformat(),
+            'completed': False,
+            'message_id': request_data.get('message_id'),
+            'user_id': request_data.get('user_id', 'web_admin'),
+            'group_id': request_data.get('group_id', 'web_panel')
+        }
+        result = execute_bot_restart(restart_status)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 @web.route('/api/status', methods=['GET'])
 def get_simple_status():

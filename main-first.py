@@ -2,34 +2,20 @@
 # -*- coding: utf-8 -*-
 
 def check_python_version():
-    """检查Python版本是否符合要求"""
     import sys
-    
     required_version = (3, 9)
     current_version = sys.version_info[:2]
-    
     if current_version < required_version:
-        print("=" * 60)
-        print("❌ Python 版本不符合要求！")
-        print(f"   当前版本: Python {current_version[0]}.{current_version[1]}")
-        print(f"   要求版本: Python {required_version[0]}.{required_version[1]} 或更高")
-        print("=" * 60)
-        print("\n💡 请升级Python版本后重试")
-        print(f"   推荐使用: Python 3.9 或 Python 3.10\n")
+        print(f"❌ Python版本不符合要求！当前: {current_version[0]}.{current_version[1]}, 要求: {required_version[0]}.{required_version[1]}+")
         sys.exit(1)
-    
     print(f"✅ Python版本检查通过: Python {current_version[0]}.{current_version[1]}")
     return True
 
 def check_dependencies():
-    """检查并验证所有依赖是否已安装"""
-    import os
-    import sys
-    
+    import os, sys
     try:
         from importlib.metadata import version, PackageNotFoundError
     except ImportError:
-        # Python < 3.8 fallback
         try:
             from importlib_metadata import version, PackageNotFoundError
         except ImportError:
@@ -38,15 +24,12 @@ def check_dependencies():
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
     requirements_file = os.path.join(base_dir, 'requirements.txt')
-    
     if not os.path.exists(requirements_file):
         print("⚠️  警告: 未找到 requirements.txt 文件，跳过依赖检查")
         return True
     
     print("🔍 正在检查依赖包...")
-    
     missing_packages = []
-    
     try:
         with open(requirements_file, 'r', encoding='utf-8') as f:
             requirements = f.readlines()
@@ -55,8 +38,6 @@ def check_dependencies():
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            
-            # 解析包名（忽略版本号）
             if '==' in line:
                 package_name = line.split('==')[0].strip()
             elif '>=' in line:
@@ -64,11 +45,8 @@ def check_dependencies():
             else:
                 package_name = line.strip()
             
-            # 标准化包名（处理特殊情况）
-            # 尝试多种包名格式
             possible_names = [
-                package_name,
-                package_name.lower(),
+                package_name, package_name.lower(),
                 package_name.lower().replace('_', '-'),
                 package_name.lower().replace('-', '_'),
             ]
@@ -83,37 +61,21 @@ def check_dependencies():
                     continue
             
             if not installed:
-                # 所有格式都未找到
                 missing_packages.append(package_name)
         
-        # 报告检查结果
         if not missing_packages:
             print("✅ 所有依赖包检查通过！")
             return True
         
-        print("\n❌ 缺少以下依赖包:")
-        for pkg in missing_packages:
-            print(f"   - {pkg}")
-        
-        print("\n💡 请运行以下命令安装缺失的依赖:")
-        print(f"   pip install -r requirements.txt")
-        print("\n或者手动安装:")
-        print(f"   pip install {' '.join(missing_packages)}")
-        
-        print("\n是否继续启动? (可能会导致运行错误)")
-        print("按 Ctrl+C 退出，或按 Enter 继续...")
-        
+        print("\n❌ 缺少依赖包:", ', '.join(missing_packages))
+        print("💡 pip install -r requirements.txt")
+        print("\n按 Enter 继续或 Ctrl+C 退出...")
         try:
             input()
         except KeyboardInterrupt:
-            print("\n\n👋 已取消启动")
             sys.exit(0)
-        
         return True
-        
-    except Exception as e:
-        print(f"⚠️  依赖检查过程出错: {e}")
-        print("继续启动...")
+    except:
         return True
 
 def check_and_replace_config():
@@ -192,13 +154,11 @@ def cleanup_gc():
 
 def start_web_process():
     setup_logging()
-    log_to_console("Web进程已启动")
     init_systems(is_subprocess=True)
     from web.app import start_web
     from eventlet import wsgi
     web_host = SERVER_CONFIG.get('host', '0.0.0.0')
     web_port = SERVER_CONFIG.get('web_port', 5002)
-    log_to_console(f"Web面板独立进程启动在 {web_host}:{web_port}")
     web_app, web_socketio = start_web(main_app=None, is_subprocess=True)
     wsgi.server(eventlet.listen((web_host, web_port)), web_app, log=None, log_output=False)
 
@@ -206,23 +166,14 @@ def start_web_dual_process():
     global _web_process
     _web_process = Process(target=start_web_process, daemon=True)
     _web_process.start()
-    web_port = SERVER_CONFIG.get('web_port', 5002)
-    web_host = SERVER_CONFIG.get('host', '0.0.0.0')
-    display_host = 'localhost' if web_host == '0.0.0.0' else web_host
-    log_to_console(f"Web面板独立进程已启动，PID: {_web_process.pid}")
-    web_token = WEB_SECURITY.get('access_token', '')
-    web_url = f"http://{display_host}:{web_port}/web/{'?token=' + web_token if web_token else ''}"
-    log_to_console(f"🌐 Web管理面板: {web_url}")
     return True
 
 def stop_web_process():
     global _web_process
     _web_process_event.set()
     if _web_process and _web_process.is_alive():
-        log_to_console("正在停止Web进程...")
         _web_process.terminate()
         _web_process.join(timeout=5)
-        log_to_console("Web进程已停止")
 
 def log_to_console(message):
     logging.info(message)
@@ -339,16 +290,14 @@ async def handle_ws_message(raw_data):
 
 async def create_websocket_client():
     from function.ws_client import create_qq_bot_client
-    log_to_console("正在获取网关地址...")
     client = await create_qq_bot_client(WEBSOCKET_CONFIG)
     if not client:
         raise Exception("无法获取网关地址或创建客户端")
-    log_to_console("正在配置事件处理器...")
     client.add_handler('message', handle_ws_message)
-    client.add_handler('connect', lambda d: log_to_console("WebSocket连接已建立"))
-    client.add_handler('disconnect', lambda d: log_to_console("WebSocket连接已断开"))
+    client.add_handler('connect', lambda d: None)
+    client.add_handler('disconnect', lambda d: None)
     client.add_handler('error', lambda d: log_error(f"WebSocket错误: {d.get('error', '')}"))
-    client.add_handler('ready', lambda d: log_to_console(f"WebSocket已就绪 - Bot: {d.get('bot_info', {}).get('username', '二次转发接收模式')}"))
+    client.add_handler('ready', lambda d: None)
     return client
 
 def run_websocket_client():
@@ -362,19 +311,14 @@ def run_websocket_client():
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            log_to_console(f"正在创建WebSocket客户端...")
             client = loop.run_until_complete(create_websocket_client())
-            log_to_console("WebSocket客户端已创建，开始连接...")
             loop.run_until_complete(client.start())
-            log_to_console("WebSocket客户端连接成功")
             break
         except KeyboardInterrupt:
-            log_to_console("WebSocket客户端被用户中断")
             break
         except Exception as e:
             log_error(f"WebSocket客户端运行失败 (第 {attempt + 1}/3 次): {str(e)}")
             if attempt < 2:
-                log_to_console(f"等待 10 秒后重试...")
                 time.sleep(10)
         finally:
             try:
@@ -403,7 +347,6 @@ def setup_websocket():
         from config import appid, secret
         if appid and secret:
             threading.Thread(target=run_websocket_client, daemon=True).start()
-            log_to_console("WebSocket自动连接启动成功")
 
 def init_systems(is_subprocess=False):
     global _message_handler_ready, _plugins_preloaded
@@ -418,7 +361,6 @@ def init_systems(is_subprocess=False):
             from function.database import Database
             Database()
             log_to_console("数据库系统初始化成功")
-            
             from core.plugin.PluginManager import PluginManager
             PluginManager.load_plugins()
             log_to_console("插件系统初始化成功")
@@ -429,12 +371,8 @@ def init_systems(is_subprocess=False):
             _message_handler_ready.set()
     
     threading.Thread(target=init_critical_systems, daemon=True).start()
-    
     if not is_subprocess:
         setup_websocket()
-    else:
-        log_to_console("子进程模式：跳过WebSocket初始化")
-    
     return True
 
 def initialize_app():

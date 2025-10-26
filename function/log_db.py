@@ -469,19 +469,19 @@ class LogDatabaseManager:
                 time.sleep(5)
     
     def _periodic_cleanup(self):
-        """定期清理过期日志表（每天9点14分执行）"""
+        """定期清理过期日志表（每天凌晨1点执行）"""
         while not self._stop_event.is_set():
             try:
                 now = datetime.datetime.now()
-                # 计算到今天9点14分的时间
-                today_9_14 = now.replace(hour=9, minute=14, second=0, microsecond=0)
+                # 计算到今天凌晨1点的时间
+                today_1am = now.replace(hour=1, minute=0, second=0, microsecond=0)
                 
-                if now >= today_9_14:
-                    # 如果当前时间已过9点14分，计算到明天9点14分
-                    next_run = today_9_14 + datetime.timedelta(days=1)
+                if now >= today_1am:
+                    # 如果当前时间已过凌晨1点，计算到明天凌晨1点
+                    next_run = today_1am + datetime.timedelta(days=1)
                 else:
-                    # 如果当前时间未到9点14分，就在今天9点14分执行
-                    next_run = today_9_14
+                    # 如果当前时间未到凌晨1点，就在今天凌晨1点执行
+                    next_run = today_1am
                 
                 wait_seconds = (next_run - now).total_seconds()
                 

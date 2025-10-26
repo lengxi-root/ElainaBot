@@ -1,6 +1,121 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+def check_python_version():
+    """检查Python版本是否符合要求"""
+    import sys
+    
+    required_version = (3, 9)
+    current_version = sys.version_info[:2]
+    
+    if current_version < required_version:
+        print("=" * 60)
+        print("❌ Python 版本不符合要求！")
+        print(f"   当前版本: Python {current_version[0]}.{current_version[1]}")
+        print(f"   要求版本: Python {required_version[0]}.{required_version[1]} 或更高")
+        print("=" * 60)
+        print("\n💡 请升级Python版本后重试")
+        print(f"   推荐使用: Python 3.9 或 Python 3.10\n")
+        sys.exit(1)
+    
+    print(f"✅ Python版本检查通过: Python {current_version[0]}.{current_version[1]}")
+    return True
+
+def check_dependencies():
+    """检查并验证所有依赖是否已安装"""
+    import os
+    import sys
+    
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+    except ImportError:
+        # Python < 3.8 fallback
+        try:
+            from importlib_metadata import version, PackageNotFoundError
+        except ImportError:
+            print("⚠️  警告: 无法导入依赖检查模块，跳过依赖检查")
+            return True
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    requirements_file = os.path.join(base_dir, 'requirements.txt')
+    
+    if not os.path.exists(requirements_file):
+        print("⚠️  警告: 未找到 requirements.txt 文件，跳过依赖检查")
+        return True
+    
+    print("🔍 正在检查依赖包...")
+    
+    missing_packages = []
+    
+    try:
+        with open(requirements_file, 'r', encoding='utf-8') as f:
+            requirements = f.readlines()
+        
+        for line in requirements:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            
+            # 解析包名（忽略版本号）
+            if '==' in line:
+                package_name = line.split('==')[0].strip()
+            elif '>=' in line:
+                package_name = line.split('>=')[0].strip()
+            else:
+                package_name = line.strip()
+            
+            # 标准化包名（处理特殊情况）
+            # 尝试多种包名格式
+            possible_names = [
+                package_name,
+                package_name.lower(),
+                package_name.lower().replace('_', '-'),
+                package_name.lower().replace('-', '_'),
+            ]
+            
+            installed = False
+            for check_name in possible_names:
+                try:
+                    version(check_name)
+                    installed = True
+                    break
+                except PackageNotFoundError:
+                    continue
+            
+            if not installed:
+                # 所有格式都未找到
+                missing_packages.append(package_name)
+        
+        # 报告检查结果
+        if not missing_packages:
+            print("✅ 所有依赖包检查通过！")
+            return True
+        
+        print("\n❌ 缺少以下依赖包:")
+        for pkg in missing_packages:
+            print(f"   - {pkg}")
+        
+        print("\n💡 请运行以下命令安装缺失的依赖:")
+        print(f"   pip install -r requirements.txt")
+        print("\n或者手动安装:")
+        print(f"   pip install {' '.join(missing_packages)}")
+        
+        print("\n是否继续启动? (可能会导致运行错误)")
+        print("按 Ctrl+C 退出，或按 Enter 继续...")
+        
+        try:
+            input()
+        except KeyboardInterrupt:
+            print("\n\n👋 已取消启动")
+            sys.exit(0)
+        
+        return True
+        
+    except Exception as e:
+        print(f"⚠️  依赖检查过程出错: {e}")
+        print("继续启动...")
+        return True
+
 def check_and_replace_config():
     import os
     import shutil
@@ -18,7 +133,9 @@ def check_and_replace_config():
             shutil.copy2(config_path, os.path.join(backup_dir, f'config_backup_{timestamp}.py'))
         shutil.move(config_new_path, config_path)
 
+check_python_version()
 check_and_replace_config()
+check_dependencies()
 
 import eventlet
 eventlet.monkey_patch()

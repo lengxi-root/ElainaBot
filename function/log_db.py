@@ -226,6 +226,11 @@ class LogDatabaseManager:
         self._stop_event = threading.Event()
         self._save_thread = threading.Thread(target=self._periodic_save, daemon=True, name="LogDBSaveThread")
         self._save_thread.start()
+        
+        # 启动清理线程（仅在启用自动清理时）
+        if MERGED_LOG_CONFIG.get('auto_cleanup', False):
+            self._cleanup_thread = threading.Thread(target=self._periodic_cleanup, daemon=True, name="LogDBCleanupThread")
+            self._cleanup_thread.start()
 
     def _init_sql_templates(self):
         self._sql_templates = {
@@ -463,6 +468,101 @@ class LogDatabaseManager:
             except:
                 time.sleep(5)
     
+    def _periodic_cleanup(self):
+        """定期清理过期日志表（每天9点14分执行）"""
+        while not self._stop_event.is_set():
+            try:
+                now = datetime.datetime.now()
+                # 计算到今天9点14分的时间
+                today_9_14 = now.replace(hour=9, minute=14, second=0, microsecond=0)
+                
+                if now >= today_9_14:
+                    # 如果当前时间已过9点14分，计算到明天9点14分
+                    next_run = today_9_14 + datetime.timedelta(days=1)
+                else:
+                    # 如果当前时间未到9点14分，就在今天9点14分执行
+                    next_run = today_9_14
+                
+                wait_seconds = (next_run - now).total_seconds()
+                
+                # 等待到下次执行时间
+                if self._stop_event.wait(wait_seconds):
+                    break
+                
+                # 执行清理
+                self._cleanup_expired_tables()
+                
+            except Exception as e:
+                logger.error(f"定期清理线程异常: {e}")
+                time.sleep(3600)  # 出错后等待1小时再试
+    
+    def _cleanup_expired_tables(self):
+        """清理过期的日志表"""
+        try:
+            retention_days = MERGED_LOG_CONFIG.get('retention_days', 0)
+            if retention_days <= 0:
+                return
+            
+            cutoff_date = datetime.datetime.now() - datetime.timedelta(days=retention_days)
+            prefix = MERGED_LOG_CONFIG['table_prefix']
+            
+            with self._with_cursor() as (cursor, connection):
+                # 查询所有符合前缀的表
+                cursor.execute("""
+                    SELECT TABLE_NAME as table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = DATABASE() 
+                    AND TABLE_NAME LIKE %s
+                """, (f"{prefix}%",))
+                
+                tables = cursor.fetchall()
+                deleted_count = 0
+                
+                for table_info in tables:
+                    table_name = table_info.get('table_name', '')
+                    
+                    if not table_name:
+                        continue
+                    
+                    # 跳过不按日期分表的表（dau和id表）
+                    if table_name in (f"{prefix}dau", f"{prefix}id"):
+                        continue
+                    
+                    # 从表名中提取日期 (格式: prefix_YYYYMMDD_suffix 或 prefix_suffix)
+                    try:
+                        # 移除前缀
+                        name_without_prefix = table_name[len(prefix):]
+                        parts = name_without_prefix.split('_')
+                        
+                        if not parts or not parts[0].isdigit():
+                            continue
+                        
+                        date_str = parts[0]  # YYYYMMDD
+                        if len(date_str) != 8:
+                            continue
+                        
+                        # 解析日期
+                        table_date = datetime.datetime.strptime(date_str, '%Y%m%d')
+                        
+                        # 如果表的日期早于保留期限，删除该表
+                        if table_date < cutoff_date:
+                            cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
+                            deleted_count += 1
+                            logger.info(f"删除过期日志表: {table_name} (日期: {date_str})")
+                            
+                    except (ValueError, IndexError) as e:
+                        continue
+                
+                connection.commit()
+                
+                if deleted_count > 0:
+                    logger.info(f"✅ 自动清理完成: 删除了 {deleted_count} 个超过 {retention_days} 天的日志表")
+                else:
+                    logger.info(f"✅ 自动清理完成: 没有需要删除的过期日志表（保留期限: {retention_days} 天）")
+                    
+        except Exception as e:
+            logger.error(f"❌ 清理过期日志表失败: {e}")
+    
     def _save_logs_to_db(self):
         for log_type in LOG_TYPES:
             self._save_log_type_to_db(log_type)
@@ -538,6 +638,8 @@ class LogDatabaseManager:
         self._save_id_cache_to_db()
         if hasattr(self, '_save_thread') and self._save_thread.is_alive():
             self._save_thread.join(timeout=5)
+        if hasattr(self, '_cleanup_thread') and self._cleanup_thread.is_alive():
+            self._cleanup_thread.join(timeout=2)
 
 log_db_manager = LogDatabaseManager() if MERGED_LOG_CONFIG['enabled'] else None
 
@@ -624,4 +726,11 @@ def cleanup_yesterday_ids():
         return False
     log_db_manager._cleanup_yesterday_ids()
     logger.info("昨日ID记录清理完成")
+    return True
+
+def cleanup_expired_log_tables():
+    """手动清理过期的日志表"""
+    if not log_db_manager:
+        return False
+    log_db_manager._cleanup_expired_tables()
     return True

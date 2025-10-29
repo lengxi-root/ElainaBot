@@ -22,7 +22,7 @@ def setup_asyncio_policy():
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 setup_asyncio_policy()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ElainaBot.function.ws_client')
 
 class WSOpCode:
     DISPATCH = 0

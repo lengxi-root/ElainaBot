@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, Union
 from contextlib import asynccontextmanager, contextmanager
 from urllib.parse import urlparse
 
-logger = logging.getLogger("httpx_pool")
+logger = logging.getLogger("ElainaBot.function.httpx_pool")
 logger.setLevel(logging.INFO)
 httpx_logger = logging.getLogger("httpx")
 httpx_logger.setLevel(logging.WARNING)

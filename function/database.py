@@ -4,7 +4,7 @@ from function.db_pool import ConnectionManager, DatabaseService
 from function.httpx_pool import get_json
 from config import DB_CONFIG, appid
 
-logger = logging.getLogger('database')
+logger = logging.getLogger('ElainaBot.function.database')
 
 class Database:
     _instance = None

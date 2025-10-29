@@ -17,7 +17,7 @@ try:
 except:
     _plugin_manager_available = False
 
-logger = logging.getLogger('dau_analytics')
+logger = logging.getLogger('ElainaBot.function.dau_analytics')
 
 BATCH_SIZE = 1000
 MAX_WORKERS = 4

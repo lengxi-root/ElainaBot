@@ -8,8 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from config import LOG_DB_CONFIG, DB_CONFIG
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger('log_db')
+# 移除 basicConfig 调用，使用框架统一的日志配置
+logger = logging.getLogger('ElainaBot.function.log_db')
 
 def decimal_converter(obj):
     if isinstance(obj, Decimal):

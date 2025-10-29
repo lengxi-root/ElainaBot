@@ -7,6 +7,9 @@ from config import LOG_DB_CONFIG, WEB_SECURITY, WEB_INTERFACE, ROBOT_QQ, appid, 
 from function.log_db import add_log_to_db, add_sent_message_to_db
 from core.event.MessageEvent import MessageEvent
 
+# 创建 Web 模块 logger
+logger = logging.getLogger('ElainaBot.web')
+
 try:
     from web.tools import (
         session_manager,
@@ -354,7 +357,7 @@ def handle_plugin_api(api_path):
     except Exception as e:
         error_trace = traceback.format_exc()
         add_error_log(f"插件API处理失败: {full_api_path}", error_trace)
-        logging.error(f"插件API错误: {str(e)}\n{error_trace}")
+        logger.error(f"插件API错误: {str(e)}\n{error_trace}")
         return jsonify({'success': False, 'message': f'处理请求失败: {str(e)}'}), 500
 
 @web.route('/api/logs/<log_type>')

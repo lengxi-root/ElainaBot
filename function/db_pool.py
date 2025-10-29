@@ -6,8 +6,8 @@ from pymysql.cursors import DictCursor
 from config import DB_CONFIG
 import concurrent.futures
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger('db_pool')
+# 移除 basicConfig 调用，使用框架统一的日志配置
+logger = logging.getLogger('ElainaBot.function.db_pool')
 
 try:
     from web.app import add_framework_log

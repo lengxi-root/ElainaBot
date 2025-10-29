@@ -23,7 +23,7 @@ from web.app import add_plugin_log, add_framework_log, add_error_log
 from function.log_db import add_log_to_db
 
 # 获取日志记录器
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger('ElainaBot.core.PluginManager')
 
 # 模块初始化时缓存配置状态
 _maintenance_mode_enabled = MAINTENANCE_MODE

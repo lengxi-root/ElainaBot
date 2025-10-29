@@ -112,6 +112,9 @@ from function.httpx_pool import get_pool_manager
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# 创建主框架 logger
+logger = logging.getLogger('ElainaBot')
+
 try:
     from web.app import start_web, add_framework_log, add_error_log
     _web_available = True
@@ -142,7 +145,7 @@ _plugins_preloaded = False
 _message_executor = None
 
 def log_error(error_msg, tb_str=None):
-    logging.error(f"{error_msg}\n{tb_str or traceback.format_exc()}")
+    logger.error(f"{error_msg}\n{tb_str or traceback.format_exc()}")
     add_error_log(error_msg, tb_str or traceback.format_exc())
 
 def cleanup_gc():
@@ -176,7 +179,7 @@ def stop_web_process():
         _web_process.join(timeout=5)
 
 def log_to_console(message):
-    logging.info(message)
+    logger.info(message)
     add_framework_log(message)
 
 
@@ -199,6 +202,10 @@ def setup_logging():
         logger.propagate = False
     _logging_initialized = True
     log_to_console("日志系统初始化成功")
+    
+    # 测试logger输出
+    test_logger = logging.getLogger('test_logger')
+    test_logger.info("✅ Logger测试：控制台输出正常")
 
 sys.excepthook = lambda exctype, value, tb: log_error(f"{exctype.__name__}: {value}", "".join(traceback.format_tb(tb)))
 
@@ -410,16 +417,16 @@ def start_main_process():
     from eventlet import wsgi
     host = SERVER_CONFIG.get('host', '0.0.0.0')
     port = SERVER_CONFIG.get('port', 5001)
-    logging.info(f"🚀 主框架启动成功！")
-    logging.info(f"📡 主服务器地址: {host}:{port}")
+    logger.info(f"🚀 主框架启动成功！")
+    logger.info(f"📡 主服务器地址: {host}:{port}")
     if _web_available and not SERVER_CONFIG.get('web_dual_process', False):
         web_token = WEB_SECURITY.get('access_token', '')
         display_host = 'localhost' if host == '0.0.0.0' else host
         web_url = f"http://{display_host}:{port}/web/"
         if web_token:
             web_url += f"?token={web_token}"
-        logging.info(f"🌐 Web管理面板: {web_url}")
-    logging.info(f"⚡ 系统就绪，等待消息处理...")
+        logger.info(f"🌐 Web管理面板: {web_url}")
+    logger.info(f"⚡ 系统就绪，等待消息处理...")
     wsgi.server(eventlet.listen((host, port)), app, log=None, log_output=False, keepalive=True, socket_timeout=30)
 
 if __name__ == "__main__":

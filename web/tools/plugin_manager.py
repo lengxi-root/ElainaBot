@@ -2,6 +2,9 @@ import os, re, logging, traceback, importlib.util
 from datetime import datetime
 from flask import request, jsonify
 
+# 创建插件管理器 logger
+logger = logging.getLogger('ElainaBot.plugin_manager')
+
 plugins_info = []
 
 def get_plugins_dir():
@@ -60,7 +63,7 @@ def process_plugin_module(module, plugin_path, module_name, is_system=False, dir
                                 'priority': web_route_info.get('priority', 100)
                             }
                     except Exception as e:
-                        logging.warning(f"获取插件 {attr_name} 的web路由信息失败: {str(e)}")
+                        logger.warning(f"获取插件 {attr_name} 的web路由信息失败: {str(e)}")
             except Exception as e:
                 plugin_info.update({
                     'status': 'error',

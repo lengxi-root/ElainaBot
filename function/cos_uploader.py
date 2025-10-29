@@ -17,7 +17,7 @@ except:
 
 import config
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ElainaBot.function.cos_uploader')
 
 
 class COSUploader:

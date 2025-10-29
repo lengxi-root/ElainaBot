@@ -491,38 +491,7 @@ class robot_data_plugin(Plugin):
         user_id = event.user_id
         current_time = time.time()
         
-        if user_id == SPECIAL_USER_ID:
-            ensure_user_data_loaded()
-            
-            if user_id in _user_data:
-                login_data = _user_data[user_id]
-                
-                if login_data.get('type') == 'ok':
-                    if robot_data_plugin._verify_credentials(login_data):
-                        app_type = login_data.get('appType')
-                        app_type_str = '小程序' if app_type == '0' else '机器人' if app_type == '2' else '未知'
-                        content = f"[{login_data.get('uin')}]\n管理员登录成功\n\n>登录类型：{app_type_str}\nAppId：{login_data.get('appId')}\n切换+appid可以切换机器人"
-                        if USE_MARKDOWN:
-                            buttons = event.button([
-                                event.rows([
-                                    {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
-                                    {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
-                                    {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
-                                    {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
-                                ])
-                            ])
-                            event.reply(content, buttons)
-                        else:
-                            event.reply(content)
-                        _last_login_success[user_id] = time.time()
-                        return
-                    else:
-                        event.reply("管理员凭证已失效，正在重新获取登录二维码...")
-                else:
-                    event.reply("管理员数据无效，正在获取登录二维码...")
-            else:
-                event.reply("管理员数据未找到，正在获取登录二维码...")
-        
+        # 删除管理员特殊验证，所有用户都可以直接重新登录
         if user_id in _last_login_success and current_time - _last_login_success[user_id] < 20:
             return
         if user_id in _login_tasks and time.time() - _login_tasks[user_id][0] < 15:

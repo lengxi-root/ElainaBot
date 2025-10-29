@@ -4,7 +4,7 @@ import json
 import logging
 import time
 import datetime
-from config import LOG_DB_CONFIG, USE_MARKDOWN, OWNER_IDS
+from config import LOG_DB_CONFIG, USE_MARKDOWN, OWNER_IDS, SERVER_CONFIG, ROBOT_QQ, appid, WEB_INTERFACE
 import traceback
 from function.httpx_pool import sync_get, get_json
 from function.database import Database
@@ -16,6 +16,7 @@ import re
 
 from function.log_db import LogDatabasePool
 from core.plugin.PluginManager import PluginManager
+from web.tools.bot_restart import execute_bot_restart
 
 logger = logging.getLogger('user_stats')
 
@@ -739,8 +740,19 @@ class system_plugin(Plugin):
         kernel_count = len(PluginManager._plugins)
         function_count = len(PluginManager._regex_handlers)
         python_version = platform.python_version()
+        framework_name = WEB_INTERFACE.get('framework_name', 'Elaina')
+        
+        # 获取内核版本号
+        try:
+            from function.updater import get_updater
+            version_info = get_updater().get_version_info()
+            kernel_version = version_info.get('version', 'unknown')
+            if kernel_version == 'unknown':
+                kernel_version = '0.0'
+        except:
+            kernel_version = '0.0'
             
-        msg = f'<@{event.user_id}>关于伊蕾娜\n___\n🔌 连接方式: WebHook\n🤖 机器人QQ: 3889045760\n🆔 机器人appid: 102134274\n🚀 内核版本：Elaina 1.2.3\n🏗️ 连接Bot框架: Elaina-Mbot\n⚙️ Python版本: {python_version}\n💫 已加载内核数: {kernel_count}\n⚡ 已加载处理器数: {function_count}\n\n\n>Tip:只有艾特伊蕾娜，伊蕾娜才能接收到你的消息~！'
+        msg = f'<@{event.user_id}>关于{framework_name}\n___\n🔌 连接方式: WebHook\n🤖 机器人QQ: {ROBOT_QQ}\n🆔 机器人appid: {appid}\n🚀 内核版本：{framework_name} {kernel_version}\n🏗️ 连接Bot框架: {framework_name}-Mbot\n⚙️ Python版本: {python_version}\n💫 已加载内核数: {kernel_count}\n⚡ 已加载处理器数: {function_count}\n\n\n>Tip:只有艾特{framework_name}，{framework_name}才能接收到你的消息~！'
         if USE_MARKDOWN:
             button_configs = [[
                 {'text': '菜单', 'data': '/菜单'},
@@ -753,8 +765,6 @@ class system_plugin(Plugin):
     
     @staticmethod
     def restart_bot(event):
-        from web.app import execute_bot_restart
-        from config import SERVER_CONFIG
         import threading
         
         restart_status = {
@@ -765,12 +775,9 @@ class system_plugin(Plugin):
             'group_id': event.group_id if hasattr(event, 'is_group') and event.is_group else 'c2c'
         }
         
-        is_dual_process = SERVER_CONFIG.get('web_dual_process', False)
-        restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
-        event.reply(f'🔄 正在重启机器人... ({restart_mode})\n⏱️ 预计重启时间: 1秒')
+        event.reply('🔄 正在重启...')
         
         def do_restart():
-            import time
             time.sleep(0.5)
             try:
                 execute_bot_restart(restart_status)

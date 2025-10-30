@@ -204,13 +204,17 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
             where_condition, params = (("(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)", (chat_id, chat_id))
                 if chat_type == 'group' else ("(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')", (chat_id, chat_id)))
             
-            # 获取消息记录
+            # 获取最新的100条消息（从后往前取，然后按时间正序排列）
             sql = f"""
                 SELECT user_id, group_id, content, timestamp
-                FROM {table_name}
-                WHERE {where_condition}
+                FROM (
+                    SELECT user_id, group_id, content, timestamp
+                    FROM {table_name}
+                    WHERE {where_condition}
+                    ORDER BY timestamp DESC
+                    LIMIT 100
+                ) AS recent_messages
                 ORDER BY timestamp ASC
-                LIMIT 100
             """
             cursor.execute(sql, params)
             messages = cursor.fetchall()
@@ -219,9 +223,11 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
             for msg in messages:
                 is_self_message = (chat_type == 'group' and msg['user_id'] == 'ZFC2G') or (chat_type == 'user' and msg['group_id'] == 'ZFC2C')
                 display_user_id = '机器人' if is_self_message else msg['user_id']
+                
                 message_list.append({'user_id': display_user_id, 'content': msg['content'],
                     'timestamp': msg['timestamp'].strftime('%H:%M:%S') if msg['timestamp'] else '',
-                    'avatar': get_chat_avatar('robot' if is_self_message else msg['user_id'], 'user', appid), 'is_self': is_self_message})
+                    'avatar': get_chat_avatar('robot' if is_self_message else msg['user_id'], 'user', appid), 
+                    'is_self': is_self_message})
             
             return jsonify({'success': True, 'data': {'messages': message_list,
                 'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type, appid)}}})

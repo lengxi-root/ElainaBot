@@ -102,6 +102,23 @@ class MessageEvent:
     def _parse_group_message(self):
         self.message_type = self.GROUP_MESSAGE
         self.content = self.sanitize_content(self.get('d/content'))
+        
+        # 处理图片附件，将解码后的URL追加到content
+        attachments = self.get('d/attachments')
+        if attachments and isinstance(attachments, list):
+            for att in attachments:
+                if att.get('content_type', '').startswith('image/'):
+                    import html
+                    url = att.get('url', '')
+                    # 解码URL中的特殊字符
+                    url = html.unescape(url)
+                    # 格式：文本<图片链接> 或 <图片链接>
+                    if self.content:
+                        self.content += f"<{url}>"
+                    else:
+                        self.content = f"<{url}>"
+                    break  # 只处理第一张图片
+        
         self.user_id = self.get('d/author/id')
         self.group_id = self.get('d/group_id')
         self.channel_id = self.guild_id = None
@@ -111,6 +128,23 @@ class MessageEvent:
     def _parse_direct_message(self):
         self.message_type = self.DIRECT_MESSAGE
         self.content = self.sanitize_content(self.get('d/content'))
+        
+        # 处理图片附件，将解码后的URL追加到content
+        attachments = self.get('d/attachments')
+        if attachments and isinstance(attachments, list):
+            for att in attachments:
+                if att.get('content_type', '').startswith('image/'):
+                    import html
+                    url = att.get('url', '')
+                    # 解码URL中的特殊字符
+                    url = html.unescape(url)
+                    # 格式：文本<图片链接> 或 <图片链接>
+                    if self.content:
+                        self.content += f"<{url}>"
+                    else:
+                        self.content = f"<{url}>"
+                    break  # 只处理第一张图片
+        
         self.user_id = self.get('d/author/id')
         self.group_id = self.channel_id = self.guild_id = None
         self.is_group = False

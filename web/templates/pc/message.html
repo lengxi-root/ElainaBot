@@ -1,12 +1,12 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
-<div class="container-fluid mt-4">
-    <div class="row">
+<div class="container-fluid" style="height: calc(100vh - 60px); padding-top: 1rem;">
+    <div class="row h-100">
         <!-- 左侧：聊天列表 -->
-        <div class="chat-list-col">
-            <div class="card h-100">
-                <div class="card-header">
+        <div class="chat-list-col h-100">
+            <div class="card h-100 d-flex flex-column">
+                <div class="card-header flex-shrink-0">
                     <div class="d-flex align-items-center chat-list-header">
                         <i class="bi bi-people me-2"></i>
                         <div class="btn-group btn-group-sm chat-type-buttons me-1" role="group">
@@ -20,9 +20,9 @@
                         <span id="chat-list-title">列表</span>
                     </div>
                 </div>
-                <div class="card-body p-0">
+                <div class="card-body p-0 flex-grow-1 d-flex flex-column">
                     <!-- 搜索框 -->
-                    <div class="p-3 border-bottom">
+                    <div class="p-3 border-bottom flex-shrink-0">
                         <div class="input-group">
                             <span class="input-group-text">
                                 <i class="bi bi-search"></i>
@@ -35,7 +35,7 @@
                     </div>
                     
                     <!-- 聊天列表 -->
-                    <div id="chat-list" class="list-group list-group-flush" style="height: 500px; overflow-y: auto;">
+                    <div id="chat-list" class="list-group list-group-flush flex-grow-1" style="overflow-y: auto;">
                         <div class="text-center p-3">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">加载中...</span>
@@ -49,9 +49,9 @@
         </div>
         
         <!-- 右侧：聊天窗口 -->
-        <div class="chat-window-col">
-            <div class="card h-100">
-                <div class="card-header" id="chat-header">
+        <div class="chat-window-col h-100">
+            <div class="card h-100 d-flex flex-column">
+                <div class="card-header flex-shrink-0" id="chat-header">
                     <div class="d-flex align-items-center">
                         <div id="current-chat-avatar" class="me-3">
                             <i class="bi bi-chat-square-dots text-muted" style="font-size: 2rem;"></i>
@@ -64,8 +64,8 @@
                 </div>
                 
                 <!-- 聊天记录区域 -->
-                <div class="card-body p-0 d-flex flex-column" style="height: 400px;">
-                    <div id="message-area" class="flex-grow-1 p-3" style="overflow-y: auto; background-color: #f8f9fa;">
+                <div class="card-body p-0 d-flex flex-column flex-grow-1" style="min-height: 0;">
+                    <div id="message-area" class="flex-grow-1 p-3" style="overflow-y: auto; background-color: #f8f9fa; min-height: 0;">
                         <div class="text-center text-muted">
                             <i class="bi bi-chat-text" style="font-size: 3rem;"></i>
                             <p class="mt-2">选择聊天对象开始对话</p>
@@ -73,7 +73,7 @@
                     </div>
                     
                     <!-- 发送消息区域 -->
-                    <div class="border-top p-3" id="send-area" style="display: none;">
+                    <div class="border-top p-3 flex-shrink-0" id="send-area" style="display: none; max-height: 40vh; overflow-y: auto;">
                         <!-- 发送方法选择 -->
                         <div class="row g-2 mb-2 align-items-center">
                             <div class="col-auto">
@@ -261,6 +261,7 @@
         max-width: 100%;
         padding-right: 10px;
         padding-left: 10px;
+        height: 50vh !important;
     }
     .chat-window-col {
         flex: 0 0 100%;
@@ -268,6 +269,7 @@
         padding-right: 10px;
         padding-left: 10px;
         margin-top: 15px;
+        height: 50vh !important;
     }
     
     /* 优化聊天列表 */
@@ -359,6 +361,18 @@
 .message-bubble.other .message-content {
     background-color: #e9ecef;
     color: #333;
+}
+
+/* 图片样式 */
+.message-content img {
+    display: block;
+    margin-top: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+.message-content img:hover {
+    transform: scale(1.02);
 }
 
 .chat-avatar {
@@ -966,9 +980,45 @@ function renderChatHistory(messages) {
     const html = messages.map(msg => {
         const isSelf = msg.is_self;
         const avatarHtml = getAvatarHtml(isSelf, msg.user_id, msg.avatar);
+        const timeHtml = `<span class="small text-muted ms-2">${formatTimeWithoutYear(msg.timestamp)}</span>`;
         const nicknameHtml = !isSelf && currentChatType === 'group' 
-            ? `<div class="small text-primary mb-1" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</div>` 
-            : '';
+            ? `<div class="small mb-1"><span class="text-primary" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</span>${timeHtml}</div>` 
+            : `<div class="small text-muted mb-1">${timeHtml}</div>`;
+        
+        // 解析content中的图片链接（格式：文本<图片URL>）
+        let textContent = msg.content || '';
+        let imagesHtml = '';
+        
+        // 使用正则提取<URL>格式的图片链接
+        const imageUrlRegex = /<(https?:\/\/[^>]+)>/g;
+        const imageUrls = [];
+        let match;
+        
+        while ((match = imageUrlRegex.exec(textContent)) !== null) {
+            imageUrls.push(match[1]);
+        }
+        
+        // 从文本中移除<URL>标记
+        textContent = textContent.replace(imageUrlRegex, '').trim();
+        
+        // 生成图片HTML
+        if (imageUrls.length > 0) {
+            const maxWidth = 300;
+            const maxHeight = 400;
+            
+            imagesHtml = imageUrls.map(url => {
+                return `<img src="${url}" 
+                    referrerpolicy="no-referrer"
+                    style="max-width: ${maxWidth}px; max-height: ${maxHeight}px; border-radius: 8px; margin-top: 8px; cursor: pointer; display: block;" 
+                    onclick="window.open('${url}', '_blank')"
+                    onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+                    title="图片"
+                    alt="图片">
+                    <div style="display: none; padding: 10px; background: #f0f0f0; border-radius: 8px; margin-top: 8px;">
+                        <i class="bi bi-image"></i> 图片加载失败
+                    </div>`;
+            }).join('');
+        }
         
         return `
             <div class="message-bubble ${isSelf ? 'self' : 'other'}">
@@ -976,8 +1026,8 @@ function renderChatHistory(messages) {
                     ${!isSelf ? avatarHtml : ''}
                     <div class="message-content">
                         ${nicknameHtml}
-                        ${msg.content}
-                        <div class="small text-muted mt-1">${formatTimeWithoutYear(msg.timestamp)}</div>
+                        ${textContent}
+                        ${imagesHtml}
                     </div>
                     ${isSelf ? avatarHtml : ''}
                 </div>
@@ -1244,14 +1294,15 @@ function resetSendButtons() {
 const appendMessage = (content, isSelf, timestamp) => {
     const area = document.getElementById('message-area');
     const avatarHtml = isSelf ? getAvatarHtml(true, '', '') : `<div class="chat-avatar-placeholder me-2">U</div>`;
+    const timeHtml = `<span class="small text-muted ms-2">${formatTimeWithoutYear(timestamp)}</span>`;
     
     area.insertAdjacentHTML('beforeend', `
         <div class="message-bubble ${isSelf ? 'self' : 'other'}">
             <div class="d-flex ${isSelf ? 'justify-content-end' : ''}">
                 ${!isSelf ? avatarHtml : ''}
                 <div class="message-content">
+                    <div class="small text-muted mb-1">${timeHtml}</div>
                     ${content}
-                    <div class="small text-muted mt-1">${formatTimeWithoutYear(timestamp)}</div>
                 </div>
                 ${isSelf ? avatarHtml : ''}
             </div>

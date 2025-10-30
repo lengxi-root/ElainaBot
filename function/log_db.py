@@ -29,13 +29,12 @@ MERGED_LOG_CONFIG = {**DEFAULT_LOG_CONFIG, **LOG_DB_CONFIG}
 
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_INSERT_INTERVAL = 10
-LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'unmatched', 'dau', 'id']
+LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'dau', 'id']
 TABLE_SUFFIX = {
     'received': 'message',
     'plugin': 'plugin',
     'framework': 'framework',
     'error': 'error',
-    'unmatched': 'unmatched',
     'dau': 'dau',
     'id': 'id'
 }
@@ -233,7 +232,6 @@ class LogDatabaseManager:
     def _init_sql_templates(self):
         self._sql_templates = {
             'received': "INSERT INTO `{table_name}` (timestamp, user_id, group_id, content, raw_message) VALUES (%s, %s, %s, %s, %s)",
-            'unmatched': "INSERT INTO `{table_name}` (timestamp, user_id, group_id, content, raw_message) VALUES (%s, %s, %s, %s, %s)",
             'plugin': "INSERT INTO `{table_name}` (timestamp, user_id, group_id, plugin_name, content) VALUES (%s, %s, %s, %s, %s)",
             'error': "INSERT INTO `{table_name}` (timestamp, content, traceback, resp_obj, send_payload, raw_message) VALUES (%s, %s, %s, %s, %s, %s)",
             'dau': """
@@ -265,14 +263,13 @@ class LogDatabaseManager:
         
         self._field_extractors = {
             'received': lambda log: (log.get('timestamp'), log.get('user_id', '未知用户'), log.get('group_id', 'c2c'), log.get('content'), log.get('raw_message', '')),
-            'unmatched': lambda log: (log.get('timestamp'), log.get('user_id', '未知用户'), log.get('group_id', 'c2c'), log.get('content'), log.get('raw_message', '')),
             'plugin': lambda log: (log.get('timestamp'), log.get('user_id', ''), log.get('group_id', 'c2c'), log.get('plugin_name', ''), log.get('content', '')),
             'error': lambda log: (log.get('timestamp'), log.get('content'), log.get('traceback', ''), log.get('resp_obj', ''), log.get('send_payload', ''), log.get('raw_message', '')),
             'id': lambda log: (log.get('chat_type'), log.get('chat_id'), log.get('last_message_id')),
             'default': lambda log: (log.get('timestamp'), log.get('content'))
         }
         
-        self._batch_optimized_types = {'received', 'unmatched', 'plugin', 'error', 'id', 'default'}
+        self._batch_optimized_types = {'received', 'plugin', 'error', 'id', 'default'}
 
     def _extract_log_data_optimized(self, log_type, logs):
         if log_type == 'dau':
@@ -343,7 +340,6 @@ class LogDatabaseManager:
         
         return {
             'received': {'base': 'standard', 'fields': message_fields, 'end': 'standard'},
-            'unmatched': {'base': 'standard', 'fields': message_fields, 'end': 'standard'},
             'plugin': {
                 'base': 'standard',
                 'fields': "`user_id` varchar(255) NOT NULL, `group_id` varchar(255) DEFAULT 'c2c', `plugin_name` varchar(255) DEFAULT '', `content` text NOT NULL,",
@@ -406,10 +402,7 @@ class LogDatabaseManager:
                 cursor.execute(create_table_sql)
                 if log_type not in ('dau', 'id'):
                     cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
-                if log_type == 'unmatched':
-                    cursor.execute(f"CREATE INDEX idx_{table_name}_user ON {table_name} (user_id)")
-                    cursor.execute(f"CREATE INDEX idx_{table_name}_group ON {table_name} (group_id)")
-                elif log_type == 'plugin':
+                if log_type == 'plugin':
                     cursor.execute(f"CREATE INDEX idx_{table_name}_user ON {table_name} (user_id)")
                     cursor.execute(f"CREATE INDEX idx_{table_name}_group ON {table_name} (group_id)")
                     cursor.execute(f"CREATE INDEX idx_{table_name}_plugin ON {table_name} (plugin_name)")
@@ -572,7 +565,7 @@ class LogDatabaseManager:
                 f.write(f"\n--- {self._format_timestamp()} ---\n")
                 for log in logs:
                     f.write(f"[{log.get('timestamp', '')}] {log.get('content', '')}\n")
-                    if log_type in ('received', 'unmatched'):
+                    if log_type == 'received':
                         f.write(f"用户ID: {log.get('user_id', '未知用户')}, 群聊ID: {log.get('group_id', 'c2c')}\n")
                         if log.get('raw_message'):
                             f.write(f"原始消息: {log['raw_message']}\n")

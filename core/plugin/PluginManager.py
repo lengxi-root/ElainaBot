@@ -969,8 +969,6 @@ class PluginManager:
             if not should_exclude:
                 cls.send_default_response(event)
         
-        # 记录未匹配的消息
-        cls._log_unmatched_message(event, original_content)
         return False
 
     @classmethod
@@ -1209,39 +1207,6 @@ class PluginManager:
     def send_default_response(cls, event):
         """发送默认回复"""
         MessageTemplate.send(event, MSG_TYPE_DEFAULT)
-    
-    @classmethod
-    def _log_unmatched_message(cls, event, original_content):
-        """记录未匹配的消息到数据库"""
-        try:
-            import datetime
-            
-            # 获取群聊ID
-            group_id = 'c2c'
-            if hasattr(event, 'group_id') and event.group_id:
-                group_id = str(event.group_id)
-            elif cls._is_group_chat(event):
-                if hasattr(event, 'get'):
-                    group_id = event.get('d/group_openid') or event.get('d/guild_id') or 'unknown_group'
-                else:
-                    group_id = 'unknown_group'
-            
-            # 构建日志数据
-            log_data = {
-                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'user_id': str(event.user_id) if hasattr(event, 'user_id') and event.user_id else '未知用户',
-                'group_id': group_id,
-                'content': (original_content if original_content else event.content)[:5000] if hasattr(event, 'content') else '',
-                'raw_message': json.dumps({
-                    attr: getattr(event, attr) for attr in ['message_id', 'user_id', 'group_id', 'content', 'message_type', 'event_type']
-                    if hasattr(event, attr)
-                }, ensure_ascii=False, default=str)[:10000]
-            }
-            
-            add_log_to_db('unmatched', log_data)
-
-        except Exception as e:
-            _log_error(f"记录未匹配消息时出错: {str(e)}", traceback.format_exc())
     
     # === Web路由管理 ===
     @classmethod

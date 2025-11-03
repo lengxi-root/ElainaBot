@@ -412,6 +412,109 @@ class MessageEvent:
     def reply_md(self, template, params=None, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
         return self.reply_markdown(template, params, keyboard_id, hide_avatar_and_center, auto_delete_time)
 
+    def reply_markdown_aj(self, text, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
+        """
+        使用 AJ 模板发送 Markdown 消息（自动分割语法到不同参数）
+        """
+        from config import MARKDOWN_AJ_TEMPLATE
+        import uuid
+        
+        # 检查发送条件
+        if not self._check_send_conditions():
+            return None
+        
+        # 替换换行符和 @ 符号（QQ Markdown 兼容）
+        text = text.replace('\n', '\r').replace('@', '@​')  
+        
+        # 分割 Markdown 文本（与 qqbot-yz 逻辑完全一致）
+        rand = str(uuid.uuid4())
+        regex_list = [
+            r'(!?\[.*?\])(\s*\(.*?\))',  # 图片/链接
+            r'(\[.*?\])(\[.*?\])',        # 引用样式链接
+            r'(\*)([^*]+?\*)',            # 粗体
+            r'(`)([^`]+?`)',              # 代码
+            r'(_)([^_]*?_)',              # 斜体
+            r'(~)(~)',                    # 删除线
+            r'^(#)',                      # 标题
+            r'(``)(`)' ,                  # 代码块
+        ]
+        
+        for pattern in regex_list:
+            def replacer(match):
+                groups = match.groups()
+                return rand.join(groups)
+            text = re.sub(pattern, replacer, text)
+        
+        parts = text.split(rand)
+        if not parts:
+            parts = [text]
+        
+        # 准备模板参数
+        keys = MARKDOWN_AJ_TEMPLATE['keys']
+        if ',' in keys:
+            keys_list = [k.strip() for k in keys.split(',')]
+        else:
+            keys_list = list(keys)
+        
+        params = []
+        for i, part in enumerate(parts):
+            if i >= len(keys_list):
+                break
+            params.append({
+                "key": keys_list[i],
+                "values": [part]
+            })
+        
+        # 填充剩余参数
+        for i in range(len(params), len(keys_list)):
+            params.append({
+                "key": keys_list[i],
+                "values": ["\u200B"]
+            })
+        
+        # 使用全局配置
+        if hide_avatar_and_center is None:
+            hide_avatar_and_center = HIDE_AVATAR_GLOBAL
+        
+        # 构建 payload
+        payload = {
+            "msg_type": 2,
+            "msg_seq": random.randint(10000, 999999),
+            "markdown": {
+                "custom_template_id": MARKDOWN_AJ_TEMPLATE['template_id'],
+                "params": params
+            }
+        }
+        
+        if hide_avatar_and_center:
+            if 'style' not in payload['markdown']:
+                payload['markdown']['style'] = {}
+            payload['markdown']['style']['layout'] = 'hide_avatar_and_center'
+        
+        if keyboard_id:
+            payload["keyboard"] = {"id": str(keyboard_id)}
+        
+        # 设置消息 ID
+        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
+            payload["msg_id"] = self.message_id
+        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
+            payload["event_id"] = self.get('id') or ""
+        elif self.message_type == self.CHANNEL_MESSAGE:
+            payload["msg_id"] = self.message_id
+        
+        # 获取 endpoint
+        endpoint = self._get_endpoint()
+        
+        # 处理特殊事件类型
+        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
+            event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
+            payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
+        
+        # 发送消息
+        message_id = self._send_with_error_handling(payload, endpoint, "markdown AJ模板消息", f"text: {text[:50]}...")
+        self._handle_auto_recall(message_id, auto_delete_time)
+        return message_id
+
     def _get_endpoint(self, action='reply'):
         cache_key = (self.message_type, action, self.is_private)
         if cache_key in self._endpoint_cache:

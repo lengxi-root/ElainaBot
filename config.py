@@ -22,6 +22,11 @@ ENABLE_NEW_USER_WELCOME = False                   # 是否启用新用户首次�
 ENABLE_FRIEND_ADD_MESSAGE = False                 # 是否启用添加好友自动发送消息功能
 SAVE_RAW_MESSAGE_TO_DB = False                   # 是否将消息的原始内容存储到数据库中
 
+# Markdown AJ万能模板配置 - 没有万能模板请留空
+MARKDOWN_AJ_TEMPLATE = {
+    'template_id': "1",  # AJ 模板 ID
+    'keys': "a,b,c,d,e,f,g,h,i,j",  # 模板参数键名，使用逗号分割
+}
 # 服务器配置 - HTTP服务相关设置
 SERVER_CONFIG = {
     'host': '0.0.0.0',                          # HTTP服务监听地址，0.0.0.0表示监听所有接口

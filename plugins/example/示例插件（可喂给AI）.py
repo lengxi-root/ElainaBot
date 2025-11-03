@@ -16,42 +16,44 @@ class media_plugin(Plugin):
     @staticmethod
     def get_regex_handlers():
         return {
-            # 基础媒体发送示例（无需特殊权限）
-            r'^图片$': 'send_force_image',     # 使用reply_image方法
-            r'^语音$': 'send_voice',              # 使用reply_voice方法
-            r'^视频$': 'send_video',              # 使用reply_video方法
-            r'^图片尺寸$': 'get_image_dimensions',  # 获取图片尺寸
+            # 基础媒体发送示例（仅主人可用）
+            r'^图片$': {'handler': 'send_force_image', 'owner_only': True},
+            r'^语音$': {'handler': 'send_voice', 'owner_only': True},
+            r'^视频$': {'handler': 'send_video', 'owner_only': True},
+            r'^图片尺寸$': {'handler': 'get_image_dimensions', 'owner_only': True},
             
-            # 图床上传示例（无需特殊权限）
-            r'^cos上传$': 'upload_to_cos',  # 上传图片到腾讯云COS
-            r'^b站图床$': 'upload_to_bilibili',  # 上传图片到B站图床
-            r'^qq频道图床$': 'upload_to_qq',  # 上传图片到QQ频道图床
+            # 图床上传示例（仅主人可用）
+            r'^cos上传$': {'handler': 'upload_to_cos', 'owner_only': True},
+            r'^b站图床$': {'handler': 'upload_to_bilibili', 'owner_only': True},
+            r'^qq频道图床$': {'handler': 'upload_to_qq', 'owner_only': True},
             
-            # 消息撤回示例（无需特殊权限）
-            r'^撤回测试$': 'test_recall',  # 测试消息撤回
-            r'^自动撤回$': 'test_auto_recall',  # 测试自动撤回
+            # 消息撤回示例（仅主人可用）
+            r'^撤回测试$': {'handler': 'test_recall', 'owner_only': True},
+            r'^自动撤回$': {'handler': 'test_auto_recall', 'owner_only': True},
             
-            # 数据库操作示例（无需特殊权限）
-            r'^数据库测试$': 'test_database',  # 测试数据库操作
-            r'^数据库连接池$': 'test_db_pool',  # 测试数据库连接池
+            # 数据库操作示例（仅主人可用）
+            r'^数据库测试$': {'handler': 'test_database', 'owner_only': True},
+            r'^数据库连接池$': {'handler': 'test_db_pool', 'owner_only': True},
             
-            # 消息和调试信息（无需特殊权限）
-            r'^消息信息$': 'get_message_info',  # 获取消息详细信息
-            r'^原始数据$': 'get_raw_server_data',  # 获取原始服务器数据
+            # 消息和调试信息（仅主人可用）
+            r'^消息信息$': {'handler': 'get_message_info', 'owner_only': True},
+            r'^原始数据$': {'handler': 'get_raw_server_data', 'owner_only': True},
             
-            # HTTP连接池示例（无需特殊权限）
-            r'^http测试$': 'test_http_pool',  # 测试HTTP连接池
+            # HTTP连接池示例（仅主人可用）
+            r'^http测试$': {'handler': 'test_http_pool', 'owner_only': True},
 
             # dau为每日活跃用户数，具体进入QQ开发者平台查看
             # markdown模板被动权限要求金牌机器人（月均2000dau申请）
             # config中的USE_MARKDOWN=True为原生markdown，不再受模板显示，要求钻石机器人（月均10000dau申请）
-            r'^md图片$': 'send_advanced_image',  # Markdown模板图片（需要markdown权限）
-            r'^md模板$': 'send_markdown_template',  # Markdown模板（需要markdown权限）
-            r'^按钮测试$': 'test_buttons',  # 消息按钮（需要按钮权限）
+            r'^md图片$': {'handler': 'send_advanced_image', 'owner_only': True},
+            r'^md模板$': {'handler': 'send_markdown_template', 'owner_only': True},
+            r'^aj模板$': {'handler': 'test_markdown_aj', 'owner_only': True},
+            r'^按钮测试$': {'handler': 'test_buttons', 'owner_only': True},
+            
             # ark权限要求私域机器人或者公域银牌机器人（月均400dau申请）
-            r'^ark23$': 'send_ark23',  # ARK列表卡片
-            r'^ark24$': 'send_ark24',  # ARK信息卡片
-            r'^ark37$': 'send_ark37',  # ARK通知卡片
+            r'^ark23$': {'handler': 'send_ark23', 'owner_only': True},
+            r'^ark24$': {'handler': 'send_ark24', 'owner_only': True},
+            r'^ark37$': {'handler': 'send_ark37', 'owner_only': True},
         }
     #  请注意markdown需要被动
     @staticmethod
@@ -275,6 +277,14 @@ class media_plugin(Plugin):
         "102321943_1752737844"               # keyboard_id - 按钮模板ID
     )  # 参数：模板名称, (参数列表)
 
+    @staticmethod
+    def test_markdown_aj(event):
+        """测试 AJ 模板（自动分割 Markdown 语法）"""
+        # 示例：包含图片、文本复杂 Markdown
+        text = """![伊蕾娜 #30px #30px](https://gchat.qpic.cn/qmeetpic/0/0-0-52C851D5FB926BC645528EB4AB462B3D/0)ElainaBot 测试"""
+        
+        event.reply_markdown_aj(text)
+        
 
     @staticmethod
     def send_ark23(event):

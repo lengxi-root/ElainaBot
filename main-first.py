@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import eventlet
+eventlet.monkey_patch(all=True, thread=True, socket=True, select=True, time=True)
+import sys, os, time, shutil
 
 def check_python_version():
-    import sys
     required_version = (3, 9)
     current_version = sys.version_info[:2]
     if current_version < required_version:
@@ -12,7 +14,6 @@ def check_python_version():
     return True
 
 def check_dependencies():
-    import os, sys
     try:
         from importlib.metadata import version, PackageNotFoundError
     except ImportError:
@@ -79,10 +80,6 @@ def check_dependencies():
         return True
 
 def check_and_replace_config():
-    import os
-    import shutil
-    import time
-    
     base_dir = os.path.dirname(os.path.abspath(__file__))
     config_new_path = os.path.join(base_dir, 'web', 'config_new.py')
     config_path = os.path.join(base_dir, 'config.py')
@@ -99,10 +96,7 @@ check_python_version()
 check_and_replace_config()
 check_dependencies()
 
-import eventlet
-eventlet.monkey_patch()
-
-import sys, os, time, json, gc, threading, logging, traceback, random, warnings, signal, multiprocessing
+import json, gc, threading, logging, traceback, random, warnings, signal, multiprocessing
 from multiprocessing import Process, Event
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
@@ -235,7 +229,15 @@ def create_app():
             if _message_executor is None:
                 from concurrent.futures import ThreadPoolExecutor
                 _message_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="MsgHandler")
-            _message_executor.submit(process_message_event, data.decode())
+            http_ctx = {
+                'path': request.path,
+                'method': request.method,
+                'url': request.url,
+                'remote_addr': request.remote_addr,
+                'headers': dict(request.headers)
+            }
+            
+            _message_executor.submit(process_message_event, data.decode(), http_ctx)
             return "OK"
         elif op == 13:
             from function.sign import Signs
@@ -245,7 +247,7 @@ def create_app():
     log_to_console("Flask应用创建成功")
     return flask_app
 
-def process_message_event(data):
+def process_message_event(data, http_context=None):
     if not data:
         return False
     
@@ -257,7 +259,7 @@ def process_message_event(data):
         from core.event.MessageEvent import MessageEvent
         from core.plugin.PluginManager import PluginManager
         
-        event = MessageEvent(data)
+        event = MessageEvent(data, http_context=http_context)
         if event.ignore:
             del event
             return False
@@ -309,8 +311,6 @@ async def create_websocket_client():
 
 def run_websocket_client():
     import asyncio
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
     for attempt in range(3):
         loop = None

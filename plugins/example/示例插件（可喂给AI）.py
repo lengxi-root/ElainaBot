@@ -34,18 +34,21 @@ class media_plugin(Plugin):
             # 数据库操作示例（无需特殊权限）
             r'^数据库测试$': 'test_database',  # 测试数据库操作
             r'^数据库连接池$': 'test_db_pool',  # 测试数据库连接池
+            
+            # 消息和调试信息（无需特殊权限）
             r'^消息信息$': 'get_message_info',  # 获取消息详细信息
+            r'^原始数据$': 'get_raw_server_data',  # 获取原始服务器数据
             
             # HTTP连接池示例（无需特殊权限）
             r'^http测试$': 'test_http_pool',  # 测试HTTP连接池
 
             # dau为每日活跃用户数，具体进入QQ开发者平台查看
-            # markdown模板要求金牌机器人（月均2000dau申请）
+            # markdown模板被动权限要求金牌机器人（月均2000dau申请）
             # config中的USE_MARKDOWN=True为原生markdown，不再受模板显示，要求钻石机器人（月均10000dau申请）
             r'^md图片$': 'send_advanced_image',  # Markdown模板图片（需要markdown权限）
             r'^md模板$': 'send_markdown_template',  # Markdown模板（需要markdown权限）
             r'^按钮测试$': 'test_buttons',  # 消息按钮（需要按钮权限）
-            # ark权限要求私域机器人或者银牌机器人（月均400dau申请）
+            # ark权限要求私域机器人或者公域银牌机器人（月均400dau申请）
             r'^ark23$': 'send_ark23',  # ARK列表卡片
             r'^ark24$': 'send_ark24',  # ARK信息卡片
             r'^ark37$': 'send_ark37',  # ARK通知卡片
@@ -344,11 +347,39 @@ class media_plugin(Plugin):
             if hasattr(event, 'scene'):
                 info_text += f"🎭 交互场景：{event.scene}\n"
         
-        info_text += "\n📄 原始消息数据（前500字符）：\n"
-        raw_data_str = json.dumps(event.raw_data, ensure_ascii=False, indent=2)
-        if len(raw_data_str) > 2000:
-            info_text += raw_data_str[:500] + "..."
-        else:
-            info_text += raw_data_str
-        
         event.reply(info_text)  # 参数：获取当前消息的详细信息
+
+    @staticmethod
+    def get_raw_server_data(event):
+        """获取原始服务器数据"""
+        msg = "原始服务器数据\n\n"
+        
+        # 关键请求头
+        msg += "关键请求头:\n"
+        msg += f"X-Bot-Appid: {event.get_header('X-Bot-Appid', '(未找到)')}\n"
+        msg += f"User-Agent: {event.get_header('User-Agent', '(未找到)')}\n"
+        msg += f"X-Signature-Timestamp: {event.get_header('X-Signature-Timestamp', '(未找到)')}\n\n"
+        
+        # 完整请求头（过滤敏感字段）
+        msg += "请求头:\n"
+        if event.request_headers:
+            safe = {}
+            hide = ['host', 'x-host', 'x-real-ip', 'remote-host', 
+                   'x-forwarded-for', 'x-forwarded-host', 'referer', 'origin', 'location']
+            
+            for k, v in event.request_headers.items():
+                safe[k] = "(已隐藏)" if k.lower() in hide else v
+            
+            msg += json.dumps(safe, ensure_ascii=False, indent=2)
+        else:
+            msg += "(无请求头)"
+        
+        # 原始事件数据
+        msg += "\n\n原始事件:\n"
+        if event.raw_data:
+            raw = event.raw_data if isinstance(event.raw_data, str) else json.dumps(event.raw_data, ensure_ascii=False, indent=2)
+            msg += raw
+        else:
+            msg += "(无数据)"
+        
+        event.reply(msg)

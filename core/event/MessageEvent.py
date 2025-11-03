@@ -67,7 +67,7 @@ class MessageEvent:
 
     _IGNORE_ERROR_CODES = [11293, 40054002, 40054003]
 
-    def __init__(self, data, skip_recording=False):
+    def __init__(self, data, skip_recording=False, http_context=None):
         self.is_private = self.is_group = False
         self.raw_data = data
         self.user_id = self.group_id = None
@@ -81,6 +81,8 @@ class MessageEvent:
         self.ignore = False
         self.skip_recording = skip_recording
         self._endpoint_cache = {}
+        self._capture_http_context(http_context)
+        
         self._parse_message()
     
     @property
@@ -89,6 +91,36 @@ class MessageEvent:
             from function.database import Database
             self._db = Database()
         return self._db
+
+    def _capture_http_context(self, http_context=None):
+        """捕获HTTP请求上下文信息"""
+        if http_context:
+            self.request_path = http_context.get('path')
+            self.request_method = http_context.get('method')
+            self.request_url = http_context.get('url')
+            self.request_remote_addr = http_context.get('remote_addr')
+            self.request_headers = http_context.get('headers', {})
+        else:
+            self.request_path = None
+            self.request_method = None
+            self.request_url = None
+            self.request_remote_addr = None
+            self.request_headers = {}
+    
+    def get_header(self, header_name, default=None):
+        """
+        获取指定的HTTP请求头值（不区分大小写）
+        x_appid = event.get_header('X-Bot-Appid')
+        """
+        if not self.request_headers:
+            return default
+        header_name_lower = header_name.lower()
+        
+        for key, value in self.request_headers.items():
+            if key.lower() == header_name_lower:
+                return value
+        
+        return default
 
     def _parse_message(self):
         if self.event_type in self._MESSAGE_TYPE_PARSERS:

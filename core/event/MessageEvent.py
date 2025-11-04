@@ -416,11 +416,7 @@ class MessageEvent:
         """分割 Markdown 文本到多个参数（AJ 模板专用）"""
         from config import MARKDOWN_AJ_TEMPLATE
         import uuid
-        
-        # QQ Markdown 兼容处理
-        text = text.replace('\n', '\r').replace('@', '@​')
-        
-        # 使用 UUID 作为临时分隔符，分割 Markdown 语法
+        text = text.replace('\n', '\r')
         delimiter = str(uuid.uuid4())
         patterns = [
             r'(!?\[.*?\])(\s*\(.*?\))',  # 图片/链接
@@ -428,8 +424,6 @@ class MessageEvent:
             r'(\*)([^*]+?\*)',            # 粗体
             r'(`)([^`]+?`)',              # 代码
             r'(_)([^_]*?_)',              # 斜体
-            r'(~)(~)',                    # 删除线
-            r'^(#)',                      # 标题
             r'(``)(`)',                   # 代码块
         ]
         

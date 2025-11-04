@@ -231,24 +231,39 @@ class media_plugin(Plugin):
     @staticmethod
     def test_http_pool(event):
         """测试HTTP连接池"""
+        results = []
+        
+        # 方式1：使用 sync_get 获取文本响应
         try:
-            # 方式1：使用 sync_get 获取响应
-            response = sync_get("https://api.gitee.com/zen")
-            zen_text = response.text
-            
-            # 方式2：使用 get_json 直接获取JSON
-            github_api = get_json("https://api.gitee.com")
-            
-            # 方式3：使用 get_binary_content 获取二进制内容
+            response = sync_get("https://v1.hitokoto.cn/?encode=text")
+            results.append(f"📝 一言：{response.text[:50]}...")
+        except Exception as e:
+            results.append(f"📝 文本请求：失败 ({str(e)[:30]})")
+        
+        # 方式2：使用 get_json 直接获取JSON
+        try:
+            json_data = get_json("https://v1.hitokoto.cn/?encode=json")
+            hitokoto = json_data.get('hitokoto', '未知')
+            results.append(f"📊 JSON请求：成功 (内容: {hitokoto[:20]}...)")
+        except Exception as e:
+            results.append(f"📊 JSON请求：失败 ({str(e)[:30]})")
+        
+        # 方式3：使用 get_binary_content 获取二进制内容
+        try:
             image_data = get_binary_content("https://i0.hdslb.com/bfs/openplatform/559162218f455ea859c783dceeda65cb1c724f4c.png")
             image_size = len(image_data) / 1024
-            
-            # 方式4：使用 sync_post 发送POST请求
-            post_response = sync_post("https://httpbin.org/post", json={"test": "data"})
-            
-            event.reply(f"🌐 HTTP连接池测试：\n📝 GitHub Zen：{zen_text}\n📊 API响应：{len(github_api)} 个端点\n🖼️ 图片大小：{image_size:.2f}KB\n✅ POST测试：{post_response.status_code}")
+            results.append(f"🖼️ 图片下载：成功 (大小: {image_size:.2f}KB)")
         except Exception as e:
-            event.reply(f"❌ HTTP连接池测试失败：{str(e)}")
+            results.append(f"🖼️ 图片下载：失败 ({str(e)[:30]})")
+        
+        # 方式4：使用 sync_post 发送POST请求
+        try:
+            post_response = sync_post("https://httpbin.org/post", json={"test": "ElainaBot"}, timeout=10)
+            results.append(f"✅ POST请求：成功 (状态码: {post_response.status_code})")
+        except Exception as e:
+            results.append(f"✅ POST请求：失败 ({str(e)[:30]})")
+        
+        event.reply(f"🌐 HTTP连接池测试结果：\n\n" + "\n".join(results))
 
     @staticmethod
     def send_markdown_template(event):

@@ -336,33 +336,27 @@ class MessageEvent:
         return message_id
 
     def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None, use_markdown=None):
-        if self.ignore or (getattr(self, 'handled', False) and not getattr(self, 'welcome_allowed', False)):
+        """发送回复消息（支持文本、按钮、媒体、Markdown）"""
+        if not self._check_send_conditions() or self.message_type not in self._MESSAGE_TYPE_TO_ENDPOINT:
             return None
-        if self.message_type not in self._MESSAGE_TYPE_TO_ENDPOINT:
-            return None
-        buttons = buttons or []
         media_payload = None
         if media:
             if isinstance(media, bytes):
                 file_info = self.upload_media(media, file_type=3)
-                if file_info:
-                    media_payload = {'type': 3, 'file_info': file_info}
+                media_payload = {'type': 3, 'file_info': file_info} if file_info else None
             elif isinstance(media, list) and media:
                 media_payload = media[0]
-        if hide_avatar_and_center is None:
-            hide_avatar_and_center = HIDE_AVATAR_GLOBAL
-        payload = self._build_message_payload(content, buttons, media_payload, hide_avatar_and_center, use_markdown)
-        endpoint = self._get_endpoint('reply')
-        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
-            if 'event_id' not in payload or not payload['event_id']:
-                event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
-                payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
-        message_id = self._send_with_error_handling(payload, endpoint, "消息", f"content: {content}")
-        if message_id and auto_delete_time and isinstance(auto_delete_time, (int, float)) and auto_delete_time > 0:
-            import threading
-            timer = threading.Timer(auto_delete_time, self.recall_message, args=[message_id])
-            timer.daemon = True
-            timer.start()
+        
+        # 构建并发送消息
+        hide_avatar_and_center = HIDE_AVATAR_GLOBAL if hide_avatar_and_center is None else hide_avatar_and_center
+        payload = self._build_message_payload(content, buttons or [], media_payload, hide_avatar_and_center, use_markdown)
+        
+        # 处理特殊事件类型
+        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD) and not payload.get('event_id'):
+            payload['event_id'] = self.get('id') or f"{'ROBOT_ADD' if self.message_type == self.GROUP_ADD_ROBOT else 'FRIEND_ADD'}_{int(time.time())}"
+        
+        message_id = self._send_with_error_handling(payload, self._get_endpoint('reply'), "消息", f"content: {content}")
+        self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
     def reply_image(self, image_data, content='', auto_delete_time=None):
@@ -412,69 +406,51 @@ class MessageEvent:
     def reply_md(self, template, params=None, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
         return self.reply_markdown(template, params, keyboard_id, hide_avatar_and_center, auto_delete_time)
 
-    def reply_markdown_aj(self, text, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
-        """
-        使用 AJ 模板发送 Markdown 消息（自动分割语法到不同参数）
-        """
+    def _process_button_parameter(self, button_param):
+        """处理按钮参数：字符串→{"id": "xxx"}, 字典→直接返回"""
+        if not button_param:
+            return None
+        return {"id": str(button_param)} if isinstance(button_param, str) else button_param if isinstance(button_param, dict) else None
+
+    def _split_markdown_to_params(self, text):
+        """分割 Markdown 文本到多个参数（AJ 模板专用）"""
         from config import MARKDOWN_AJ_TEMPLATE
         import uuid
         
-        # 检查发送条件
-        if not self._check_send_conditions():
-            return None
+        # QQ Markdown 兼容处理
+        text = text.replace('\n', '\r').replace('@', '@​')
         
-        # 替换换行符和 @ 符号（QQ Markdown 兼容）
-        text = text.replace('\n', '\r').replace('@', '@​')  
-        
-        # 分割 Markdown 文本（与 qqbot-yz 逻辑完全一致）
-        rand = str(uuid.uuid4())
-        regex_list = [
+        # 使用 UUID 作为临时分隔符，分割 Markdown 语法
+        delimiter = str(uuid.uuid4())
+        patterns = [
             r'(!?\[.*?\])(\s*\(.*?\))',  # 图片/链接
-            r'(\[.*?\])(\[.*?\])',        # 引用样式链接
+            r'(\[.*?\])(\[.*?\])',        # 引用链接
             r'(\*)([^*]+?\*)',            # 粗体
             r'(`)([^`]+?`)',              # 代码
             r'(_)([^_]*?_)',              # 斜体
             r'(~)(~)',                    # 删除线
             r'^(#)',                      # 标题
-            r'(``)(`)' ,                  # 代码块
+            r'(``)(`)',                   # 代码块
         ]
         
-        for pattern in regex_list:
-            def replacer(match):
-                groups = match.groups()
-                return rand.join(groups)
-            text = re.sub(pattern, replacer, text)
+        for pattern in patterns:
+            text = re.sub(pattern, lambda m: delimiter.join(m.groups()), text)
         
-        parts = text.split(rand)
-        if not parts:
-            parts = [text]
+        parts = text.split(delimiter) if delimiter in text else [text]
         
-        # 准备模板参数
-        keys = MARKDOWN_AJ_TEMPLATE['keys']
-        if ',' in keys:
-            keys_list = [k.strip() for k in keys.split(',')]
-        else:
-            keys_list = list(keys)
+        # 构建参数列表
+        keys_list = [k.strip() for k in MARKDOWN_AJ_TEMPLATE['keys'].split(',')] if ',' in MARKDOWN_AJ_TEMPLATE['keys'] else list(MARKDOWN_AJ_TEMPLATE['keys'])
+        params = [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
+        params.extend([{"key": keys_list[i], "values": ["\u200B"]} for i in range(len(params), len(keys_list))])
         
-        params = []
-        for i, part in enumerate(parts):
-            if i >= len(keys_list):
-                break
-            params.append({
-                "key": keys_list[i],
-                "values": [part]
-            })
+        return params
+
+    def reply_markdown_aj(self, text, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
+        """使用 AJ 模板发送 Markdown 消息（自动分割语法到不同参数）"""
+        from config import MARKDOWN_AJ_TEMPLATE
         
-        # 填充剩余参数
-        for i in range(len(params), len(keys_list)):
-            params.append({
-                "key": keys_list[i],
-                "values": ["\u200B"]
-            })
-        
-        # 使用全局配置
-        if hide_avatar_and_center is None:
-            hide_avatar_and_center = HIDE_AVATAR_GLOBAL
+        if not self._check_send_conditions():
+            return None
         
         # 构建 payload
         payload = {
@@ -482,36 +458,27 @@ class MessageEvent:
             "msg_seq": random.randint(10000, 999999),
             "markdown": {
                 "custom_template_id": MARKDOWN_AJ_TEMPLATE['template_id'],
-                "params": params
+                "params": self._split_markdown_to_params(text)
             }
         }
         
-        if hide_avatar_and_center:
-            if 'style' not in payload['markdown']:
-                payload['markdown']['style'] = {}
-            payload['markdown']['style']['layout'] = 'hide_avatar_and_center'
+        # 处理样式和按钮
+        if hide_avatar_and_center if hide_avatar_and_center is not None else HIDE_AVATAR_GLOBAL:
+            payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
         
-        if keyboard_id:
-            payload["keyboard"] = {"id": str(keyboard_id)}
+        button_data = self._process_button_parameter(keyboard_id)
+        if button_data:
+            payload["keyboard"] = button_data
         
         # 设置消息 ID
-        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
-            payload["msg_id"] = self.message_id
-        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
-            payload["event_id"] = self.get('id') or ""
-        elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.message_id
-        
-        # 获取 endpoint
-        endpoint = self._get_endpoint()
+        payload = self._set_message_id_in_payload(payload)
         
         # 处理特殊事件类型
         if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
-            event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
-            payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
+            payload['event_id'] = self.get('id') or f"{'ROBOT_ADD' if self.message_type == self.GROUP_ADD_ROBOT else 'FRIEND_ADD'}_{int(time.time())}"
         
         # 发送消息
-        message_id = self._send_with_error_handling(payload, endpoint, "markdown AJ模板消息", f"text: {text[:50]}...")
+        message_id = self._send_with_error_handling(payload, self._get_endpoint(), "markdown AJ模板消息", f"text: {text[:50]}...")
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
@@ -623,40 +590,32 @@ class MessageEvent:
         return message_id
 
     def _build_message_payload(self, content, buttons, media, hide_avatar_and_center=False, use_markdown=None):
-        # use_markdown 参数：None=使用全局配置, True=强制markdown, False=强制普通消息
+        """构建消息 payload"""
         should_use_markdown = USE_MARKDOWN if use_markdown is None else use_markdown
-        msg_type = 7 if media else (2 if should_use_markdown else 0)
         payload = {
-            "msg_type": msg_type,
+            "msg_type": 7 if media else (2 if should_use_markdown else 0),
             "msg_seq": random.randint(10000, 999999)
         }
         
-        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
-            payload["msg_id"] = self.message_id
-        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
-            payload["event_id"] = self.get('id') or ""
-        elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.message_id
+        # 设置消息 ID
+        payload = self._set_message_id_in_payload(payload)
         
+        # 处理内容
         if media:
             payload['content'] = ''
+            payload['media'] = {'file_info': media['file_info']} if isinstance(media, dict) and 'file_info' in media else media
         elif content:
             if should_use_markdown:
                 payload['markdown'] = {'content': content}
                 if hide_avatar_and_center:
-                    if 'style' not in payload['markdown']:
-                        payload['markdown']['style'] = {}
-                    payload['markdown']['style']['layout'] = 'hide_avatar_and_center'
+                    payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
             else:
                 payload['content'] = content
         
-        if buttons:
-            payload['keyboard'] = buttons
-        if media:
-            if isinstance(media, dict) and 'file_info' in media:
-                payload['media'] = {'file_info': media['file_info']}
-            else:
-                payload['media'] = media
+        # 处理按钮
+        button_data = self._process_button_parameter(buttons)
+        if button_data:
+            payload['keyboard'] = button_data
                 
         return payload
 
@@ -745,26 +704,22 @@ class MessageEvent:
             return None
 
     def _build_markdown_message_payload(self, template_data, keyboard_id=None, hide_avatar_and_center=False):
+        """构建 Markdown 模板消息 payload"""
         payload = {
             "msg_type": 2,
             "msg_seq": random.randint(10000, 999999),
-            "markdown": {
-                "custom_template_id": template_data["custom_template_id"]
-            }
+            "markdown": {"custom_template_id": template_data["custom_template_id"]}
         }
         
         if template_data.get("params"):
             payload["markdown"]["params"] = template_data["params"]
         
         if hide_avatar_and_center:
-            if 'style' not in payload['markdown']:
-                payload['markdown']['style'] = {}
-            payload['markdown']['style']['layout'] = 'hide_avatar_and_center'
+            payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
         
-        if keyboard_id:
-            payload["keyboard"] = {
-                "id": str(keyboard_id)
-            }
+        button_data = self._process_button_parameter(keyboard_id)
+        if button_data:
+            payload["keyboard"] = button_data
         
         return self._set_message_id_in_payload(payload)
 

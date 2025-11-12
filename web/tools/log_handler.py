@@ -3,8 +3,7 @@ from collections import deque
 from datetime import datetime
 
 MAX_LOGS = 1000
-received_messages = deque(maxlen=MAX_LOGS)
-plugin_logs = deque(maxlen=MAX_LOGS)
+message_logs = deque(maxlen=MAX_LOGS)  # 统一的消息队列
 framework_logs = deque(maxlen=MAX_LOGS)
 error_logs = deque(maxlen=MAX_LOGS)
 
@@ -37,11 +36,10 @@ class LogHandler:
         self.log_type = log_type
         self.logs = deque(maxlen=max_logs)
         self.global_logs = {
-            'received': received_messages,
-            'plugin': plugin_logs,
+            'message': message_logs,
             'framework': framework_logs,
             'error': error_logs
-        }[log_type]
+        }.get(log_type, message_logs)
     
     def add(self, content, traceback_info=None, skip_db=False):
         if isinstance(content, dict):
@@ -70,11 +68,21 @@ class LogHandler:
         
         if socketio:
             try:
+                # 对于 message 类型的日志，根据 entry 中的 type 字段决定实际发送的类型
+                actual_type = self.log_type
+                if self.log_type == 'message' and 'type' in entry:
+                    # 插件日志发送为 'plugin' 类型，接收消息发送为 'received' 类型
+                    if entry['type'] == 'plugin':
+                        actual_type = 'plugin'
+                    elif entry['type'] == 'received':
+                        actual_type = 'received'
+                
                 emit_data = {
-                    'type': self.log_type,
+                    'type': actual_type,
                     'data': {
                         k: entry[k] for k in ['timestamp', 'content'] + 
-                        (['traceback'] if 'traceback' in entry else [])
+                        (['traceback'] if 'traceback' in entry else []) +
+                        (['user_id', 'group_id', 'plugin_name'] if actual_type in ['plugin', 'received'] else [])
                     }
                 }
                 socketio.emit('new_message', emit_data, namespace=PREFIX)
@@ -83,8 +91,7 @@ class LogHandler:
         
         return entry
 
-received_handler = LogHandler('received')
-plugin_handler = LogHandler('plugin')
+message_handler = LogHandler('message')
 framework_handler = LogHandler('framework')
 error_handler = LogHandler('error')
 
@@ -93,33 +100,28 @@ def add_display_message(formatted_message, timestamp=None, user_id=None, group_i
     if user_id is not None and message_content is not None:
         entry = {
             'timestamp': timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'type': 'received',
             'content': formatted_message,
             'user_id': user_id,
             'group_id': group_id or '-',
-            'message': message_content
+            'message': message_content,
+            'raw_message': message_content
         }
     else:
         entry = {
             'timestamp': timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'type': 'received',
             'content': formatted_message
         }
     
-    received_handler.logs.append(entry)
-    received_handler.global_logs.append(entry)
-    
-    if socketio:
-        try:
-            socketio.emit('new_message', {'type': 'received', 'data': entry}, namespace=PREFIX)
-        except:
-            pass
-    
-    return entry
+    return message_handler.add(entry, skip_db=True)  # 跳过数据库记录，避免重复
 
 @catch_error
 def add_plugin_log(log, user_id=None, group_id=None, plugin_name=None):
     if isinstance(log, str):
         log_data = {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'type': 'plugin',
             'content': log,
             'user_id': user_id or '',
             'group_id': group_id or 'c2c',
@@ -131,11 +133,12 @@ def add_plugin_log(log, user_id=None, group_id=None, plugin_name=None):
         else:
             log_data = {'content': str(log)}
         
+        log_data['type'] = 'plugin'
         log_data['user_id'] = user_id or ''
         log_data['group_id'] = group_id or 'c2c'
         log_data['plugin_name'] = plugin_name or ''
     
-    return plugin_handler.add(log_data)
+    return message_handler.add(log_data)
 
 @catch_error
 def add_framework_log(log):
@@ -147,8 +150,7 @@ def add_error_log(log, traceback_info=None):
 
 def get_logs_data(log_type):
     handlers = {
-        'received': received_handler,
-        'plugin': plugin_handler,
+        'message': message_handler,
         'framework': framework_handler,
         'error': error_handler
     }

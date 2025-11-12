@@ -1,17 +1,15 @@
 from datetime import datetime
 from flask import request, jsonify
 
-received_messages = None
-plugin_logs = None
+message_logs = None
 framework_logs = None
 error_logs = None
 LOG_DB_CONFIG = None
 add_error_log = None
 
-def set_log_queues(received, plugin, framework, error):
-    global received_messages, plugin_logs, framework_logs, error_logs
-    received_messages = received
-    plugin_logs = plugin
+def set_log_queues(message, framework, error):
+    global message_logs, framework_logs, error_logs
+    message_logs = message
     framework_logs = framework
     error_logs = error
 
@@ -25,8 +23,7 @@ def handle_get_logs(log_type):
     page_size = request.args.get('size', 50, type=int)
     
     logs_map = {
-        'received': received_messages,
-        'plugin': plugin_logs,
+        'message': message_logs,
         'framework': framework_logs,
         'error': error_logs
     }
@@ -74,46 +71,61 @@ def get_today_logs_from_db(log_type, limit=None):
             today = datetime.now().strftime('%Y%m%d')
             table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
             
-            table_suffix_map = {
-                'plugin': 'plugin',
-                'framework': 'framework', 
-                'error': 'error'
-            }
-            
-            table_suffix = table_suffix_map.get(log_type, log_type)
-            table_name = f'{table_prefix}{today}_{table_suffix}'
-            
-            cursor.execute("""
-                SELECT COUNT(*) as count 
-                FROM information_schema.tables 
-                WHERE table_schema = DATABASE() 
-                AND table_name = %s
-            """, (table_name,))
-            
-            if cursor.fetchone()['count'] == 0:
-                return []
-            
             if log_type == 'plugin':
+                # 插件日志现在存储在 message 表中，type 字段为 'plugin'
+                table_name = f'{table_prefix}{today}_message'
+                
+                cursor.execute("""
+                    SELECT COUNT(*) as count 
+                    FROM information_schema.tables 
+                    WHERE table_schema = DATABASE() 
+                    AND table_name = %s
+                """, (table_name,))
+                
+                if cursor.fetchone()['count'] == 0:
+                    return []
+                
                 sql = f"""
                     SELECT timestamp, content, user_id, group_id, plugin_name
                     FROM {table_name}
-                    ORDER BY timestamp DESC
-                    LIMIT %s
-                """
-            elif log_type == 'error':
-                sql = f"""
-                    SELECT timestamp, content, traceback
-                    FROM {table_name}
+                    WHERE type = 'plugin'
                     ORDER BY timestamp DESC
                     LIMIT %s
                 """
             else:
-                sql = f"""
-                    SELECT timestamp, content
-                    FROM {table_name}
-                    ORDER BY timestamp DESC
-                    LIMIT %s
-                """
+                # framework 和 error 日志仍在各自的表中
+                table_suffix_map = {
+                    'framework': 'framework', 
+                    'error': 'error'
+                }
+                
+                table_suffix = table_suffix_map.get(log_type, log_type)
+                table_name = f'{table_prefix}{today}_{table_suffix}'
+                
+                cursor.execute("""
+                    SELECT COUNT(*) as count 
+                    FROM information_schema.tables 
+                    WHERE table_schema = DATABASE() 
+                    AND table_name = %s
+                """, (table_name,))
+                
+                if cursor.fetchone()['count'] == 0:
+                    return []
+                
+                if log_type == 'error':
+                    sql = f"""
+                        SELECT timestamp, content, traceback
+                        FROM {table_name}
+                        ORDER BY timestamp DESC
+                        LIMIT %s
+                    """
+                else:
+                    sql = f"""
+                        SELECT timestamp, content
+                        FROM {table_name}
+                        ORDER BY timestamp DESC
+                        LIMIT %s
+                    """
             
             cursor.execute(sql, (limit,))
             logs = cursor.fetchall()
@@ -205,7 +217,7 @@ def get_today_message_logs_from_db(limit=None):
             sql = f"""
                 SELECT timestamp, user_id, group_id, content
                 FROM {table_name}
-                WHERE user_id != 'ZFC2G' AND user_id != 'ZFC2C'
+                WHERE type = 'received' AND user_id != 'ZFC2G' AND user_id != 'ZFC2C'
                 ORDER BY timestamp DESC
                 LIMIT %s
             """

@@ -9,7 +9,7 @@
                 <div class="card-header flex-shrink-0">
                     <div class="d-flex align-items-center chat-list-header">
                         <i class="bi bi-people me-2"></i>
-                        <div class="btn-group btn-group-sm chat-type-buttons me-1" role="group">
+                        <div class="btn-group btn-group-sm chat-type-buttons me-2" role="group">
                             <button type="button" class="btn btn-outline-primary active" id="btn-users" onclick="switchChatType('user')">
                                 <i class="bi bi-person"></i> 好友
                             </button>
@@ -17,10 +17,14 @@
                                 <i class="bi bi-people"></i> 群聊
                             </button>
                         </div>
-                        <span id="chat-list-title">列表</span>
+                        <select class="form-select form-select-sm" id="days-range" onchange="changeDaysRange()" style="width: auto; min-width: 80px;">
+                            <option value="1">今天</option>
+                            <option value="2">2天</option>
+                            <option value="3">3天</option>
+                        </select>
                     </div>
                 </div>
-                <div class="card-body p-0 flex-grow-1 d-flex flex-column" style="min-height: 0;">
+                <div class="card-body p-0 flex-grow-1 d-flex flex-column" style="min-height: 0; overflow: hidden;">
                     <!-- 搜索框 -->
                     <div class="p-3 border-bottom flex-shrink-0">
                         <div class="input-group">
@@ -64,7 +68,7 @@
                 </div>
                 
                 <!-- 聊天记录区域 -->
-                <div class="card-body p-0 d-flex flex-column flex-grow-1" style="min-height: 0;">
+                <div class="card-body p-0 d-flex flex-column flex-grow-1" style="min-height: 0; overflow: hidden;">
                     <div id="message-area" class="flex-grow-1 p-3" style="overflow-y: auto; background-color: #f8f9fa; min-height: 0;">
                         <div class="text-center text-muted">
                             <i class="bi bi-chat-text" style="font-size: 3rem;"></i>
@@ -245,6 +249,15 @@
     max-width: 20%;
     padding-right: 15px;
     padding-left: 15px;
+    min-height: 0;
+}
+
+.chat-list-col .card {
+    min-height: 0;
+}
+
+.chat-list-col .card-body {
+    min-height: 0;
 }
 
 .chat-window-col {
@@ -444,6 +457,7 @@ let chatRefreshTimer = null;  // 聊天记录刷新定时器
 let isRefreshing = false;     // 防止重复刷新
 let lastMessageSignature = '';  // 上次消息的签名，用于避免不必要的重新渲染
 let markdownTemplates = {};  // 存储模板信息
+let currentDaysRange = 1;     // 当前选择的日期范围
 
 // 时间和昵称处理函数
 const formatTimeWithoutYear = (t) => t ? t.replace(/^\d{4}[-\/年]/, '').replace(/^\d{4}\s+/, '') : '';
@@ -553,7 +567,8 @@ function refreshChatHistory() {
         },
         body: JSON.stringify({
             chat_type: currentChatType,
-            chat_id: currentChatId
+            chat_id: currentChatId,
+            days_range: currentDaysRange
         })
     })
     .then(response => response.json())
@@ -612,6 +627,19 @@ const resetChatWindow = () => {
     document.getElementById('id-expire-info').textContent = '请选择聊天对象';
     lastMessageSignature = '';
 };
+
+// 日期范围变化处理
+function changeDaysRange() {
+    currentDaysRange = parseInt(document.getElementById('days-range').value);
+    
+    // 如果有选中的聊天，重新加载聊天记录
+    if (currentChatId) {
+        loadChatHistory(currentChatId, currentChatType);
+    }
+    
+    // 重新加载聊天列表（因为日期范围会影响最后消息时间显示）
+    loadChatList();
+}
 
 // 切换发送方法
 function changeSendMethod() {
@@ -937,13 +965,18 @@ function loadChatHistory(chatId, chatType) {
         },
         body: JSON.stringify({
             chat_type: chatType,
-            chat_id: chatId
+            chat_id: chatId,
+            days_range: currentDaysRange
         })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            renderChatHistory(data.data.messages);
+            if (data.data.no_history) {
+                messageArea.innerHTML = '<div class="text-center text-muted"><i class="bi bi-clock-history" style="font-size: 3rem;"></i><p class="mt-2">没有历史表</p></div>';
+            } else {
+                renderChatHistory(data.data.messages);
+            }
         } else {
             messageArea.innerHTML = '<div class="text-center p-3 text-danger">加载聊天记录失败: ' + data.message + '</div>';
         }

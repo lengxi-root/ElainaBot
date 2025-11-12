@@ -168,6 +168,7 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
         data = request.get_json()
         chat_type = data.get('chat_type')
         chat_id = data.get('chat_id')
+        days_range = min(data.get('days_range', 1), 3)  # 默认查询1天，最多3天
         
         if not chat_type or not chat_id:
             return jsonify({'success': False, 'message': '缺少必要参数'})
@@ -184,44 +185,66 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
         try:
             cursor = connection.cursor(DictCursor)
             
-            # 获取表前缀和今日消息表名
+            # 获取表前缀
             table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
-            today = datetime.now().strftime('%Y%m%d')
-            table_name = f'{table_prefix}{today}_message'
             
-            # 检查表是否存在
-            cursor.execute("""
-                SELECT COUNT(*) as count 
-                FROM information_schema.tables 
-                WHERE table_schema = DATABASE() 
-                AND table_name = %s
-            """, (table_name,))
+            # 生成需要查询的日期表列表
+            from datetime import timedelta
+            dates_to_query = []
+            for i in range(days_range):
+                date = datetime.now() - timedelta(days=i)
+                dates_to_query.append(date.strftime('%Y%m%d'))
             
-            if cursor.fetchone()['count'] == 0:
+            # 检查哪些表存在并构建UNION查询
+            existing_tables = []
+            for date_str in dates_to_query:
+                table_name = f'{table_prefix}{date_str}_message'
+                cursor.execute("""
+                    SELECT COUNT(*) as count 
+                    FROM information_schema.tables 
+                    WHERE table_schema = DATABASE() 
+                    AND table_name = %s
+                """, (table_name,))
+                if cursor.fetchone()['count'] > 0:
+                    existing_tables.append(table_name)
+            
+            if not existing_tables:
                 return jsonify({'success': True, 'data': {'messages': [],
-                    'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type, appid)}}})
+                    'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type, appid)},
+                    'no_history': True}})
             
             where_condition, params = (("(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)", (chat_id, chat_id))
                 if chat_type == 'group' else ("(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')", (chat_id, chat_id)))
             
-            # 获取最新的100条消息（从后往前取，然后按时间正序排列）
-            sql = f"""
-                SELECT user_id, group_id, content, timestamp
-                FROM (
-                    SELECT user_id, group_id, content, timestamp
+            # 构建多表联合查询（从所有存在的日期表中查询）
+            union_parts = []
+            all_params = []
+            for table_name in existing_tables:
+                union_parts.append(f"""
+                    SELECT user_id, group_id, content, timestamp, type
                     FROM {table_name}
                     WHERE {where_condition}
+                """)
+                all_params.extend(params)
+            
+            # 获取最新的200条消息（增加数量以适应多天查询）
+            sql = f"""
+                SELECT user_id, group_id, content, timestamp, type
+                FROM (
+                    {' UNION ALL '.join(union_parts)}
                     ORDER BY timestamp DESC
-                    LIMIT 100
-                ) AS recent_messages
+                    LIMIT 200
+                ) AS combined_messages
                 ORDER BY timestamp ASC
             """
-            cursor.execute(sql, params)
+            cursor.execute(sql, all_params)
             messages = cursor.fetchall()
             
             message_list = []
             for msg in messages:
-                is_self_message = (chat_type == 'group' and msg['user_id'] == 'ZFC2G') or (chat_type == 'user' and msg['group_id'] == 'ZFC2C')
+                # 插件消息应该显示为机器人发送，或者按原来的逻辑判断
+                is_plugin_message = msg.get('type') == 'plugin'
+                is_self_message = is_plugin_message or (chat_type == 'group' and msg['user_id'] == 'ZFC2G') or (chat_type == 'user' and msg['group_id'] == 'ZFC2C')
                 display_user_id = '机器人' if is_self_message else msg['user_id']
                 
                 message_list.append({'user_id': display_user_id, 'content': msg['content'],
@@ -383,14 +406,12 @@ def handle_send_message(LOG_DB_CONFIG, add_sent_message_to_db):
                 
                 # 如果不是API错误格式，则表示发送成功
                 
-                # 记录发送的消息到数据库
+                # 记录发送的消息（Web面板发送的消息记录为plugin类型）
                 try:
-                    add_sent_message_to_db(
-                        chat_type=chat_type,
-                        chat_id=chat_id,
-                        content=display_content,
-                        timestamp=now.strftime('%Y-%m-%d %H:%M:%S')
-                    )
+                    from web.app import add_plugin_log
+                    user_id_display = chat_id if chat_type == 'user' else ''
+                    group_id_display = chat_id if chat_type == 'group' else 'c2c'
+                    add_plugin_log(display_content, user_id=user_id_display, group_id=group_id_display, plugin_name='WebPanel')
                 except Exception as e:
                     # 记录失败不影响发送成功的响应
                     print(f"记录发送消息失败: {str(e)}")

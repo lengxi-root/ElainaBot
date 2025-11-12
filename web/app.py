@@ -44,8 +44,7 @@ plugins_info = []
 valid_sessions = session_manager.valid_sessions
 ip_access_data = session_manager.ip_access_data
 
-received_messages = log_handler.received_messages
-plugin_logs = log_handler.plugin_logs
+message_logs = log_handler.message_logs
 framework_logs = log_handler.framework_logs
 error_logs = log_handler.error_logs
 
@@ -171,10 +170,10 @@ add_error_log = log_handler.add_error_log
 
 system_info.set_error_log_func(add_error_log)
 
-log_query.set_log_queues(received_messages, plugin_logs, framework_logs, error_logs)
+log_query.set_log_queues(message_logs, framework_logs, error_logs)
 log_query.set_config(LOG_DB_CONFIG, add_error_log)
 
-status_routes.set_log_queues(received_messages, plugin_logs, framework_logs)
+status_routes.set_log_queues(message_logs, framework_logs)
 
 sandbox_handler.set_message_event_class(MessageEvent)
 

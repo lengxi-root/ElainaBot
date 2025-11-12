@@ -752,7 +752,7 @@ class system_plugin(Plugin):
         except:
             kernel_version = '0.0'
             
-        msg = f'<@{event.user_id}>关于{framework_name}\n___\n🔌 连接方式: WebHook\n🤖 机器人QQ: {ROBOT_QQ}\n🆔 机器人appid: {appid}\n🚀 内核版本：{framework_name} {kernel_version}\n🏗️ 连接Bot框架: {framework_name}-Mbot\n⚙️ Python版本: {python_version}\n💫 已加载内核数: {kernel_count}\n⚡ 已加载处理器数: {function_count}\n\n\n>Tip:只有艾特{framework_name}，{framework_name}才能接收到你的消息~！'
+        msg = f'<@{event.user_id}>关于{framework_name}\n___\n🔌 连接方式: WebHook\n🤖 机器人QQ: {ROBOT_QQ}\n🆔 机器人appid: {appid}\n🚀 内核版本：{kernel_version}\n🏗️ 连接Bot框架: {framework_name}-Mbot\n⚙️ Python版本: {python_version}\n💫 已加载内核数: {kernel_count}\n⚡ 已加载处理器数: {function_count}\n\n\n>Tip:只有艾特{framework_name}，{framework_name}才能接收到你的消息~！'
         if USE_MARKDOWN:
             button_configs = [[
                 {'text': '菜单', 'data': '/菜单'},

@@ -833,10 +833,19 @@ class MessageEvent:
         from function.log_db import add_log_to_db
         from config import SAVE_RAW_MESSAGE_TO_DB
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        db_entry = {'timestamp': timestamp, 'content': self.content or "", 'user_id': self.user_id or "未知用户", 'group_id': self.group_id or "c2c"}
+        db_entry = {
+            'timestamp': timestamp, 
+            'type': 'received',  # 标记为接收消息类型
+            'content': self.content or "", 
+            'user_id': self.user_id or "未知用户", 
+            'group_id': self.group_id or "c2c",
+            'plugin_name': ''  # 接收消息没有插件名
+        }
         if SAVE_RAW_MESSAGE_TO_DB:
             db_entry['raw_message'] = json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)
-        add_log_to_db('received', db_entry)
+        else:
+            db_entry['raw_message'] = ''
+        add_log_to_db('message', db_entry)
 
     def _notify_web_display(self, timestamp):
         from web.app import add_display_message

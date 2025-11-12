@@ -29,10 +29,9 @@ MERGED_LOG_CONFIG = {**DEFAULT_LOG_CONFIG, **LOG_DB_CONFIG}
 
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_INSERT_INTERVAL = 10
-LOG_TYPES = ['received', 'plugin', 'framework', 'error', 'dau', 'id']
+LOG_TYPES = ['message', 'framework', 'error', 'dau', 'id']
 TABLE_SUFFIX = {
-    'received': 'message',
-    'plugin': 'plugin',
+    'message': 'message',
     'framework': 'framework',
     'error': 'error',
     'dau': 'dau',
@@ -230,9 +229,10 @@ class LogDatabaseManager:
             self._cleanup_thread.start()
 
     def _init_sql_templates(self):
+        message_sql = "INSERT INTO `{table_name}` (timestamp, type, user_id, group_id, content, raw_message, plugin_name) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+        
         self._sql_templates = {
-            'received': "INSERT INTO `{table_name}` (timestamp, user_id, group_id, content, raw_message) VALUES (%s, %s, %s, %s, %s)",
-            'plugin': "INSERT INTO `{table_name}` (timestamp, user_id, group_id, plugin_name, content) VALUES (%s, %s, %s, %s, %s)",
+            'message': message_sql,
             'error': "INSERT INTO `{table_name}` (timestamp, content, traceback, resp_obj, send_payload, raw_message) VALUES (%s, %s, %s, %s, %s, %s)",
             'dau': """
                 INSERT INTO `{table_name}` 
@@ -261,21 +261,35 @@ class LogDatabaseManager:
             'default': "INSERT INTO `{table_name}` (timestamp, content) VALUES (%s, %s)"
         }
         
+        # 消息字段提取器
+        def extract_message_fields(log):
+            # 从log数据中提取type信息
+            msg_type = log.get('type', 'received')  # 默认为received类型
+            
+            return (
+                log.get('timestamp'),
+                msg_type,
+                log.get('user_id', '未知用户' if msg_type == 'received' else ''),
+                log.get('group_id', 'c2c'),
+                log.get('content', ''),
+                log.get('raw_message', ''),
+                log.get('plugin_name', '')
+            )
+        
         self._field_extractors = {
-            'received': lambda log: (log.get('timestamp'), log.get('user_id', '未知用户'), log.get('group_id', 'c2c'), log.get('content'), log.get('raw_message', '')),
-            'plugin': lambda log: (log.get('timestamp'), log.get('user_id', ''), log.get('group_id', 'c2c'), log.get('plugin_name', ''), log.get('content', '')),
+            'message': extract_message_fields,
             'error': lambda log: (log.get('timestamp'), log.get('content'), log.get('traceback', ''), log.get('resp_obj', ''), log.get('send_payload', ''), log.get('raw_message', '')),
             'id': lambda log: (log.get('chat_type'), log.get('chat_id'), log.get('last_message_id')),
             'default': lambda log: (log.get('timestamp'), log.get('content'))
         }
         
-        self._batch_optimized_types = {'received', 'plugin', 'error', 'id', 'default'}
+        self._batch_optimized_types = {'message', 'error', 'id', 'default'}
 
     def _extract_log_data_optimized(self, log_type, logs):
         if log_type == 'dau':
             return self._process_dau_data(logs)
         if log_type in self._batch_optimized_types:
-            extractor = self._field_extractors[log_type]
+            extractor = self._field_extractors.get(log_type, self._field_extractors.get('default'))
             return [extractor(log) for log in logs]
         extractor = self._field_extractors.get(log_type, self._field_extractors['default'])
         return [extractor(log) for log in logs]
@@ -336,15 +350,15 @@ class LogDatabaseManager:
         return result and result['count'] > 0
         
     def _init_table_schemas(self):
-        message_fields = "`user_id` varchar(255) NOT NULL, `group_id` varchar(255) DEFAULT 'c2c', `content` text NOT NULL, `raw_message` text,"
+        unified_message_fields = """`type` varchar(20) NOT NULL DEFAULT 'received', 
+        `user_id` varchar(255) NOT NULL, 
+        `group_id` varchar(255) DEFAULT 'c2c', 
+        `content` text NOT NULL, 
+        `raw_message` text DEFAULT NULL, 
+        `plugin_name` varchar(255) DEFAULT NULL,"""
         
         return {
-            'received': {'base': 'standard', 'fields': message_fields, 'end': 'standard'},
-            'plugin': {
-                'base': 'standard',
-                'fields': "`user_id` varchar(255) NOT NULL, `group_id` varchar(255) DEFAULT 'c2c', `plugin_name` varchar(255) DEFAULT '', `content` text NOT NULL,",
-                'end': 'standard'
-            },
+            'message': {'base': 'standard', 'fields': unified_message_fields, 'end': 'standard'},
             'error': {
                 'base': 'standard',
                 'fields': "`content` text NOT NULL, `traceback` text, `resp_obj` text, `send_payload` text, `raw_message` text,",
@@ -353,20 +367,20 @@ class LogDatabaseManager:
             'dau': {
                 'base': 'special',
                 'fields': """
-                `date` date NOT NULL COMMENT '日期' PRIMARY KEY,
-                `active_users` int(11) DEFAULT 0 COMMENT '活跃用户数',
-                `active_groups` int(11) DEFAULT 0 COMMENT '活跃群聊数',
-                `total_messages` int(11) DEFAULT 0 COMMENT '消息总数',
-                `private_messages` int(11) DEFAULT 0 COMMENT '私聊消息总数',
-                `group_join_count` int(11) DEFAULT 0 COMMENT '今日进群数',
-                `group_leave_count` int(11) DEFAULT 0 COMMENT '今日退群数',
-                `group_count_change` int(11) DEFAULT 0 COMMENT '群数量增减',
-                `friend_add_count` int(11) DEFAULT 0 COMMENT '今日加好友数',
-                `friend_remove_count` int(11) DEFAULT 0 COMMENT '今日删好友数',
-                `friend_count_change` int(11) DEFAULT 0 COMMENT '好友数增减',
-                `message_stats_detail` json COMMENT '详细消息统计数据(JSON)',
-                `user_stats_detail` json COMMENT '详细用户统计数据(JSON)',
-                `command_stats_detail` json COMMENT '详细命令统计数据(JSON)',
+                `date` date NOT NULL PRIMARY KEY,
+                `active_users` int(11) DEFAULT 0,
+                `active_groups` int(11) DEFAULT 0,
+                `total_messages` int(11) DEFAULT 0,
+                `private_messages` int(11) DEFAULT 0,
+                `group_join_count` int(11) DEFAULT 0,
+                `group_leave_count` int(11) DEFAULT 0,
+                `group_count_change` int(11) DEFAULT 0,
+                `friend_add_count` int(11) DEFAULT 0,
+                `friend_remove_count` int(11) DEFAULT 0,
+                `friend_count_change` int(11) DEFAULT 0,
+                `message_stats_detail` json,
+                `user_stats_detail` json,
+                `command_stats_detail` json,
                 """,
                 'end': 'dau'
             },
@@ -402,7 +416,8 @@ class LogDatabaseManager:
                 cursor.execute(create_table_sql)
                 if log_type not in ('dau', 'id'):
                     cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
-                if log_type == 'plugin':
+                if log_type == 'message':
+                    cursor.execute(f"CREATE INDEX idx_{table_name}_type ON {table_name} (type)")
                     cursor.execute(f"CREATE INDEX idx_{table_name}_user ON {table_name} (user_id)")
                     cursor.execute(f"CREATE INDEX idx_{table_name}_group ON {table_name} (group_id)")
                     cursor.execute(f"CREATE INDEX idx_{table_name}_plugin ON {table_name} (plugin_name)")
@@ -419,8 +434,10 @@ class LogDatabaseManager:
     def add_log(self, log_type, log_data):
         if not MERGED_LOG_CONFIG['enabled']:
             return False
+        
         if log_type not in LOG_TYPES:
             return False
+        
         self.log_queues[log_type].put(log_data)
         if self._save_interval == 0:
             self._save_logs_to_db()
@@ -665,11 +682,13 @@ def add_sent_message_to_db(chat_type, chat_id, content, raw_message=None, timest
     if chat_type not in chat_map:
         return False
     user_id, group_id = chat_map[chat_type]
-    log_db_manager.log_queues['received'].put({
+    log_db_manager.log_queues['message'].put({
         'timestamp': timestamp or datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'user_id': user_id, 'group_id': group_id, 'content': content, 'raw_message': raw_message or ''
+        'type': 'received',
+        'user_id': user_id, 'group_id': group_id, 'content': content, 
+        'raw_message': raw_message or '', 'plugin_name': ''
     })
-    log_db_manager._save_log_type_to_db('received')
+    log_db_manager._save_log_type_to_db('message')
     return True
 
 def cleanup_yesterday_ids():

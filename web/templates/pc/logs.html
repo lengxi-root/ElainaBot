@@ -53,7 +53,6 @@
 
 {% block scripts %}
 <script>
-const PAGE_SIZE = 50;
 const logPanelConfig = {
     received: { title: '接收到的消息', icon: 'chat-dots', emptyText: '暂无消息', autoScroll: true },
     plugin: { title: '插件日志', icon: 'puzzle', emptyText: '暂无日志', autoScroll: true },
@@ -61,7 +60,6 @@ const logPanelConfig = {
     error: { title: '错误日志', icon: 'exclamation-triangle', emptyText: '暂无错误日志', autoScroll: true }
 };
 const logContainers = {};
-const autoScrollCheckboxes = {};
 
 function initLogPanels() {
     Object.keys(logPanelConfig).forEach(type => {
@@ -109,20 +107,6 @@ function initLogPanels() {
             <div class="logs-container" id="${type}-logs">
                 ${logsContent}
             </div>
-            <div class="pagination-container">
-                <div class="pagination-info">
-                    显示 <span id="${type}-range">0-0</span> / <span id="${type}-total">0</span> 条记录
-                </div>
-                <div class="pagination-controls">
-                    <button class="btn btn-sm btn-outline-primary" id="${type}-prev" onclick="goToPage('${type}', logContainers['${type}'].currentPage - 1)">
-                        <i class="bi bi-chevron-left"></i>
-                    </button>
-                    <span class="mx-2 text-small">第 <span id="${type}-current-page">1</span> 页</span>
-                    <button class="btn btn-sm btn-outline-primary" id="${type}-next" onclick="goToPage('${type}', logContainers['${type}'].currentPage + 1)">
-                        <i class="bi bi-chevron-right"></i>
-                    </button>
-                </div>
-            </div>
         `;
         
         const container = type === 'received' 
@@ -131,16 +115,6 @@ function initLogPanels() {
             
         logContainers[type] = {
             container: container,
-            pagination: {
-                range: document.getElementById(`${type}-range`),
-                total: document.getElementById(`${type}-total`),
-                currentPage: document.getElementById(`${type}-current-page`),
-                prevBtn: document.getElementById(`${type}-prev`),
-                nextBtn: document.getElementById(`${type}-next`)
-            },
-            currentPage: 1,
-            totalPages: 1,
-            totalLogs: 0,
             autoScroll: config.autoScroll || true,
             isTable: type === 'received',
         };
@@ -153,37 +127,6 @@ function initLogPanels() {
     });
 }
 
-function goToPage(type, page) {
-    const logInfo = logContainers[type];
-    if (!logInfo || page < 1 || page > logInfo.totalPages) return;
-    
-    logInfo.currentPage = page;
-    updatePaginationButtons(type);
-    updatePaginationInfo(type);
-    
-    if (socket) {
-        socket.emit('request_logs', { type, page, page_size: PAGE_SIZE });
-    }
-}
-
-function updatePaginationButtons(type) {
-    const logInfo = logContainers[type];
-    if (!logInfo) return;
-    
-    logInfo.pagination.prevBtn.disabled = logInfo.currentPage <= 1;
-    logInfo.pagination.nextBtn.disabled = logInfo.currentPage >= logInfo.totalPages;
-    logInfo.pagination.currentPage.textContent = logInfo.currentPage;
-}
-
-function updatePaginationInfo(type) {
-    const logInfo = logContainers[type];
-    if (!logInfo) return;
-    
-    const start = Math.max(1, (logInfo.currentPage - 1) * PAGE_SIZE + 1);
-    const end = Math.min(start + PAGE_SIZE - 1, logInfo.totalLogs);
-    logInfo.pagination.range.textContent = logInfo.totalLogs > 0 ? `${start}-${end}` : '0-0';
-    logInfo.pagination.total.textContent = logInfo.totalLogs;
-}
 
 function updateLogDisplay(type, logs) {
     const logInfo = logContainers[type];
@@ -364,11 +307,6 @@ function loadTodayLogs() {
                     // 将历史日志添加到对应的容器中
                     updateLogDisplay(type, logData.logs);
                     
-                    // 更新日志统计信息
-                    const logInfo = logContainers[type];
-                    logInfo.totalLogs = logData.total;
-                    updatePaginationInfo(type);
-                    
                     console.log(`已加载 ${type} 类型的今日日志: ${logData.total} 条`);
                 } else {
                     // 如果没有日志，显示空状态
@@ -401,19 +339,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // 加载今日历史日志
     loadTodayLogs();
     
-    // 初始化分页（但不立即加载，因为已经加载了今日日志）
-    Object.keys(logContainers).forEach(type => {
-        logContainers[type].currentPage = 1;
-        updatePaginationButtons(type);
-    });
-    
     window.updateLogDisplay = updateLogDisplay;
     window.handleNewLog = function(data) {
         const logType = data.type;
-        if (logContainers[logType]?.currentPage === 1) {
+        if (logContainers[logType]) {
             addLogEntry(logContainers[logType].container, data.data, true, logType);
-            logContainers[logType].totalLogs++;
-            updatePaginationInfo(logType);
         }
     };
     

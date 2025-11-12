@@ -2,15 +2,14 @@ import os, sys, traceback
 from datetime import datetime
 from flask import request, jsonify
 
-received_messages = None
-plugin_logs = None
+message_logs = None
 framework_logs = None
 execute_bot_restart = None
 
-def set_log_queues(received, plugin, framework):
-    global received_messages, plugin_logs, framework_logs
-    received_messages = received
-    plugin_logs = plugin
+def set_log_queues(message, framework):
+    """设置日志队列"""
+    global message_logs, framework_logs
+    message_logs = message
     framework_logs = framework
 
 def set_restart_function(restart_func):
@@ -22,8 +21,7 @@ def handle_status():
         'status': 'ok',
         'version': '1.0',
         'logs_count': {
-            'received': len(received_messages) if received_messages else 0,
-            'plugin': len(plugin_logs) if plugin_logs else 0,
+            'message': len(message_logs) if message_logs else 0,
             'framework': len(framework_logs) if framework_logs else 0
         }
     })

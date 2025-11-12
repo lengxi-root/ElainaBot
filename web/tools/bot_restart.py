@@ -24,17 +24,13 @@ def execute_bot_restart(restart_status=None):
         except Exception as e:
             pass
     
-    is_dual_process = False
     main_port = 5001
-    web_port = 5002
     
     if config and hasattr(config, 'SERVER_CONFIG'):
         server_config = config.SERVER_CONFIG
-        is_dual_process = server_config.get('web_dual_process', False)
         main_port = server_config.get('port', 5001)
-        web_port = server_config.get('web_port', 5002)
     
-    restart_mode = "独立进程模式" if is_dual_process else "单进程模式"
+    restart_mode = "单进程模式"
     
     def _get_restart_status_file():
         plugin_dir = os.path.join(current_dir, 'plugins', 'system')
@@ -70,7 +66,7 @@ def execute_bot_restart(restart_status=None):
             pass
         return pids
     
-    def _create_restart_python_script(main_py_path, is_dual_process=False, main_port=5001, web_port=5002):
+    def _create_restart_python_script(main_py_path, main_port=5001):
         current_python_pid = current_pid
         is_windows = platform.system().lower() == 'windows'
         
@@ -119,62 +115,21 @@ if __name__ == "__main__":
 '''
         else:
             # Linux/Unix 重启脚本
-            if is_dual_process:
-                kill_ports_code = f"""
-        # 独立进程模式：查找并杀死主程序和web面板进程
-        ports_to_kill = [{main_port}, {web_port}]
-        pids_to_kill = []
-        
-        for port in ports_to_kill:
-            for conn in psutil.net_connections():
-                if conn.laddr.port == port and conn.status == 'LISTEN':
-                    try:
-                        proc = psutil.Process(conn.pid)
-                        pids_to_kill.append(conn.pid)
-                        print(f"找到端口{{port}}的进程: PID {{conn.pid}}")
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
-            
-            pids_to_kill = list(set(pids_to_kill))
-            
-            for pid in pids_to_kill:
-            try:
-                proc = psutil.Process(pid)
-                proc.terminate()
+            kill_ports_code = f"""
+        # 单进程模式：查找并杀死主程序进程
+        for conn in psutil.net_connections():
+            if conn.laddr.port == {main_port} and conn.status == 'LISTEN':
                 try:
-                    proc.wait(timeout=3)
-                    print(f"Linux: 进程 PID {{pid}} 已正常终止")
-                except psutil.TimeoutExpired:
-                    proc.kill()
-                    print(f"Linux: 强制杀死进程 PID {{pid}}")
-            except Exception as e:
-                print(f"杀死进程{{pid}}失败: {{e}}")
-        
-        # 等待进程完全终止
-        time.sleep(1)
-"""
-            else:
-                kill_ports_code = f"""
-        # 单进程模式：杀死指定的Python进程
-        target_pid = {current_python_pid}
-        try:
-            proc = psutil.Process(target_pid)
-            print(f"准备杀死Python进程: PID {{target_pid}}")
-            
-            proc.terminate()
-            try:
-                proc.wait(timeout=3)
-                print(f"Linux: 进程 PID {{target_pid}} 已正常终止")
-            except psutil.TimeoutExpired:
-                proc.kill()
-                print(f"Linux: 强制杀死进程 PID {{target_pid}}")
-        except psutil.NoSuchProcess:
-            print(f"进程 {{target_pid}} 不存在或已终止")
-        except Exception as e:
-            print(f"杀死进程{{target_pid}}失败: {{e}}")
-        
-        # 等待进程完全终止
-        time.sleep(1)
+                    proc = psutil.Process(conn.pid)
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                        print(f"Linux: 进程 PID {{conn.pid}} 已正常终止")
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                        print(f"Linux: 强制终止进程 PID {{conn.pid}}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
 """
             
             script_content = f'''#!/usr/bin/env python3
@@ -197,7 +152,7 @@ def main():
     
     time.sleep(1)
     
-    ports_to_check = [{main_port}, {web_port}] if {is_dual_process} else [{main_port}]
+    ports_to_check = [{main_port}]
     max_wait = 5
     wait_count = 0
     while wait_count < max_wait:
@@ -246,19 +201,17 @@ if __name__ == "__main__":
     
     try:
         restart_script_content = _create_restart_python_script(
-            main_py_path, is_dual_process, main_port, web_port
+            main_py_path, main_port
         )
         restart_script_path = os.path.join(current_dir, 'bot_restarter.py')
         
         with open(restart_script_path, 'w', encoding='utf-8') as f:
             f.write(restart_script_content)
         
-        if is_dual_process:
-            try:
-                main_pids = _find_processes_by_port(main_port)
-                web_pids = _find_processes_by_port(web_port)
-            except Exception as e:
-                pass
+        try:
+            main_pids = _find_processes_by_port(main_port)
+        except Exception as e:
+            pass
         
         is_windows = platform.system().lower() == 'windows'
         

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, Blueprint, make_response
 from flask_socketio import SocketIO
 from flask_cors import CORS
-from config import LOG_DB_CONFIG, WEB_SECURITY, WEB_INTERFACE, ROBOT_QQ, appid, WEBSOCKET_CONFIG
+from config import LOG_DB_CONFIG, WEB_CONFIG, ROBOT_QQ, appid, WEBSOCKET_CONFIG
 from function.log_db import add_log_to_db, add_sent_message_to_db
 from core.event.MessageEvent import MessageEvent
 
@@ -124,9 +124,9 @@ def catch_error(func):
             return api_error_response(str(e))
     return wrapper
 
-require_token = session_manager.require_token(WEB_SECURITY)
-require_auth = session_manager.require_auth(WEB_SECURITY, WEB_INTERFACE)
-require_socketio_token = session_manager.require_socketio_token(WEB_SECURITY)
+require_token = session_manager.require_token(WEB_CONFIG)
+require_auth = session_manager.require_auth(WEB_CONFIG)
+require_socketio_token = session_manager.require_socketio_token(WEB_CONFIG)
 check_ip_ban = session_manager.check_ip_ban
 
 def full_auth(func):
@@ -183,7 +183,7 @@ sandbox_handler.set_message_event_class(MessageEvent)
 @safe_route
 def login():
     password, token = request.form.get('password'), request.form.get('token')
-    if password == WEB_SECURITY['admin_password']:
+    if password == WEB_CONFIG['admin_password']:
         cleanup_expired_sessions()
         limit_session_count()
         record_ip_access(request.remote_addr, 'password_success', extract_device_info(request))
@@ -229,7 +229,7 @@ def login():
         )
         return response
     record_ip_access(request.remote_addr, 'password_fail')
-    return render_template('login.html', token=token, error='密码错误，请重试', web_interface=WEB_INTERFACE)
+    return render_template('login.html', token=token, error='密码错误，请重试', web_interface=WEB_CONFIG)
 
 @web.route('/')
 @full_auth
@@ -237,7 +237,7 @@ def index():
     from core.plugin.PluginManager import PluginManager
     plugin_routes = PluginManager.get_web_routes()
     
-    response = make_response(render_template('index.html', prefix=PREFIX, device_type='pc', ROBOT_QQ=ROBOT_QQ, appid=appid, WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_INTERFACE, plugin_routes=plugin_routes))
+    response = make_response(render_template('index.html', prefix=PREFIX, ROBOT_QQ=ROBOT_QQ, appid=appid, WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_CONFIG, plugin_routes=plugin_routes))
     for header, value in [('X-Content-Type-Options', 'nosniff'), ('X-Frame-Options', 'DENY'), ('X-XSS-Protection', '1; mode=block'),
         ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn *.nt.qq.com.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"),
         ('Referrer-Policy', 'strict-origin-when-cross-origin'), ('Permissions-Policy', 'geolocation=(), microphone=(), camera=()'),
@@ -313,7 +313,7 @@ def handle_plugin_api(api_path):
     
     if route_info.get('require_token', True):
         token = request.args.get('token') or request.form.get('token')
-        if not token or token != WEB_SECURITY['access_token']:
+        if not token or token != WEB_CONFIG['access_token']:
             return jsonify({'success': False, 'message': '无效的token'}), 403
     
     if route_info.get('require_auth', True):

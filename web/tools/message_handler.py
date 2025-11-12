@@ -50,34 +50,60 @@ def get_user_nicknames_batch(user_ids):
     if not users_to_fetch:
         return result
     
+    # 使用日志数据库连接进行批量查询，避免多线程并发问题
     try:
         from function.database import Database
+        from function.log_db import LogDatabasePool
     except ImportError:
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         if project_root not in sys.path:
             sys.path.insert(0, project_root)
         from function.database import Database
+        from function.log_db import LogDatabasePool
     
     db = Database()
     
-    def fetch_single_nickname(user_id):
-        try:
-            nickname = db.get_user_name(user_id)
-            if not nickname:
-                nickname = f"用户{user_id[-6:]}"
-        except:
-            nickname = f"用户{user_id[-6:]}"
-        _nickname_cache[user_id] = {'nickname': nickname, 'timestamp': current_time}
-        return user_id, nickname
-    
-    with ThreadPoolExecutor(max_workers=min(5, len(users_to_fetch))) as executor:
-        future_to_user = {executor.submit(fetch_single_nickname, uid): uid for uid in users_to_fetch}
-        for future in as_completed(future_to_user, timeout=10):
+    try:
+        # 使用单个数据库连接进行批量查询
+        log_db_pool = LogDatabasePool()
+        connection = log_db_pool.get_connection()
+        
+        if connection:
+            cursor = connection.cursor()
             try:
-                user_id, nickname = future.result()
-                result[user_id] = nickname
-            except:
-                result[future_to_user[future]] = f"用户{future_to_user[future][-6:]}"
+                placeholders = ','.join(['%s'] * len(users_to_fetch))
+                table_name = db.get_table_name('users')
+                sql = f"SELECT user_id, name FROM {table_name} WHERE user_id IN ({placeholders})"
+                cursor.execute(sql, tuple(users_to_fetch))
+                rows = cursor.fetchall()
+                
+                # 处理查询结果
+                for row in rows:
+                    if isinstance(row, dict):
+                        user_id = row.get('user_id')
+                        name = row.get('name')
+                    else:
+                        user_id = row[0]
+                        name = row[1]
+                    
+                    if user_id and name:
+                        result[user_id] = name
+                        _nickname_cache[user_id] = {'nickname': name, 'timestamp': current_time}
+                
+            finally:
+                cursor.close()
+                log_db_pool.release_connection(connection)
+    except Exception as e:
+        # 如果批量查询失败，回退到逐个查询
+        pass
+    
+    # 对于没有找到昵称的用户，使用默认昵称
+    for user_id in users_to_fetch:
+        if user_id not in result:
+            nickname = f"用户{user_id[-6:]}"
+            result[user_id] = nickname
+            _nickname_cache[user_id] = {'nickname': nickname, 'timestamp': current_time}
+    
     return result
 
 def handle_get_chats(LOG_DB_CONFIG, appid):
@@ -137,17 +163,33 @@ def handle_get_chats(LOG_DB_CONFIG, appid):
                 cursor.execute(data_sql, (chat_type, limit))
             chats = cursor.fetchall()
             
-            # 处理数据
+            # 处理数据 - 批量获取昵称
             chat_list = []
-            for chat in chats:
-                chat_info = {
-                    'chat_id': chat['chat_id'],
-                    'last_message_id': chat['last_message_id'],
-                    'last_time': chat['last_time'].strftime('%Y-%m-%d %H:%M:%S') if chat['last_time'] else '',
-                    'avatar': get_chat_avatar(chat['chat_id'], chat_type, appid),
-                    'nickname': 'Loading...'  # 异步加载
-                }
-                chat_list.append(chat_info)
+            if chats:
+                # 收集需要获取昵称的chat_id（用户ID）
+                chat_ids = [chat['chat_id'] for chat in chats]
+                
+                # 批量获取昵称
+                if chat_type == 'user':
+                    chat_nicknames = get_user_nicknames_batch(chat_ids)
+                else:
+                    chat_nicknames = {}
+                
+                for chat in chats:
+                    chat_id = chat['chat_id']
+                    if chat_type == 'user':
+                        nickname = chat_nicknames.get(chat_id, f"用户{chat_id[-6:]}")
+                    else:
+                        nickname = f"群{chat_id[-6:]}"  # 群聊显示群ID后6位
+                    
+                    chat_info = {
+                        'chat_id': chat_id,
+                        'last_message_id': chat['last_message_id'],
+                        'last_time': chat['last_time'].strftime('%Y-%m-%d %H:%M:%S') if chat['last_time'] else '',
+                        'avatar': get_chat_avatar(chat_id, chat_type, appid),
+                        'nickname': nickname
+                    }
+                    chat_list.append(chat_info)
             
             return jsonify({
                 'success': True,
@@ -241,16 +283,38 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
             messages = cursor.fetchall()
             
             message_list = []
+            user_ids_to_fetch = set()
+            
+            # 收集需要获取昵称的用户ID
+            for msg in messages:
+                is_plugin_message = msg.get('type') == 'plugin'
+                is_self_message = is_plugin_message or (chat_type == 'group' and msg['user_id'] == 'ZFC2G') or (chat_type == 'user' and msg['group_id'] == 'ZFC2C')
+                if not is_self_message:
+                    user_ids_to_fetch.add(msg['user_id'])
+            
+            # 批量获取用户昵称
+            user_nicknames = get_user_nicknames_batch(list(user_ids_to_fetch)) if user_ids_to_fetch else {}
+            
             for msg in messages:
                 # 插件消息应该显示为机器人发送，或者按原来的逻辑判断
                 is_plugin_message = msg.get('type') == 'plugin'
                 is_self_message = is_plugin_message or (chat_type == 'group' and msg['user_id'] == 'ZFC2G') or (chat_type == 'user' and msg['group_id'] == 'ZFC2C')
-                display_user_id = '机器人' if is_self_message else msg['user_id']
                 
-                message_list.append({'user_id': display_user_id, 'content': msg['content'],
+                if is_self_message:
+                    display_user_id = '机器人'
+                    display_nickname = '机器人'
+                else:
+                    display_user_id = msg['user_id']
+                    display_nickname = user_nicknames.get(msg['user_id'], f"用户{msg['user_id'][-6:]}")
+                
+                message_list.append({
+                    'user_id': display_user_id, 
+                    'nickname': display_nickname,
+                    'content': msg['content'],
                     'timestamp': msg['timestamp'].strftime('%H:%M:%S') if msg['timestamp'] else '',
                     'avatar': get_chat_avatar('robot' if is_self_message else msg['user_id'], 'user', appid), 
-                    'is_self': is_self_message})
+                    'is_self': is_self_message
+                })
             
             return jsonify({'success': True, 'data': {'messages': message_list,
                 'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type, appid)}}})
@@ -465,38 +529,42 @@ def handle_get_nicknames_batch():
         if not user_ids or not isinstance(user_ids, list):
             return jsonify({'success': False, 'message': '缺少用户ID列表'})
         
-        # 从数据库批量获取昵称
+        # 从日志数据库批量获取昵称
         try:
-            from function.database import Database, get_table_name
-            from function.db_pool import ConnectionManager
+            from function.database import Database
+            from function.log_db import LogDatabasePool
             
             db = Database()
             nicknames = {}
             
-            # 使用 IN 查询批量获取
+            # 使用日志数据库连接进行 IN 查询批量获取
             if user_ids:
-                with ConnectionManager() as manager:
-                    if manager.connection:
-                        cursor = manager.connection.cursor()
-                        try:
-                            placeholders = ','.join(['%s'] * len(user_ids))
-                            sql = f"SELECT user_id, name FROM {get_table_name('users')} WHERE user_id IN ({placeholders})"
-                            cursor.execute(sql, tuple(user_ids))
-                            results = cursor.fetchall()
+                log_db_pool = LogDatabasePool()
+                connection = log_db_pool.get_connection()
+                
+                if connection:
+                    cursor = connection.cursor()
+                    try:
+                        placeholders = ','.join(['%s'] * len(user_ids))
+                        table_name = db.get_table_name('users')
+                        sql = f"SELECT user_id, name FROM {table_name} WHERE user_id IN ({placeholders})"
+                        cursor.execute(sql, tuple(user_ids))
+                        results = cursor.fetchall()
+                        
+                        # 处理结果
+                        for row in results:
+                            if isinstance(row, dict):
+                                user_id = row.get('user_id')
+                                name = row.get('name')
+                            else:
+                                user_id = row[0]
+                                name = row[1]
                             
-                            # 处理结果
-                            for row in results:
-                                if isinstance(row, dict):
-                                    user_id = row.get('user_id')
-                                    name = row.get('name')
-                                else:
-                                    user_id = row[0]
-                                    name = row[1]
-                                
-                                if user_id and name:
-                                    nicknames[user_id] = name
-                        finally:
-                            cursor.close()
+                            if user_id and name:
+                                nicknames[user_id] = name
+                    finally:
+                        cursor.close()
+                        log_db_pool.release_connection(connection)
             
             # 对于没有找到昵称的用户，使用默认昵称
             for user_id in user_ids:

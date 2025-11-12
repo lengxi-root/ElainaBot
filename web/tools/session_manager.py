@@ -238,19 +238,19 @@ def verify_cookie_value(signed_value, secret):
     except:
         return False, None
 
-def require_token(WEB_SECURITY):
+def require_token(WEB_CONFIG):
     def decorator(f):
         @functools.wraps(f)
         def decorated_function(*args, **kwargs):
             token = request.args.get('token') or request.form.get('token')
-            if not token or token != WEB_SECURITY['access_token']:
+            if not token or token != WEB_CONFIG['access_token']:
                 return '', 403
             record_ip_access(request.remote_addr, 'token_success', extract_device_info(request))
             return f(*args, **kwargs)
         return decorated_function
     return decorator
 
-def require_auth(WEB_SECURITY, WEB_INTERFACE):
+def require_auth(WEB_CONFIG):
     def decorator(f):
         @functools.wraps(f)
         def decorated_function(*args, **kwargs):
@@ -262,34 +262,31 @@ def require_auth(WEB_SECURITY, WEB_INTERFACE):
                 if is_valid and session_token in valid_sessions:
                     session_info = valid_sessions[session_token]
                     if datetime.now() < session_info['expires']:
-                        if not WEB_SECURITY.get('production_mode', False) or \
-                           (session_info.get('ip') == request.remote_addr and \
+                        if (session_info.get('ip') == request.remote_addr and \
                             session_info.get('user_agent', '')[:200] == request.headers.get('User-Agent', '')[:200]):
                             return f(*args, **kwargs)
-                        del valid_sessions[session_token]
-                        save_session_data()
                     else:
                         del valid_sessions[session_token]
                         save_session_data()
             
             from flask import render_template
-            return render_template('login.html', token=request.args.get('token', ''), web_interface=WEB_INTERFACE)
+            return render_template('login.html', token=request.args.get('token', ''), web_interface=WEB_CONFIG)
         return decorated_function
     return decorator
 
-def require_socketio_token(WEB_SECURITY):
+def require_socketio_token(WEB_CONFIG):
     def decorator(f):
         @functools.wraps(f)
         def decorated_function(*args, **kwargs):
             cleanup_expired_ip_bans()
             cleanup_expired_sessions()
             
-            client_ip = request.remote_addr
+            client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('HTTP_X_REAL_IP', request.environ.get('REMOTE_ADDR', '未知')))
             if is_ip_banned(client_ip):
                 return False
             
             token = request.args.get('token')
-            if not token or token != WEB_SECURITY['access_token']:
+            if not token or token != WEB_CONFIG['access_token']:
                 return False
             
             cookie_value = request.cookies.get('elaina_admin_session')
@@ -301,18 +298,16 @@ def require_socketio_token(WEB_SECURITY):
                 return False
             
             session_info = valid_sessions[session_token]
-            
             if datetime.now() >= session_info['expires']:
                 del valid_sessions[session_token]
                 save_session_data()
                 return False
             
-            if WEB_SECURITY.get('production_mode', False):
-                if (session_info.get('ip') != client_ip or 
-                    session_info.get('user_agent', '')[:200] != request.headers.get('User-Agent', '')[:200]):
-                    del valid_sessions[session_token]
-                    save_session_data()
-                    return False
+            if (session_info.get('ip') != client_ip or 
+                session_info.get('user_agent', '')[:200] != request.headers.get('User-Agent', '')[:200]):
+                del valid_sessions[session_token]
+                save_session_data()
+                return False
             
             device_info = extract_device_info(request)
             record_ip_access(client_ip, access_type='token_success', device_info=device_info)

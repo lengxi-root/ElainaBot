@@ -8,8 +8,8 @@ from functools import lru_cache, partial
 from collections import defaultdict
 from function.log_db import LogDatabasePool
 from function.db_pool import DatabaseService
-from function.database import USERS_TABLE, GROUPS_TABLE, MEMBERS_TABLE, GROUPS_USERS_TABLE
-from config import DB_CONFIG, LOG_DB_CONFIG
+from function.database import USERS_TABLE, MEMBERS_TABLE, GROUPS_USERS_TABLE
+from config import LOG_DB_CONFIG
 
 try:
     from core.plugin.PluginManager import PluginManager
@@ -29,7 +29,6 @@ class DAUAnalytics:
         self.is_running = False
         self.scheduler_thread = None
         self.log_table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
-        self.main_table_prefix = DB_CONFIG.get('table_prefix', 'M_')
         self._thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="DAU")
         self._query_cache = {}
         self._cache_timestamps = {}
@@ -199,13 +198,34 @@ class DAUAnalytics:
         return result
 
     def _get_user_stats(self) -> Dict[str, Any]:
-        queries = [
-            (f"SELECT COUNT(*) as count FROM {self.main_table_prefix}users", None, False),
-            (f"SELECT COUNT(*) as count FROM {self.main_table_prefix}groups", None, False),
-            (f"SELECT COUNT(*) as count FROM {self.main_table_prefix}members", None, False),
-            (f"SELECT group_id, GREATEST(1, ROUND((CHAR_LENGTH(users) - 2) / 25)) as member_count FROM {self.main_table_prefix}groups_users WHERE users IS NOT NULL AND users != '[]' ORDER BY member_count DESC LIMIT 3", None, True)
-        ]
-        results = DatabaseService.execute_concurrent_queries(queries)
+        def execute_user_queries(cursor):
+            results = []
+            try:
+                # 查询用户数
+                cursor.execute(f"SELECT COUNT(*) as count FROM {self.log_table_prefix}users")
+                users_result = cursor.fetchone()
+                results.append(users_result)
+                
+                # 查询群组数（使用groups_users表）
+                cursor.execute(f"SELECT COUNT(*) as count FROM {self.log_table_prefix}groups_users")
+                groups_result = cursor.fetchone()
+                results.append(groups_result)
+                
+                # 查询成员数
+                cursor.execute(f"SELECT COUNT(*) as count FROM {self.log_table_prefix}members")
+                members_result = cursor.fetchone()
+                results.append(members_result)
+                
+                # 查询前3个最大群组
+                cursor.execute(f"SELECT group_id, GREATEST(1, ROUND((CHAR_LENGTH(users) - 2) / 25)) as member_count FROM {self.log_table_prefix}groups_users WHERE users IS NOT NULL AND users != '[]' ORDER BY member_count DESC LIMIT 3")
+                top_groups_result = cursor.fetchall()
+                results.append(top_groups_result)
+                
+                return results
+            except Exception as e:
+                return [None, None, None, None]
+        
+        results = self._with_log_db_cursor(execute_user_queries)
         if not results or not isinstance(results, list):
             results = [None, None, None, None]
         elif len(results) < 4:

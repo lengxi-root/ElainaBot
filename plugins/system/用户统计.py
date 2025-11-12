@@ -4,7 +4,7 @@ import json
 import logging
 import time
 import datetime
-from config import LOG_DB_CONFIG, USE_MARKDOWN, OWNER_IDS, SERVER_CONFIG, ROBOT_QQ, appid, WEB_INTERFACE
+from config import LOG_DB_CONFIG, USE_MARKDOWN, OWNER_IDS, SERVER_CONFIG, ROBOT_QQ, appid, WEB_CONFIG
 import traceback
 from function.httpx_pool import sync_get, get_json
 from function.database import Database
@@ -740,11 +740,11 @@ class system_plugin(Plugin):
         kernel_count = len(PluginManager._plugins)
         function_count = len(PluginManager._regex_handlers)
         python_version = platform.python_version()
-        framework_name = WEB_INTERFACE.get('framework_name', 'Elaina')
+        framework_name = WEB_CONFIG.get('framework_name', 'Elaina')
         
         # 获取内核版本号
         try:
-            from function.updater import get_updater
+            from web.tools.updater import get_updater
             version_info = get_updater().get_version_info()
             kernel_version = version_info.get('version', 'unknown')
             if kernel_version == 'unknown':

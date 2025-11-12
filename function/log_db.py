@@ -18,10 +18,10 @@ def decimal_converter(obj):
 
 DEFAULT_LOG_CONFIG = {
     'create_tables': True,
-    'table_per_day': True,
+    'table_per_day': True,  # 默认按日期自动分表
+    'fallback_to_file': True,  # 默认回退到文件记录
     'batch_size': 0,
     'min_pool_size': 5,
-    'autocommit': True,
     'pool_size': None,
 }
 
@@ -72,9 +72,9 @@ class LogDatabasePool:
                     host=db_config.get('host', 'localhost'), port=db_config.get('port', 3306),
                     user=db_config.get('user', 'root'), password=db_config.get('password', ''),
                     database=db_config.get('database', ''), charset=db_config.get('charset', 'utf8mb4'),
-                    cursorclass=DictCursor, connect_timeout=db_config.get('connect_timeout', 3),
-                    read_timeout=db_config.get('read_timeout', 10), write_timeout=db_config.get('write_timeout', 10),
-                    autocommit=MERGED_LOG_CONFIG['autocommit']
+                    cursorclass=DictCursor, connect_timeout=3,  # 写死连接超时为3秒
+                    read_timeout=3, write_timeout=3,  # 写死读写超时为3秒
+                    autocommit=False  # 写死不自动提交事务
                 )
             except:
                 if i < retry_count - 1:
@@ -224,7 +224,8 @@ class LogDatabaseManager:
         self._stop_event = threading.Event()
         self._save_thread = threading.Thread(target=self._periodic_save, daemon=True, name="LogDBSaveThread")
         self._save_thread.start()
-        if MERGED_LOG_CONFIG.get('auto_cleanup', False):
+        # 根据retention_days判断是否需要自动清理，retention_days > 0时启用清理
+        if MERGED_LOG_CONFIG.get('retention_days', 0) > 0:
             self._cleanup_thread = threading.Thread(target=self._periodic_cleanup, daemon=True, name="LogDBCleanupThread")
             self._cleanup_thread.start()
 
@@ -367,20 +368,20 @@ class LogDatabaseManager:
             'dau': {
                 'base': 'special',
                 'fields': """
-                `date` date NOT NULL PRIMARY KEY,
-                `active_users` int(11) DEFAULT 0,
-                `active_groups` int(11) DEFAULT 0,
-                `total_messages` int(11) DEFAULT 0,
-                `private_messages` int(11) DEFAULT 0,
-                `group_join_count` int(11) DEFAULT 0,
-                `group_leave_count` int(11) DEFAULT 0,
-                `group_count_change` int(11) DEFAULT 0,
-                `friend_add_count` int(11) DEFAULT 0,
-                `friend_remove_count` int(11) DEFAULT 0,
-                `friend_count_change` int(11) DEFAULT 0,
-                `message_stats_detail` json,
-                `user_stats_detail` json,
-                `command_stats_detail` json,
+                `date` date NOT NULL COMMENT '日期' PRIMARY KEY,
+                `active_users` int(11) DEFAULT 0 COMMENT '活跃用户数',
+                `active_groups` int(11) DEFAULT 0 COMMENT '活跃群聊数',
+                `total_messages` int(11) DEFAULT 0 COMMENT '消息总数',
+                `private_messages` int(11) DEFAULT 0 COMMENT '私聊消息总数',
+                `group_join_count` int(11) DEFAULT 0 COMMENT '今日进群数',
+                `group_leave_count` int(11) DEFAULT 0 COMMENT '今日退群数',
+                `group_count_change` int(11) DEFAULT 0 COMMENT '群数量增减',
+                `friend_add_count` int(11) DEFAULT 0 COMMENT '今日加好友数',
+                `friend_remove_count` int(11) DEFAULT 0 COMMENT '今日删好友数',
+                `friend_count_change` int(11) DEFAULT 0 COMMENT '好友数增减',
+                `message_stats_detail` json COMMENT '详细消息统计数据(JSON)',
+                `user_stats_detail` json COMMENT '详细用户统计数据(JSON)',
+                `command_stats_detail` json COMMENT '详细命令统计数据(JSON)',
                 """,
                 'end': 'dau'
             },
@@ -432,8 +433,6 @@ class LogDatabaseManager:
             self._create_table(log_type)
     
     def add_log(self, log_type, log_data):
-        if not MERGED_LOG_CONFIG['enabled']:
-            return False
         
         if log_type not in LOG_TYPES:
             return False
@@ -610,7 +609,7 @@ class LogDatabaseManager:
         if hasattr(self, '_cleanup_thread') and self._cleanup_thread.is_alive():
             self._cleanup_thread.join(timeout=2)
 
-log_db_manager = LogDatabaseManager() if MERGED_LOG_CONFIG['enabled'] else None
+log_db_manager = LogDatabaseManager()
 
 def add_log_to_db(log_type, log_data):
     if not log_db_manager or not isinstance(log_data, dict):

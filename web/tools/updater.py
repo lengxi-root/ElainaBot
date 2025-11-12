@@ -9,7 +9,6 @@ import shutil
 import zipfile
 import logging
 import requests
-import threading
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -18,14 +17,12 @@ import fnmatch
 class FrameworkUpdater:
     
     def __init__(self, config=None):
-        self.base_dir = Path(__file__).parent.parent.absolute()
+        self.base_dir = Path(__file__).parent.parent.parent.absolute()
         self.version_file = self.base_dir / "data" / "version.json"
         self.config = config or self._load_config()
         self.logger = logging.getLogger('FrameworkUpdater')
         (self.base_dir / "data").mkdir(exist_ok=True)
         self.current_version = self._load_version()
-        self._update_thread = None
-        self._stop_event = threading.Event()
         self.progress_callback = None
         self.current_progress = {'stage': 'idle', 'message': '未开始', 'progress': 0, 'is_updating': False}
     
@@ -42,10 +39,13 @@ class FrameworkUpdater:
     
     def _load_config(self):
         try:
-            from config import AUTO_UPDATE_CONFIG
-            config = AUTO_UPDATE_CONFIG.copy()
+            from config import PROTECTED_FILES
+            config = {
+                'skip_files': PROTECTED_FILES,
+                'backup_enabled': True
+            }
         except:
-            config = {'enabled': False, 'check_interval': 1800, 'auto_update': False, 'backup_enabled': True, 'skip_files': ["config.py", "data/", "plugins/"]}
+            config = {'backup_enabled': True, 'skip_files': ["config.py", "data/", "plugins/"]}
         config['update_api'] = "https://i.elaina.vin/api/elainabot/"
         config['backup_dir'] = "data/backup"
         return config
@@ -232,7 +232,7 @@ class FrameworkUpdater:
         return result
     
     def update_to_version(self, version):
-        self.logger.info(f"开始更新到版本: {version}")
+        self.logger.info(f"开始手动更新到版本: {version}")
         self._report_progress('preparing', f'准备更新到版本 {version}...', 0)
         self._save_version(version)
         zip_file = self.download_update(version)
@@ -247,42 +247,6 @@ class FrameworkUpdater:
         if not check_result['has_update']:
             return {'success': False, 'message': '当前已是最新版本', 'current_version': self.current_version}
         return self.update_to_version(check_result['latest_version'])
-    
-    def start_auto_check(self):
-        if not self.config.get('enabled', False):
-            return False
-        if self._update_thread and self._update_thread.is_alive():
-            return False
-        self._stop_event.clear()
-        self._update_thread = threading.Thread(target=self._auto_check_loop, daemon=True)
-        self._update_thread.start()
-        self.logger.info(f"自动更新检查已启动，间隔: {self.config['check_interval']}秒")
-        return True
-    
-    def stop_auto_check(self):
-        if self._update_thread and self._update_thread.is_alive():
-            self._stop_event.set()
-            return True
-        return False
-    
-    def _auto_check_loop(self):
-        interval = self.config.get('check_interval', 1800)
-        while not self._stop_event.is_set():
-            try:
-                check_result = self.check_for_updates()
-                if check_result['has_update']:
-                    self.logger.info(f"发现新版本: {check_result['latest_version']}")
-                    if self.config.get('auto_update', False):
-                        result = self.update_to_latest()
-                        if result['success']:
-                            self.logger.info("自动更新成功！框架将在下次重启时应用更新")
-                        else:
-                            self.logger.error(f"自动更新失败: {result['message']}")
-                    else:
-                        self.logger.info("检测到新版本，但自动更新未启用")
-            except Exception as e:
-                self.logger.error(f"自动检查更新出错: {e}")
-            self._stop_event.wait(interval)
 
 _updater_instance = None
 
@@ -291,4 +255,3 @@ def get_updater():
     if _updater_instance is None:
         _updater_instance = FrameworkUpdater()
     return _updater_instance
-

@@ -34,37 +34,33 @@ def handle_get_system_status():
         
         try:
             import config
-            web_dual_process = getattr(config, 'SERVER_CONFIG', {}).get('web_dual_process', False)
             websocket_enabled = getattr(config, 'WEBSOCKET_CONFIG', {}).get('enabled', False)
         except:
-            web_dual_process = False
             websocket_enabled = False
         
         current_pid = os.getpid()
         websocket_available = False
         
-        if not web_dual_process:
-            if websocket_enabled:
-                websocket_available = True
-            else:
-                try:
-                    import psutil
-                    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                        if proc.info['pid'] == current_pid:
-                            continue
-                        if not proc.info['cmdline']:
-                            continue
-                        
-                        cmdline = ' '.join(proc.info['cmdline'])
-                        if 'main.py' in cmdline and 'ElainaBot' in cmdline:
-                            websocket_available = True
-                            break
-                except:
-                    websocket_available = False
+        if websocket_enabled:
+            websocket_available = True
+        else:
+            try:
+                import psutil
+                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                    if proc.info['pid'] == current_pid:
+                        continue
+                    if not proc.info['cmdline']:
+                        continue
+                    
+                    cmdline = ' '.join(proc.info['cmdline'])
+                    if 'main.py' in cmdline and 'ElainaBot' in cmdline:
+                        websocket_available = True
+                        break
+            except:
+                websocket_available = False
         
         return jsonify({
             'success': True,
-            'standalone_web': web_dual_process,
             'websocket_available': websocket_available,
             'websocket_enabled': websocket_enabled,
             'process_id': current_pid,
@@ -74,7 +70,6 @@ def handle_get_system_status():
     except Exception as e:
         return jsonify({
             'success': False,
-            'standalone_web': True,
             'websocket_available': False,
             'error': str(e),
             'config_source': 'fallback'

@@ -47,7 +47,7 @@ def handle_get_changelog():
 
 def handle_get_current_version():
     try:
-        from function.updater import get_updater
+        from web.tools.updater import get_updater
         return jsonify({
             'success': True,
             'data': get_updater().get_version_info()
@@ -60,7 +60,7 @@ def handle_get_current_version():
 
 def handle_check_update():
     try:
-        from function.updater import get_updater
+        from web.tools.updater import get_updater
         return jsonify({
             'success': True,
             'data': get_updater().check_for_updates()
@@ -76,7 +76,7 @@ def handle_start_update():
         data = request.get_json() or {}
         version = data.get('version')
         
-        from function.updater import get_updater
+        from web.tools.updater import get_updater
         updater = get_updater()
         
         def do_update():
@@ -103,16 +103,16 @@ def handle_start_update():
 
 def handle_get_update_status():
     try:
-        from function.updater import get_updater
+        from web.tools.updater import get_updater
         updater = get_updater()
         
         return jsonify({
             'success': True,
             'data': {
-                'auto_update_enabled': updater.config.get('enabled', False),
-                'auto_update_on': updater.config.get('auto_update', False),
-                'check_interval': updater.config.get('check_interval', 1800),
-                'is_checking': updater._update_thread and updater._update_thread.is_alive()
+                'auto_update_enabled': False,  # 自动更新功能已移除
+                'auto_update_on': False,  # 自动更新功能已移除
+                'check_interval': 1800,  # 保留配置兼容性
+                'is_checking': False  # 无自动检查线程
             }
         })
         
@@ -124,7 +124,7 @@ def handle_get_update_status():
 
 def handle_get_update_progress():
     try:
-        from function.updater import get_updater
+        from web.tools.updater import get_updater
         return jsonify({
             'success': True,
             'data': get_updater().get_progress()

@@ -6,13 +6,13 @@ openapi_login_tasks = {}
 
 OPENAPI_DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data', 'openapi.json')
 try:
-    from function.bot_api import get_bot_api
+    from web.tools.bot_api import get_bot_api
     _bot_api = get_bot_api()
 except ImportError:
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
-    from function.bot_api import get_bot_api
+    from web.tools.bot_api import get_bot_api
     _bot_api = get_bot_api()
 
 def save_openapi_data():

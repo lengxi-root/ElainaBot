@@ -875,10 +875,9 @@ class MessageEvent:
         
         if self.user_id:
             self.db.add_user(self.user_id)
-        if self.group_id:
-            self.db.add_group(self.group_id)
-            if self.user_id:
-                self.db.add_user_to_group(self.group_id, self.user_id)
+        if self.group_id and self.user_id:
+            # 直接添加用户到群组，无需单独创建群组记录
+            self.db.add_user_to_group(self.group_id, self.user_id)
         if self.is_private and self.user_id:
             self.db.add_member(self.user_id)
         

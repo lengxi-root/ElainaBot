@@ -46,25 +46,6 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body">
-                <h6 class="text-muted mb-3">自动更新设置</h6>
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span>自动检查更新</span>
-                    <span class="badge bg-secondary" id="auto-check-status">未启用</span>
-                </div>
-                <div class="d-flex justify-content-between align-items-center">
-                    <span>自动安装更新</span>
-                    <span class="badge bg-secondary" id="auto-update-status">未启用</span>
-                </div>
-                <small class="text-muted mt-3 d-block">
-                    <i class="bi bi-info-circle"></i>
-                    在 config.py 中配置自动更新
-                </small>
-            </div>
-        </div>
-    </div>
 </div>
 
 <!-- 更新日志列表 -->
@@ -165,7 +146,6 @@ const getToken = () => new URLSearchParams(window.location.search).get('token') 
 document.addEventListener('DOMContentLoaded', function() {
     loadChangelog();
     loadVersionInfo();
-    loadUpdateStatus();
 });
 
 async function loadVersionInfo() {
@@ -184,23 +164,6 @@ async function loadVersionInfo() {
     }
 }
 
-async function loadUpdateStatus() {
-    try {
-        const response = await fetch(`/web/api/update/status?token=${getToken()}`);
-        const result = await response.json();
-        if (result.success) {
-            const status = result.data;
-            const checkStatus = document.getElementById('auto-check-status');
-            const updateStatus = document.getElementById('auto-update-status');
-            checkStatus.textContent = status.auto_update_enabled ? '已启用' : '未启用';
-            checkStatus.className = status.auto_update_enabled ? 'badge bg-success' : 'badge bg-secondary';
-            updateStatus.textContent = status.auto_update_on ? '已启用' : '未启用';
-            updateStatus.className = status.auto_update_on ? 'badge bg-success' : 'badge bg-secondary';
-        }
-    } catch (error) {
-        console.error('加载更新状态失败:', error);
-    }
-}
 
 async function checkUpdate() {
     const updateBtn = document.getElementById('update-btn');
@@ -358,7 +321,6 @@ function renderChangelog() {
 function refreshChangelog() {
     loadChangelog();
     loadVersionInfo();
-    loadUpdateStatus();
 }
 
 function escapeHtml(text) {

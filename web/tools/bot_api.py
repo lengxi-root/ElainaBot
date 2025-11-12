@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 import httpx
 
-logger = logging.getLogger('ElainaBot.function.bot_api')
+logger = logging.getLogger('ElainaBot.web.tools.bot_api')
 
 class QQBotAPI:
     def __init__(self):

@@ -47,7 +47,7 @@ def handle_get_logs(log_type):
 
 def get_today_logs_from_db(log_type, limit=None):
     try:
-        if not LOG_DB_CONFIG or not LOG_DB_CONFIG.get('enabled', False):
+        if not LOG_DB_CONFIG:
             return []
         
         if limit is None:
@@ -179,7 +179,7 @@ def get_today_logs_from_db(log_type, limit=None):
 
 def get_today_message_logs_from_db(limit=None):
     try:
-        if not LOG_DB_CONFIG or not LOG_DB_CONFIG.get('enabled', False):
+        if not LOG_DB_CONFIG:
             return []
         
         if limit is None:

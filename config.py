@@ -86,12 +86,10 @@ LOG_DB_CONFIG = {
     'password': "",  # 日志数据库密码
     'database': "",  # 日志数据库名称
     'charset': "utf8mb4",  # 字符集配置
-
-    # 功能开关配置
     'use_main_db': False,  # 是否复用主数据库配置(DB_CONFIG)
     
     # 日志写入策略
-    'insert_interval': 10,  # 批量写入间隔时间(秒)，0表示立即写入
+    'insert_interval': 2,  # 批量写入间隔时间(秒)，0表示立即写入
     'batch_size': 1000,  # 每批次最大写入日志记录数
     'table_prefix': f"{appid}_",  # 日志表名前缀，使用机器人appid作为前缀
     # 日志保留策略

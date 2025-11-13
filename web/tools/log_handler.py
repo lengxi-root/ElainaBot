@@ -59,7 +59,7 @@ class LogHandler:
         self.logs.append(entry)
         self.global_logs.append(entry)
         
-        if not skip_db and LOG_DB_CONFIG and LOG_DB_CONFIG.get('enabled'):
+        if not skip_db and LOG_DB_CONFIG:
             try:
                 if add_log_to_db:
                     add_log_to_db(self.log_type, entry)
@@ -77,13 +77,18 @@ class LogHandler:
                     elif entry['type'] == 'received':
                         actual_type = 'received'
                 
+                # 根据消息类型构建不同的字段列表
+                fields = ['timestamp', 'content']
+                if 'traceback' in entry:
+                    fields.append('traceback')
+                if actual_type == 'plugin':
+                    fields.extend(['user_id', 'group_id', 'plugin_name'])
+                elif actual_type == 'received':
+                    fields.extend(['user_id', 'group_id'])
+                
                 emit_data = {
                     'type': actual_type,
-                    'data': {
-                        k: entry[k] for k in ['timestamp', 'content'] + 
-                        (['traceback'] if 'traceback' in entry else []) +
-                        (['user_id', 'group_id', 'plugin_name'] if actual_type in ['plugin', 'received'] else [])
-                    }
+                    'data': {k: entry[k] for k in fields if k in entry}
                 }
                 socketio.emit('new_message', emit_data, namespace=PREFIX)
             except:

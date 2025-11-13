@@ -100,7 +100,7 @@ import json, gc, threading, logging, traceback, random, warnings, signal, multip
 from multiprocessing import Process, Event
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
-from config import LOG_CONFIG, LOG_DB_CONFIG, WEBSOCKET_CONFIG, SERVER_CONFIG, WEB_SECURITY
+from config import LOG_DB_CONFIG, WEBSOCKET_CONFIG, SERVER_CONFIG, WEB_CONFIG
 from function.Access import BOT凭证, BOTAPI, Json取, Json
 from function.httpx_pool import get_pool_manager
 
@@ -149,28 +149,6 @@ def cleanup_gc():
         gc.collect(0)
         _gc_counter = 0
 
-def start_web_process():
-    setup_logging()
-    init_systems(is_subprocess=True)
-    from web.app import start_web
-    from eventlet import wsgi
-    web_host = SERVER_CONFIG.get('host', '0.0.0.0')
-    web_port = SERVER_CONFIG.get('web_port', 5002)
-    web_app, web_socketio = start_web(main_app=None, is_subprocess=True)
-    wsgi.server(eventlet.listen((web_host, web_port)), web_app, log=None, log_output=False)
-
-def start_web_dual_process():
-    global _web_process
-    _web_process = Process(target=start_web_process, daemon=True)
-    _web_process.start()
-    return True
-
-def stop_web_process():
-    global _web_process
-    _web_process_event.set()
-    if _web_process and _web_process.is_alive():
-        _web_process.terminate()
-        _web_process.join(timeout=5)
 
 def log_to_console(message):
     logger.info(message)
@@ -264,13 +242,21 @@ def process_message_event(data, http_context=None):
             del event
             return False
         
+        # 立即执行web实时推送（主线程中执行）
+        try:
+            if not event.skip_recording:
+                import datetime
+                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                event._notify_web_display(timestamp)
+        except:
+            pass
+        
+        # 异步执行数据库操作
         def async_db_tasks():
             try:
                 if not event.skip_recording:
                     event._record_user_and_group()
-                    event._record_message_to_db_only()
-                    import datetime
-                    event._notify_web_display(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                    event._record_message_to_db_only()  # 只执行数据库记录，不包含web推送
                 event.record_last_message_id()
             except:
                 pass
@@ -389,12 +375,8 @@ def initialize_app():
     app = create_app()
     init_systems()
     if _web_available:
-        if SERVER_CONFIG.get('web_dual_process', False):
-            start_web_dual_process()
-            log_to_console("Web面板独立进程启动成功")
-        else:
-            start_web(app)
-            log_to_console("Web面板服务已集成到主进程")
+        start_web(app)
+        log_to_console("Web面板服务已集成到主进程")
     if _dau_available:
         start_dau_analytics()
         log_to_console("DAU分析服务启动成功")
@@ -404,8 +386,6 @@ def initialize_app():
 wsgi_app = initialize_app()
 
 def signal_handler(signum, frame):
-    if SERVER_CONFIG.get('web_dual_process', False):
-        stop_web_process()
     if _dau_available:
         stop_dau_analytics()
     sys.exit(0)
@@ -419,8 +399,8 @@ def start_main_process():
     port = SERVER_CONFIG.get('port', 5001)
     logger.info(f"🚀 主框架启动成功！")
     logger.info(f"📡 主服务器地址: {host}:{port}")
-    if _web_available and not SERVER_CONFIG.get('web_dual_process', False):
-        web_token = WEB_SECURITY.get('access_token', '')
+    if _web_available:
+        web_token = WEB_CONFIG.get('access_token', '')
         display_host = 'localhost' if host == '0.0.0.0' else host
         web_url = f"http://{display_host}:{port}/web/"
         if web_token:
@@ -440,8 +420,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
-        if SERVER_CONFIG.get('web_dual_process', False):
-            stop_web_process()
         if _dau_available:
             stop_dau_analytics()
         sys.exit(0)  

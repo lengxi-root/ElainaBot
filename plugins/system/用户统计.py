@@ -222,7 +222,8 @@ class system_plugin(Plugin):
     
     @staticmethod
     def _get_user_qq(user_id):
-        result = DatabaseService.execute_query("SELECT qq FROM M_users WHERE user_id = %s", (user_id,))
+        prefix = LOG_DB_CONFIG['table_prefix']
+        result = DatabaseService.execute_query(f"SELECT qq FROM {prefix}users WHERE user_id = %s", (user_id,))
         return result.get('qq') if result else None
     
     @staticmethod
@@ -292,10 +293,6 @@ class system_plugin(Plugin):
             event.reply(f"<@{event.user_id}>\n❌ {display_date} 的DAU数据未生成或无该日期数据")
             return
         
-        if not LOG_DB_CONFIG.get('enabled', False):
-            event.reply("日志数据库未启用，无法获取DAU统计")
-            return
-            
         log_db_pool = LogDatabasePool()
         connection = log_db_pool.get_connection()
         
@@ -304,7 +301,7 @@ class system_plugin(Plugin):
             return
         
         cursor = connection.cursor()
-        table_prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+        table_prefix = LOG_DB_CONFIG['table_prefix']
         table_name = f"{table_prefix}{date_str}_message"
         
         check_query = """
@@ -616,13 +613,14 @@ class system_plugin(Plugin):
     
     @classmethod
     def _get_query_params(cls):
+        prefix = LOG_DB_CONFIG['table_prefix']
         return [
-            ("SELECT COUNT(*) as count FROM M_users", None, False),
-            ("SELECT COUNT(*) as count FROM M_groups", None, False),
-            ("SELECT COUNT(*) as count FROM M_members", None, False),
-            ("""
+            (f"SELECT COUNT(*) as count FROM {prefix}users", None, False),
+            (f"SELECT COUNT(*) as count FROM {prefix}groups_users", None, False),
+            (f"SELECT COUNT(*) as count FROM {prefix}members", None, False),
+            (f"""
                 SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM M_groups_users
+                FROM {prefix}groups_users
                 ORDER BY member_count DESC
                 LIMIT 1
             """, None, False),
@@ -631,14 +629,48 @@ class system_plugin(Plugin):
     
     @classmethod
     def _get_group_info_params(cls, group_id):
+        prefix = LOG_DB_CONFIG['table_prefix']
         return [
-            ("SELECT users FROM M_groups_users WHERE group_id = %s", (group_id,), False),
-            ("""
+            (f"SELECT users FROM {prefix}groups_users WHERE group_id = %s", (group_id,), False),
+            (f"""
                 SELECT group_id, JSON_LENGTH(users) as member_count
-                FROM M_groups_users
+                FROM {prefix}groups_users
                 ORDER BY member_count DESC
             """, None, True)
         ]
+    
+    @classmethod
+    def _execute_log_db_queries(cls, query_list):
+        """使用日志数据库执行并发查询"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        log_db_pool = LogDatabasePool()
+        
+        def execute_single_query(query_info):
+            sql, params, fetch_all = query_info[0], query_info[1], query_info[2] if len(query_info) > 2 else False
+            connection = log_db_pool.get_connection()
+            if not connection:
+                return None
+            try:
+                cursor = connection.cursor()
+                cursor.execute(sql, params)
+                result = cursor.fetchall() if fetch_all else cursor.fetchone()
+                cursor.close()
+                return result
+            except Exception as e:
+                logger.error(f"查询失败: {e}")
+                return None
+            finally:
+                log_db_pool.release_connection(connection)
+        
+        with ThreadPoolExecutor(max_workers=len(query_list)) as executor:
+            futures = [executor.submit(execute_single_query, query) for query in query_list]
+            results = []
+            for future in futures:
+                try:
+                    results.append(future.result(timeout=3.0))
+                except:
+                    results.append(None)
+            return results
     
     @classmethod
     def _process_result(cls, results):
@@ -695,15 +727,14 @@ class system_plugin(Plugin):
     @classmethod
     def get_stats(cls, event):
         start_time = time.time()
-        db = DatabaseService()
         query_params = cls._get_query_params()
         
         group_results = None
         if event.group_id:
             group_query_params = cls._get_group_info_params(event.group_id)
-            group_results = db.execute_concurrent_queries(group_query_params)
+            group_results = cls._execute_log_db_queries(group_query_params)
         
-        results = db.execute_concurrent_queries(query_params)
+        results = cls._execute_log_db_queries(query_params)
         stats = cls._process_result(results)
         
         info = [

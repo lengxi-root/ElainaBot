@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# 模板缓存，避免重复查找
+_template_cache = {}
+
 MARKDOWN_TEMPLATES = {
    
 
@@ -47,11 +50,55 @@ MARKDOWN_TEMPLATES = {
     # 按钮ID: 102321943_1744896971 - 图库菜单-小小花火
     # 按钮ID: 102321943_1744283462 - 一言-小小花火
     # 按钮ID: 102321943_1744010653 - 表情包制作-小小花火
+    "6": {
+        "id": "102134274_1749040268",
+        "params": ['text']
+    },
+    # 原始模板内容: {{.text}}
+    "7": {
+        "id": "102134274_1748254289",
+        "params": ['tag', 'url']
+    },
+    # 原始模板内容: ![{{.tag}}]({{.url}})
+    "8": {
+        "id": "102134274_1748253984",
+        "params": ['tag', 'url']
+    },
+    # 原始模板内容: [{{.tag}}]({{.url}})
+    "9": {
+        "id": "102134274_1732198356",
+        "params": ['px', 'url', 'text', 'dj', 'dj2', 'text2', 'dj3', 'dj4', 'tz2', 'url2']
+    },
+    # 原始模板内容: ![{{.px}}]({{.url}}){{.text}}<qqbot-cmd-input text="{{.dj}}" show="{{.dj2}}" />{{.text2}}<qqbot-cmd-input text="{{.dj3}}" show="{{.dj4}}" />[{{.tz2}}]({{.url2}})
+    "10": {
+        "id": "102134274_1732196818",
+        "params": ['px', 'imageurl', 'text', 'dj', 'text2', 'dj2', 'text3', 'tz2', 'url2']
+    },
+    # 原始模板内容: ![{{.px}}]({{.imageurl}}){{.text}}<qqbot-cmd-input text="{{.dj}}" />{{.text2}}<qqbot-cmd-input text="{{.dj2}}" />{{.text3}}[{{.tz2}}]({{.url2}})
+    "11": {
+        "id": "102134274_1730638216",
+        "params": ['text', 'tz', 'url', 'px', 'imageurl', 'text2', 'tz2', 'url2']
+    },
+    # 原始模板内容: {{.text}}[{{.tz}}]({{.url}})![{{.px}}]({{.imageurl}}){{.text2}}[{{.tz2}}]({{.url2}})
+    "12": {
+        "id": "102134274_1723126491",
+        "params": ['text_start', 'img_dec', 'img_url', 'text_end']
+    },
+    # 原始模板内容: {{.text_start}}![{{.img_dec}}]({{.img_url}}){{.text_end}}
+
 }
 
 def get_template(template_name):
     """获取指定名称的模板配置"""
-    return MARKDOWN_TEMPLATES.get(template_name)
+    # 使用缓存提升查找性能
+    if template_name in _template_cache:
+        return _template_cache[template_name]
+    
+    template = MARKDOWN_TEMPLATES.get(template_name)
+    if template:
+        _template_cache[template_name] = template
+    
+    return template
 
 def get_all_templates():
     """获取所有模板配置"""

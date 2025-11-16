@@ -17,6 +17,7 @@ def decimal_converter(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 DEFAULT_LOG_CONFIG = {
+    'enabled': True,  # 默认启用日志数据库
     'create_tables': True,
     'table_per_day': True,  # 默认按日期自动分表
     'fallback_to_file': True,  # 默认回退到文件记录
@@ -63,7 +64,7 @@ class LogDatabasePool:
                 self._initialized = True
 
     def _create_connection_with_retry(self):
-        db_config = DB_CONFIG if MERGED_LOG_CONFIG['use_main_db'] else MERGED_LOG_CONFIG
+        db_config = MERGED_LOG_CONFIG
         retry_count = MERGED_LOG_CONFIG['max_retry']
         retry_delay = MERGED_LOG_CONFIG['retry_interval']
         for i in range(retry_count):
@@ -71,7 +72,7 @@ class LogDatabasePool:
                 return pymysql.connect(
                     host=db_config.get('host', 'localhost'), port=db_config.get('port', 3306),
                     user=db_config.get('user', 'root'), password=db_config.get('password', ''),
-                    database=db_config.get('database', ''), charset=db_config.get('charset', 'utf8mb4'),
+                    database=db_config.get('database', ''), charset='utf8mb4',  # 固定使用 utf8mb4
                     cursorclass=DictCursor, connect_timeout=3,  # 写死连接超时为3秒
                     read_timeout=3, write_timeout=3,  # 写死读写超时为3秒
                     autocommit=False  # 写死不自动提交事务
@@ -593,11 +594,12 @@ class LogDatabaseManager:
             pass
     
 
-    def _cleanup_yesterday_ids(self):
+    def _cleanup_old_ids(self):
+        """清理3天前的消息ID记录"""
         with self._with_cursor() as (cursor, connection):
             table_name = self._get_table_name('id')
-            yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-            cursor.execute(f"DELETE FROM `{table_name}` WHERE DATE(`timestamp`) = %s", (yesterday,))
+            three_days_ago = (datetime.datetime.now() - datetime.timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0)
+            cursor.execute(f"DELETE FROM `{table_name}` WHERE `timestamp` < %s", (three_days_ago,))
             connection.commit()
 
     def shutdown(self):
@@ -690,10 +692,11 @@ def add_sent_message_to_db(chat_type, chat_id, content, raw_message=None, timest
     log_db_manager._save_log_type_to_db('message')
     return True
 
-def cleanup_yesterday_ids():
+def cleanup_old_ids():
+    """清理3天前的消息ID记录"""
     if not log_db_manager:
         return False
-    log_db_manager._cleanup_yesterday_ids()
+    log_db_manager._cleanup_old_ids()
     return True
 
 def cleanup_expired_log_tables():

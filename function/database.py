@@ -1,29 +1,80 @@
 import json, logging
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from function.httpx_pool import get_json
-from config import LOG_DB_CONFIG, appid
+from config import LOG_DB_CONFIG, DB_CONFIG, appid
 
 logger = logging.getLogger('ElainaBot.function.database')
 
 class Database:
     _instance = None
     _thread_pool = None
+    _enabled = DB_CONFIG.get('enabled', True)  # 默认启用
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(Database, cls).__new__(cls)
-            cls._instance._init_database()
+            if cls._enabled:
+                cls._instance._init_database()
+            else:
+                logger.info("主数据库已禁用（DB_CONFIG['enabled'] = False）")
         return cls._instance
 
     @staticmethod
     def get_table_name(base_name):
-        prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+        prefix = LOG_DB_CONFIG['table_prefix']
         return f"{prefix}{base_name}"
 
     def _init_database(self):
         if self._thread_pool is None:
             self._thread_pool = ThreadPoolExecutor(max_workers=None, thread_name_prefix="Database")
+        self._db_pool = None  # 延迟初始化连接池
         self._initialize_tables()
+    
+    def _get_db_pool(self):
+        """获取数据库连接池（延迟初始化）"""
+        if not self._enabled:
+            logger.warning("主数据库未启用，无法获取连接池")
+            return None
+        if self._db_pool is None:
+            from function.log_db import LogDatabasePool
+            self._db_pool = LogDatabasePool()
+        return self._db_pool
+    
+    @contextmanager
+    def _get_cursor(self):
+        """上下文管理器：自动管理连接和游标"""
+        pool = self._get_db_pool()
+        if pool is None:
+            yield None, None
+            return
+        connection = pool.get_connection()
+        
+        if not connection:
+            logger.error("无法获取数据库连接")
+            yield None, None
+            return
+        
+        cursor = None
+        try:
+            cursor = connection.cursor()
+            yield cursor, connection
+        except Exception as e:
+            logger.error(f"数据库操作异常: {e}")
+            if connection:
+                try:
+                    connection.rollback()
+                except:
+                    pass
+            raise
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if connection:
+                pool.release_connection(connection)
 
     def _initialize_tables(self):
         tables = {
@@ -32,56 +83,44 @@ class Database:
             self.get_table_name('members'): f"CREATE TABLE IF NOT EXISTS {self.get_table_name('members')} (user_id VARCHAR(255) NOT NULL UNIQUE, PRIMARY KEY (user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         }
         try:
-            from function.log_db import LogDatabasePool
-            log_db_pool = LogDatabasePool()
-            connection = log_db_pool.get_connection()
-            
-            if not connection:
-                logger.error("日志数据库连接失败，无法初始化表")
-                return
-            
-            try:
-                cursor = connection.cursor()
+            with self._get_cursor() as (cursor, connection):
+                if not cursor:
+                    logger.error("无法获取数据库游标，无法初始化表")
+                    return
+                
                 for sql in tables.values():
                     cursor.execute(sql)
                 
                 # 检查并添加 name 列
-                self._add_name_column_if_not_exists(connection)
+                self._add_name_column_if_not_exists(cursor, connection)
                 connection.commit()
                 logger.info("数据库表初始化完成")
-            finally:
-                cursor.close()
-                log_db_pool.release_connection(connection)
         except Exception as e:
             import traceback
             logger.error(f"初始化数据库表失败: {type(e).__name__}: {e}\n{traceback.format_exc()}")
 
-    def _add_name_column_if_not_exists(self, connection):
+    def _add_name_column_if_not_exists(self, cursor, connection):
         """检查并添加 name 列到 users 表"""
         users_table = self.get_table_name('users')
         database_name = LOG_DB_CONFIG.get('database', 'log')
         
-        cursor = connection.cursor()
-        try:
-            cursor.execute(
-                "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'name'",
-                (database_name, users_table)
-            )
-            result = cursor.fetchone()
-            
-            # 根据游标类型处理返回值
-            if isinstance(result, dict):
-                column_count = result.get('COUNT(*)', 0)
-            elif isinstance(result, (list, tuple)) and len(result) > 0:
-                column_count = result[0]
-            else:
-                column_count = 0
-            
-            if column_count == 0:
-                cursor.execute(f"ALTER TABLE {users_table} ADD COLUMN name VARCHAR(255) DEFAULT NULL")
-                logger.info(f"已为表 {users_table} 添加 name 列")
-        finally:
-            cursor.close()
+        cursor.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'name'",
+            (database_name, users_table)
+        )
+        result = cursor.fetchone()
+        
+        # 根据游标类型处理返回值
+        if isinstance(result, dict):
+            column_count = result.get('COUNT(*)', 0)
+        elif isinstance(result, (list, tuple)) and len(result) > 0:
+            column_count = result[0]
+        else:
+            column_count = 0
+        
+        if column_count == 0:
+            cursor.execute(f"ALTER TABLE {users_table} ADD COLUMN name VARCHAR(255) DEFAULT NULL")
+            logger.info(f"已为表 {users_table} 添加 name 列")
 
     def _async_execute(self, func, *args):
         if self._thread_pool:
@@ -90,21 +129,11 @@ class Database:
     def _execute_query(self, sql, params=None):
         """执行查询并返回结果"""
         try:
-            from function.log_db import LogDatabasePool
-            log_db_pool = LogDatabasePool()
-            connection = log_db_pool.get_connection()
-            
-            if not connection:
-                return None
-            
-            try:
-                cursor = connection.cursor()
+            with self._get_cursor() as (cursor, connection):
+                if not cursor:
+                    return None
                 cursor.execute(sql, params or ())
-                result = cursor.fetchone()
-                return result
-            finally:
-                cursor.close()
-                log_db_pool.release_connection(connection)
+                return cursor.fetchone()
         except Exception as e:
             logger.error(f"数据库查询失败: {e}")
             return None
@@ -112,21 +141,12 @@ class Database:
     def _execute_update(self, sql, params=None):
         """执行更新操作"""
         try:
-            from function.log_db import LogDatabasePool
-            log_db_pool = LogDatabasePool()
-            connection = log_db_pool.get_connection()
-            
-            if not connection:
-                return False
-            
-            try:
-                cursor = connection.cursor()
+            with self._get_cursor() as (cursor, connection):
+                if not cursor:
+                    return False
                 cursor.execute(sql, params or ())
                 connection.commit()
                 return True
-            finally:
-                cursor.close()
-                log_db_pool.release_connection(connection)
         except Exception as e:
             logger.error(f"数据库更新失败: {e}")
             return False
@@ -262,7 +282,7 @@ class Database:
         return result.get('name') if result else None
 
 def get_table_name(base_name):
-    prefix = LOG_DB_CONFIG.get('table_prefix', 'Mlog_')
+    prefix = LOG_DB_CONFIG['table_prefix']
     return f"{prefix}{base_name}"
 
 USERS_TABLE = get_table_name('users')

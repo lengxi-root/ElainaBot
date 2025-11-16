@@ -120,7 +120,7 @@ class DatabasePool:
             return pymysql.connect(
                 host=DB_CONFIG.get('host', 'localhost'), port=DB_CONFIG.get('port', 3306),
                 user=DB_CONFIG.get('user', 'root'), password=DB_CONFIG.get('password', ''),
-                database=DB_CONFIG.get('database', ''), charset=DB_CONFIG.get('charset', 'utf8mb4'),
+                database=DB_CONFIG.get('database', ''), charset='utf8mb4',  # 固定使用 utf8mb4
                 cursorclass=DictCursor, connect_timeout=POOL_CONFIG['connection_timeout'],
                 read_timeout=POOL_CONFIG['read_timeout'], write_timeout=POOL_CONFIG['write_timeout'],
                 autocommit=DB_CONFIG.get('autocommit', True)

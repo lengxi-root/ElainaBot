@@ -12,6 +12,8 @@ import weakref
 import asyncio
 import json
 import logging
+import threading
+from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 
 from config import (
@@ -58,6 +60,13 @@ _plugins_loaded = False
 _last_cache_cleanup = 0
 _plugin_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="PluginWorker")
 
+# 超时配置
+_SOFT_TIMEOUT = 3.0  # 软超时：释放主流程
+_HARD_TIMEOUT = 300.0  # 硬超时：强制终止后台任务
+_background_tasks = {}  # 记录后台任务 {future_id: {'future': future, 'start_time': time, 'plugin_name': str}}
+_background_tasks_lock = threading.Lock()  # 后台任务字典锁
+_last_background_cleanup = 0  # 上次清理后台任务的时间
+
 class Plugin:
     """插件接口基类"""
     priority = 10
@@ -68,12 +77,20 @@ class Plugin:
         """注册正则规则与处理函数"""
         raise NotImplementedError("子类必须实现get_regex_handlers方法")
 
+# 使用 LRU 缓存编译正则表达式（自动淘汰最少使用的）
+@lru_cache(maxsize=256)
+def _compile_regex_cached(pattern):
+    """LRU 缓存的正则编译函数"""
+    try:
+        return re.compile(pattern, re.DOTALL)
+    except Exception:
+        return None
+
 class PluginManager:
     _regex_handlers = {}
     _plugins = {}
     _file_last_modified = {}
     _unloaded_modules = []
-    _regex_cache = {}
     _sorted_handlers = []
     _handler_patterns_cache = {}
     _web_routes = {}  # 存储web插件路由信息
@@ -139,15 +156,11 @@ class PluginManager:
     
     @classmethod
     def _compile_and_cache_regex(cls, pattern, error_context=""):
-        """统一的正则编译和缓存"""
-        try:
-            compiled_regex = re.compile(pattern, re.DOTALL)
-            cls._regex_cache[pattern] = compiled_regex
-            return compiled_regex
-        except Exception as e:
-            if error_context:
-                _log_error(f"{error_context}正则表达式 '{pattern}' 编译失败: {str(e)}")
-            return None
+        """统一的正则编译和缓存（使用 LRU 缓存）"""
+        compiled_regex = _compile_regex_cached(pattern)
+        if not compiled_regex and error_context:
+            _log_error(f"{error_context}正则表达式 '{pattern}' 编译失败")
+        return compiled_regex
 
     # === 黑名单管理 ===
     @classmethod
@@ -275,9 +288,8 @@ class PluginManager:
         main_module_loaded = cls._import_main_module_instances()
         cls._periodic_gc()
         
+        # 清理 handler_patterns_cache（仅在过大时）
         if current_time - _last_cache_cleanup > 300:
-            if len(cls._regex_cache) > 200:
-                cls._regex_cache.clear()
             if len(cls._handler_patterns_cache) > 200:
                 cls._handler_patterns_cache.clear()
             _last_cache_cleanup = current_time
@@ -631,8 +643,7 @@ class PluginManager:
                 plugin_class = handler_info.get('class') if isinstance(handler_info, dict) else handler_info[0]
                 if plugin_class in plugin_classes_to_remove:
                     del cls._regex_handlers[pattern]
-                    if pattern in cls._regex_cache:
-                        del cls._regex_cache[pattern]
+                    # LRU 缓存会自动管理，无需手动删除
             except Exception as e:
                 _log_error(f"清理正则处理器时出错: {str(e)}", traceback.format_exc())
         
@@ -745,11 +756,10 @@ class PluginManager:
             handler_info = handler_data['handler_info']
             priority = handler_data['priority']
             
-            compiled_regex = cls._regex_cache.get(pattern)
+            # 直接使用 LRU 缓存编译
+            compiled_regex = cls._compile_and_cache_regex(pattern)
             if not compiled_regex:
-                compiled_regex = cls._compile_and_cache_regex(pattern)
-                if not compiled_regex:
-                    continue
+                continue
             
             handler_key = f"{priority}_{i}_{pattern}"
             cls._handler_patterns_cache[handler_key] = {
@@ -869,10 +879,16 @@ class PluginManager:
     @classmethod
     def dispatch_message(cls, event):
         try:
-            global _maintenance_mode_enabled, _blacklist_enabled
+            global _maintenance_mode_enabled, _blacklist_enabled, _last_background_cleanup
             
             # 检测插件更新（支持热加载）
             cls.load_plugins()
+            
+            # 定期清理已完成的后台任务（每30秒）
+            current_time = time.time()
+            if current_time - _last_background_cleanup > 30:
+                cls._cleanup_background_tasks()
+                _last_background_cleanup = current_time
             
             if hasattr(event, 'handled') and event.handled:
                 return True
@@ -1095,6 +1111,7 @@ class PluginManager:
             handler = getattr(plugin_class, handler_name)
             
             def execute_handler():
+                start_time = time.time()
                 try:
                     result = handler(event)
                     if asyncio.iscoroutine(result):
@@ -1112,6 +1129,16 @@ class PluginManager:
                                 loop.close()
                             except:
                                 pass
+                    
+                    # 检查执行时间
+                    execution_time = time.time() - start_time
+                    if execution_time > 5.0:
+                        _logger.warning(
+                            f"插件 [{plugin_name}] 执行耗时 {execution_time:.2f}秒 "
+                            f"(用户: {getattr(event, 'user_id', 'unknown')}, "
+                            f"内容: {getattr(event, 'content', '')[:50]})"
+                        )
+                    
                     return result
                 except Exception as e:
                     # 捕获插件内部的所有错误并推送到前台
@@ -1139,16 +1166,59 @@ class PluginManager:
             
             try:
                 from concurrent.futures import TimeoutError
-                result = future.result(timeout=3.0)
-                return result
+                return future.result(timeout=_SOFT_TIMEOUT)
             except TimeoutError:
-                # 插件执行超时，直接返回不记录
+                # 软超时：记录到后台任务，统一监控会处理硬超时
+                with _background_tasks_lock:
+                    _background_tasks[id(future)] = {
+                        'future': future,
+                        'start_time': time.time(),
+                        'plugin_name': plugin_name,
+                        'user_id': getattr(event, 'user_id', ''),
+                        'content': getattr(event, 'content', '')[:100]
+                    }
                 return True
                 
         finally:
             for method_name, original_method in original_methods.items():
                 if original_method:
                     setattr(event, method_name, original_method)
+    
+    @classmethod
+    def _cleanup_background_tasks(cls):
+        """清理已完成的后台任务，并检查硬超时"""
+        current_time = time.time()
+        with _background_tasks_lock:
+            for future_id in list(_background_tasks.keys()):
+                task_info = _background_tasks.get(future_id)
+                if not task_info:
+                    continue
+                
+                # 检查硬超时
+                runtime = current_time - task_info['start_time']
+                if runtime >= _HARD_TIMEOUT:
+                    task_info['future'].cancel()
+                    _background_tasks.pop(future_id, None)
+                    _log_error(
+                        f"插件 {task_info['plugin_name']} 硬超时（{_HARD_TIMEOUT}秒），已强制终止",
+                        f"用户: {task_info['user_id']}\n内容: {task_info['content']}"
+                    )
+                # 清理已完成的任务
+                elif task_info['future'].done():
+                    _background_tasks.pop(future_id, None)
+    
+    @classmethod
+    def get_background_tasks_status(cls):
+        """获取后台任务状态（用于监控）"""
+        current_time = time.time()
+        with _background_tasks_lock:
+            return [{
+                'plugin_name': task_info['plugin_name'],
+                'user_id': task_info['user_id'],
+                'content': task_info['content'],
+                'runtime': f"{current_time - task_info['start_time']:.1f}秒",
+                'is_running': not task_info['future'].done()
+            } for task_info in _background_tasks.values()]
     
     @classmethod
     def _create_method_logger(cls, original_methods_dict, plugin_name, is_first_reply, event):

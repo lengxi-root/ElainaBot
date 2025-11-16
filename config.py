@@ -16,17 +16,18 @@ HIDE_AVATAR_GLOBAL = False                        # 全局启用Markdown无头�
 SEND_DEFAULT_RESPONSE = False                     # 无匹配命令时是否发送默认回复
 DEFAULT_RESPONSE_EXCLUDED_REGEX = []             # 排除默认回复的消息正则表达式列表
 MAINTENANCE_MODE = False                         # 维护模式开关，开启后机器人暂停服务
-BLACKLIST_ENABLED = True                         # 黑名单功能开关，关闭后黑名单用户能使用指令
+BLACKLIST_ENABLED = True                         # 黑名单功能开关，关闭后黑名单用户能正常使用插件
 ENABLE_WELCOME_MESSAGE = False                    # 是否启用入群欢迎消息功能
 ENABLE_NEW_USER_WELCOME = False                   # 是否启用新用户首次交互欢迎
 ENABLE_FRIEND_ADD_MESSAGE = False                 # 是否启用添加好友自动发送消息功能
-SAVE_RAW_MESSAGE_TO_DB = False                   # 是否将消息的原始内容存储到数据库中
+SAVE_RAW_MESSAGE_TO_DB = False                   # 是否将消息的原始内容存储到数据库中,开启后可能会数据库硬盘占用略微上涨
 
 # Markdown AJ万能模板配置 - 没有万能模板请留空
 MARKDOWN_AJ_TEMPLATE = {
     'template_id': "1",  # AJ 模板 ID
     'keys': "a,b,c,d,e,f,g,h,i,j",  # 模板参数键名，使用逗号分割
 }
+
 # 服务器配置 - HTTP服务相关设置
 SERVER_CONFIG = {
     'host': "0.0.0.0",  # HTTP服务监听地址，0.0.0.0表示监听所有接口
@@ -36,7 +37,7 @@ SERVER_CONFIG = {
 # WebSocket配置 - 实时通信连接设置
 WEBSOCKET_CONFIG = {
     'enabled': False,  # 是否启用WebSocket连接功能
-    'custom_url': "ws://127.0.0.1:8000/api/ws/102134274",  # 自定义WebSocket连接地址，如果设置则直接连接，不懂不要填写
+    'custom_url': None,  # 自定义WebSocket连接地址，如果设置则直接连接，不懂不要填写
     'log_level': "INFO",  # WebSocket专用日志级别
     'log_message_content': False,  # 是否记录消息内容(调试模式)
 }
@@ -56,13 +57,12 @@ WEB_CONFIG = {
 
 # 主数据库配置 - 业务数据存储设置
 DB_CONFIG = {
-    # 连接基础配置
+    'enabled': True,  # 是否启用主数据库（线程池供插件使用，如不需要可设为False）
     'host': "127.0.0.1",  # 数据库服务器地址
     'port': 3306,  # 数据库服务器端口
     'user': "",  # 数据库用户名
     'password': "",  # 数据库密码
     'database': "",  # 数据库名称
-    'charset': "utf8mb4",  # 字符集，支持完整Unicode
     
     # 连接池基础设置
     'min_pool_size': 5,  # 连接池最小保持连接数
@@ -85,14 +85,11 @@ LOG_DB_CONFIG = {
     'user': "",  # 日志数据库用户名
     'password': "",  # 日志数据库密码
     'database': "",  # 日志数据库名称
-    'charset': "utf8mb4",  # 字符集配置
-    'use_main_db': False,  # 是否复用主数据库配置(DB_CONFIG)
     
-    # 日志写入策略
+    # 日志策略
     'insert_interval': 2,  # 批量写入间隔时间(秒)，0表示立即写入
     'batch_size': 1000,  # 每批次最大写入日志记录数
     'table_prefix': f"{appid}_",  # 日志表名前缀，使用机器人appid作为前缀
-    # 日志保留策略
     'retention_days': 5,  # 日志保留天数，0表示永久保留
     'max_retry': 3,  # 写入失败最大重试次数
     'retry_interval': 2,  # 重试间隔时间(秒)
@@ -101,15 +98,16 @@ LOG_DB_CONFIG = {
     'initial_load_count': 50,  # 进入日志界面时自动加载的今日日志条数
 }
 
+# 腾讯云COS对象存储配置 - 简单上传功能
 COS_CONFIG = {
-    'enabled': True,                          # 是否启用COS上传功能
-    'secret_id': 'AKID开头的ID',             # 腾讯云API密钥ID
-    'secret_key': '密钥',           # 腾讯云API密钥Key，需要从控制台获取完整的SecretKey
-    'region': 'ap-guangzhou',                   # 存储桶区域
-    'bucket_name': ' ',         # 存储桶名称
-    'domain': None,                            # 自定义域名(可选)
-    'upload_path_prefix': 'mlog/',             # 默认上传路径前缀
-    'max_file_size': 50 * 1024 * 1024,       # 最大文件大小50MB
+    'enabled': True,  # 是否启用COS上传功能
+    'secret_id': "AKID开头的ID",  # 腾讯云API密钥ID
+    'secret_key': "密钥",  # 腾讯云API密钥Key
+    'region': "ap-guangzhou",  # 存储桶区域
+    'bucket_name': "",  # 存储桶名称
+    'domain': None,  # 自定义域名(可选)
+    'upload_path_prefix': "meme/",  # 默认上传路径前缀
+    'max_file_size': 30 * 1024 * 1024,       # 最大文件大小30MB
 }
 
 # Bilibili图床配置 - B站图片上传功能

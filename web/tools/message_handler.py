@@ -111,6 +111,7 @@ def handle_get_chats(LOG_DB_CONFIG, appid):
         data = request.get_json()
         chat_type = data.get('type', 'user')
         search = data.get('search', '').strip()
+        days_range = min(data.get('days_range', 1), 3)  # 默认查询1天，最多3天
         limit = 30
         
         from function.log_db import LogDatabasePool
@@ -139,6 +140,10 @@ def handle_get_chats(LOG_DB_CONFIG, appid):
             if cursor.fetchone()['count'] == 0:
                 return jsonify({'success': False, 'message': 'ID表不存在'})
             
+            # 根据days_range计算起始时间（支持1-3天范围）
+            from datetime import timedelta
+            start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_range-1)
+            
             # 构建查询
             if search:
                 # 搜索功能 - 使用参数化查询避免SQL注入
@@ -148,19 +153,18 @@ def handle_get_chats(LOG_DB_CONFIG, appid):
                 search_condition = ""
                 search_param = None
             
-            # 获取聊天数据（最多30个）
             data_sql = f"""
                 SELECT chat_id, last_message_id, MAX(timestamp) as last_time
                 FROM {id_table_name} 
-                WHERE chat_type = %s {search_condition}
+                WHERE chat_type = %s AND timestamp >= %s {search_condition}
                 GROUP BY chat_id, last_message_id
                 ORDER BY last_time DESC
                 LIMIT %s
             """
             if search_param:
-                cursor.execute(data_sql, (chat_type, search_param, limit))
+                cursor.execute(data_sql, (chat_type, start_date, search_param, limit))
             else:
-                cursor.execute(data_sql, (chat_type, limit))
+                cursor.execute(data_sql, (chat_type, start_date, limit))
             chats = cursor.fetchall()
             
             # 处理数据 - 批量获取昵称

@@ -111,8 +111,8 @@ def handle_get_chats(LOG_DB_CONFIG, appid):
         data = request.get_json()
         chat_type = data.get('type', 'user')
         search = data.get('search', '').strip()
-        days_range = min(data.get('days_range', 1), 3)  # 默认查询1天，最多3天
-        limit = 30
+        days = data.get('days', 3)  # 天数参数，默认3天
+        limit = 200  # 修改为200条
         
         from function.log_db import LogDatabasePool
         from pymysql.cursors import DictCursor
@@ -140,31 +140,36 @@ def handle_get_chats(LOG_DB_CONFIG, appid):
             if cursor.fetchone()['count'] == 0:
                 return jsonify({'success': False, 'message': 'ID表不存在'})
             
-            # 根据days_range计算起始时间（支持1-3天范围）
+            # 根据天数参数获取时间戳
             from datetime import timedelta
-            start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_range-1)
-            
-            # 构建查询
-            if search:
-                # 搜索功能 - 使用参数化查询避免SQL注入
-                search_condition = "AND chat_id LIKE %s"
-                search_param = f"%{search}%"
+            if days == 1:
+                # 今天：从今日0点开始
+                days_ago = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             else:
-                search_condition = ""
-                search_param = None
+                # 多天：从N天前开始
+                days_ago = datetime.now() - timedelta(days=days)
             
+            # 构建查询条件
+            conditions = ["chat_type = %s", "timestamp >= %s"]
+            params = [chat_type, days_ago]
+            
+            if search:
+                conditions.append("chat_id LIKE %s")
+                params.append(f"%{search}%")
+            
+            where_clause = " AND ".join(conditions)
+            
+            # 查询指定天数的聊天列表（最多200个）
             data_sql = f"""
                 SELECT chat_id, last_message_id, MAX(timestamp) as last_time
                 FROM {id_table_name} 
-                WHERE chat_type = %s AND timestamp >= %s {search_condition}
+                WHERE {where_clause}
                 GROUP BY chat_id, last_message_id
                 ORDER BY last_time DESC
                 LIMIT %s
             """
-            if search_param:
-                cursor.execute(data_sql, (chat_type, start_date, search_param, limit))
-            else:
-                cursor.execute(data_sql, (chat_type, start_date, limit))
+            params.append(limit)
+            cursor.execute(data_sql, tuple(params))
             chats = cursor.fetchall()
             
             # 处理数据 - 批量获取昵称
@@ -214,7 +219,8 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
         data = request.get_json()
         chat_type = data.get('chat_type')
         chat_id = data.get('chat_id')
-        days_range = min(data.get('days_range', 1), 3)  # 默认查询1天，最多3天
+        show_all = data.get('show_all', False)  # 是否显示全部历史记录
+        days_range = min(data.get('days_range', 1), 30) if not show_all else 365  # 全部历史最多查询365天
         
         if not chat_type or not chat_id:
             return jsonify({'success': False, 'message': '缺少必要参数'})
@@ -259,8 +265,13 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
                     'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type, appid)},
                     'no_history': True}})
             
-            where_condition, params = (("(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)", (chat_id, chat_id))
-                if chat_type == 'group' else ("(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')", (chat_id, chat_id)))
+            # 构建where条件
+            if chat_type == 'group':
+                where_condition = "(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)"
+                params = (chat_id, chat_id)
+            else:
+                where_condition = "(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')"
+                params = (chat_id, chat_id)
             
             # 构建多表联合查询（从所有存在的日期表中查询）
             union_parts = []
@@ -273,13 +284,14 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
                 """)
                 all_params.extend(params)
             
-            # 获取最新的200条消息（增加数量以适应多天查询）
+            # 获取消息（全部历史最多500条，普通模式200条）
+            message_limit = 500 if show_all else 200
             sql = f"""
                 SELECT user_id, group_id, content, timestamp, type
                 FROM (
                     {' UNION ALL '.join(union_parts)}
                     ORDER BY timestamp DESC
-                    LIMIT 200
+                    LIMIT {message_limit}
                 ) AS combined_messages
                 ORDER BY timestamp ASC
             """
@@ -311,11 +323,14 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
                     display_user_id = msg['user_id']
                     display_nickname = user_nicknames.get(msg['user_id'], f"用户{msg['user_id'][-6:]}")
                 
+                # 全部历史模式显示完整日期时间，普通模式只显示时间
+                timestamp_format = '%Y-%m-%d %H:%M:%S' if show_all else '%H:%M:%S'
+                
                 message_list.append({
                     'user_id': display_user_id, 
                     'nickname': display_nickname,
                     'content': msg['content'],
-                    'timestamp': msg['timestamp'].strftime('%H:%M:%S') if msg['timestamp'] else '',
+                    'timestamp': msg['timestamp'].strftime(timestamp_format) if msg['timestamp'] else '',
                     'avatar': get_chat_avatar('robot' if is_self_message else msg['user_id'], 'user', appid), 
                     'is_self': is_self_message
                 })

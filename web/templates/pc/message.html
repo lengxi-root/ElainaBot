@@ -17,10 +17,11 @@
                                 <i class="bi bi-people"></i> 群聊
                             </button>
                         </div>
-                        <select class="form-select form-select-sm" id="days-range" onchange="changeDaysRange()" style="width: auto; min-width: 80px;">
+                        <select class="form-select form-select-sm" id="days-range" onchange="changeDaysRange()" style="width: auto; min-width: 100px;">
                             <option value="1">今天</option>
                             <option value="2">2天</option>
-                            <option value="3">3天</option>
+                            <option value="3" selected>3天</option>
+                            <option value="all">全部</option>
                         </select>
                     </div>
                 </div>
@@ -457,13 +458,21 @@ let chatRefreshTimer = null;  // 聊天记录刷新定时器
 let isRefreshing = false;     // 防止重复刷新
 let lastMessageSignature = '';  // 上次消息的签名，用于避免不必要的重新渲染
 let markdownTemplates = {};  // 存储模板信息
-let currentDaysRange = 1;     // 当前选择的日期范围
+let currentDaysRange = 3;     // 当前选择的日期范围，默认3天
 
 // 时间和昵称处理函数
 const formatTimeWithoutYear = (t) => t ? t.replace(/^\d{4}[-\/年]/, '').replace(/^\d{4}\s+/, '') : '';
 const getDatePart = (t) => t ? (formatTimeWithoutYear(t).match(/^(\d{1,2}[-\/月]\d{1,2}[日]?)/) || [])[1] || '' : '';
 const getTimePart = (t) => t ? (t.match(/(\d{1,2}:\d{2})(:\d{2})?/) || [])[1] || '' : '';
 const truncateNickname = (n) => n && n.length > 4 ? n.substring(0, 4) + '***' : n || '';
+
+// HTML转义函数，防止用户输入的HTML标签被解析
+const escapeHtml = (text) => {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+};
 
 // 加载模板列表
 function loadMarkdownTemplates() {
@@ -630,7 +639,8 @@ const resetChatWindow = () => {
 
 // 日期范围变化处理
 function changeDaysRange() {
-    currentDaysRange = parseInt(document.getElementById('days-range').value);
+    const daysValue = document.getElementById('days-range').value;
+    currentDaysRange = daysValue === 'all' ? 'all' : parseInt(daysValue);
     
     // 如果有选中的聊天，重新加载聊天记录
     if (currentChatId) {
@@ -779,7 +789,8 @@ function loadChatList() {
         },
         body: JSON.stringify({
             type: currentChatType,
-            search: searchQuery
+            search: searchQuery,
+            days: currentDaysRange === 'all' ? 3 : currentDaysRange  // 显示全部时列表也查询3天
         })
     })
     .then(response => response.json())
@@ -966,7 +977,8 @@ function loadChatHistory(chatId, chatType) {
         body: JSON.stringify({
             chat_type: chatType,
             chat_id: chatId,
-            days_range: currentDaysRange
+            days_range: currentDaysRange === 'all' ? 30 : currentDaysRange,
+            show_all: currentDaysRange === 'all'  // 显示全部时启用全部历史模式
         })
     })
     .then(response => response.json())
@@ -1034,6 +1046,9 @@ function renderChatHistory(messages) {
         // 从文本中移除<URL>标记
         textContent = textContent.replace(imageUrlRegex, '').trim();
         
+        // HTML转义文本内容，防止标签被解析
+        const escapedText = escapeHtml(textContent);
+        
         // 生成图片HTML
         if (imageUrls.length > 0) {
             const maxWidth = 300;
@@ -1059,7 +1074,7 @@ function renderChatHistory(messages) {
                     ${!isSelf ? avatarHtml : ''}
                     <div class="message-content">
                         ${nicknameHtml}
-                        ${textContent}
+                        ${escapedText}
                         ${imagesHtml}
                     </div>
                     ${isSelf ? avatarHtml : ''}

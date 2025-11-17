@@ -36,7 +36,7 @@ SERVER_CONFIG = {
 
 # WebSocket配置 - 实时通信连接设置
 WEBSOCKET_CONFIG = {
-    'enabled': False,  # 是否启用WebSocket连接功能
+    'enabled': True,  # 是否启用WebSocket连接功能
     'custom_url': None,  # 自定义WebSocket连接地址，如果设置则直接连接，不懂不要填写
     'log_level': "INFO",  # WebSocket专用日志级别
     'log_message_content': False,  # 是否记录消息内容(调试模式)

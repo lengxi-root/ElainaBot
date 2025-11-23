@@ -6,11 +6,12 @@ import os
 import time
 import re
 import io
+import threading
 from PIL import Image, ImageDraw, ImageFont
 from core.plugin.PluginManager import Plugin
 import config
 from config import USE_MARKDOWN
-from function.bot_api import get_bot_api
+from web.tools.bot_api import get_bot_api
 
 # 使用框架的bot_api模块
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'bot')
@@ -515,6 +516,8 @@ class robot_data_plugin(Plugin):
         if not url or not qr:
             event.reply("获取登录二维码失败，请稍后重试")
             return
+        
+        # ✅ 立即发送二维码消息
         content = f"<@{user_id}>\n[QQ开发平台管理端登录]\n登录具有时效性，请尽快登录\n\n>当你选择登录，代表你已经同意将数据托管给伊蕾娜Bot。"
         if USE_MARKDOWN:
             buttons = event.button([
@@ -540,36 +543,49 @@ class robot_data_plugin(Plugin):
                     domain = '.'.join(domain_segments)
                 display_url = f"{protocol}://{domain}{path}"
             event.reply(f"{content}\n\n登录链接: {display_url}")
-        max_time = time.time() + 60
-        while time.time() < max_time:
-            time.sleep(3)
-            # 使用bot_api获取登录信息
-            res = api.get_qr_login_info(qrcode=qr)
-            if res.get('code') == 0:
-                login_data = res.get('data', {}).get('data', {})
-                ensure_user_data_loaded()
-                login_data['type'] = 'ok'
-                save_user_data(user_id, login_data)
-                app_type = login_data.get('appType')
-                app_type_str = '小程序' if app_type == '0' else '机器人' if app_type == '2' else '未知'
-                content = f"[{login_data.get('uin')}]\n登录成功\n\n>登录类型：{app_type_str}\nAppId：{login_data.get('appId')}\n切换+appid可以切换机器人"
-                if USE_MARKDOWN:
-                    buttons = event.button([
-                        event.rows([
-                            {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
-                            {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
-                            {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
-                            {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
-                        ])
-                    ])
-                    event.reply(content, buttons)
-                else:
-                    event.reply(content)
-                _last_login_success[user_id] = time.time()
-                if user_id in _login_tasks:
-                    del _login_tasks[user_id]
-                return
-        event.reply(f"<@{user_id}>登录失效，请重新尝试")
+        
+        # ✅ 创建后台轮询线程（不阻塞主流程）
+        def poll_login_status():
+            global _last_login_success
+            max_time = time.time() + 60
+            while time.time() < max_time:
+                time.sleep(3)
+                try:
+                    # 使用bot_api获取登录信息
+                    res = api.get_qr_login_info(qrcode=qr)
+                    if res.get('code') == 0:
+                        login_data = res.get('data', {}).get('data', {})
+                        ensure_user_data_loaded()
+                        login_data['type'] = 'ok'
+                        save_user_data(user_id, login_data)
+                        app_type = login_data.get('appType')
+                        app_type_str = '小程序' if app_type == '0' else '机器人' if app_type == '2' else '未知'
+                        content = f"[{login_data.get('uin')}]\n登录成功\n\n>登录类型：{app_type_str}\nAppId：{login_data.get('appId')}\n切换+appid可以切换机器人"
+                        if USE_MARKDOWN:
+                            buttons = event.button([
+                                event.rows([
+                                    {'text': '通知', 'data': 'bot通知', 'type': 1, 'style': 1},
+                                    {'text': '数据', 'data': 'bot数据4', 'type': 2, 'style': 1},
+                                    {'text': '列表', 'data': 'bot列表', 'type': 1, 'style': 1},
+                                    {'text': '模板', 'data': 'bot模板', 'type': 1, 'style': 1}
+                                ])
+                            ])
+                            event.reply(content, buttons)
+                        else:
+                            event.reply(content)
+                        _last_login_success[user_id] = time.time()
+                        if user_id in _login_tasks:
+                            del _login_tasks[user_id]
+                        return
+                except Exception as e:
+                    # 静默处理异常，继续轮询
+                    pass
+            
+            # 超时
+            event.reply(f"<@{user_id}>登录失效，请重新尝试")
+        
+        # ✅ 启动后台线程，主函数立即返回
+        threading.Thread(target=poll_login_status, daemon=True, name=f"LoginPoll_{user_id}").start()
 
     @staticmethod
     def get_message(event):

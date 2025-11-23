@@ -335,21 +335,38 @@ class CustomAPIPlugin(Plugin):
             
             elif reply_type == 'image':
                 # 图片消息
-                image_url = str(data)
                 image_text = api_config.get('image_text', '')
                 # 替换image_text中的变量（正则捕获组和基本变量）
                 image_text = CustomAPIPlugin._replace_variables(image_text, event, regex_groups)
-                event.reply_image(image_url, image_text)
+                
+                # 判断数据类型：如果是二进制数据直接发送，如果是字符串当作URL发送
+                if isinstance(data, bytes):
+                    # 二进制图片数据，直接发送
+                    event.reply_image(data, image_text)
+                else:
+                    # URL字符串，转换为字符串后发送
+                    image_url = str(data)
+                    event.reply_image(image_url, image_text)
             
             elif reply_type == 'voice':
                 # 语音消息
-                voice_url = str(data)
-                event.reply_voice(voice_url)
+                if isinstance(data, bytes):
+                    # 二进制语音数据，直接发送
+                    event.reply_voice(data)
+                else:
+                    # URL字符串，转换为字符串后发送
+                    voice_url = str(data)
+                    event.reply_voice(voice_url)
             
             elif reply_type == 'video':
                 # 视频消息
-                video_url = str(data)
-                event.reply_video(video_url)
+                if isinstance(data, bytes):
+                    # 二进制视频数据，直接发送
+                    event.reply_video(data)
+                else:
+                    # URL字符串，转换为字符串后发送
+                    video_url = str(data)
+                    event.reply_video(video_url)
             
             elif reply_type == 'ark':
                 # ARK卡片消息

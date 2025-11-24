@@ -579,12 +579,16 @@ function refreshChatHistory() {
     const requestData = {
         chat_type: currentChatType,
         chat_id: currentChatId,
-        days_range: currentDaysRange
+        days_range: currentDaysRange === 'all' ? 30 : currentDaysRange,
+        show_all: currentDaysRange === 'all'
     };
     
     // 如果有最后消息ID，添加since_id参数进行增量获取
     if (lastMessageId) {
         requestData.since_id = lastMessageId;
+        console.log(`[增量获取] since_id: ${lastMessageId}, days_range: ${requestData.days_range}`);
+    } else {
+        console.log(`[全量获取] days_range: ${requestData.days_range}, show_all: ${requestData.show_all}`);
     }
     
     fetch(`/web/api/message/get_chat_history?token=${encodeURIComponent(token)}`, {
@@ -601,44 +605,54 @@ function refreshChatHistory() {
             const messageArea = document.getElementById('message-area');
             const isAtBottom = messageArea.scrollTop + messageArea.clientHeight >= messageArea.scrollHeight - 10;
             
-            if (data.data.is_incremental && data.data.messages.length > 0) {
-                // 增量更新：直接追加新消息
-                data.data.messages.forEach(msg => {
-                    const messageHtml = createMessageHtml(msg);
-                    messageArea.insertAdjacentHTML('beforeend', messageHtml);
-                    // 更新消息缓存
-                    renderedMessages.push(msg);
-                });
-                
-                // 更新最后消息ID
-                const newMessages = data.data.messages;
-                if (newMessages.length > 0) {
-                    lastMessageId = newMessages[newMessages.length - 1].id || lastMessageId;
-                }
-                
-                // 更新签名
-                lastMessageSignature = renderedMessages.map(m => `${m.user_id}-${m.content}-${m.timestamp}-${m.id || ''}`).join('|');
-                
-                // 批量加载群聊中的用户昵称（仅新消息）
-                if (currentChatType === 'group') {
-                    const newUserIds = [...new Set(newMessages.filter(msg => !msg.is_self).map(msg => msg.user_id))];
-                    if (newUserIds.length > 0) {
-                        loadNicknamesBatch(newUserIds).then(nicknames => {
-                            newUserIds.forEach(userId => {
-                                document.querySelectorAll(`[data-nickname-user-id="${userId}"]`).forEach(el => {
-                                    el.textContent = nicknames[userId] || `用户${userId.slice(-6)}`;
+            if (data.data.is_incremental) {
+                // 增量更新模式
+                if (data.data.messages.length > 0) {
+                    // 有新消息：直接追加
+                    console.log(`[增量更新] 接收到 ${data.data.messages.length} 条新消息`);
+                    data.data.messages.forEach(msg => {
+                        const messageHtml = createMessageHtml(msg);
+                        messageArea.insertAdjacentHTML('beforeend', messageHtml);
+                        // 更新消息缓存
+                        renderedMessages.push(msg);
+                    });
+                    
+                    // 更新最后消息ID
+                    const newMessages = data.data.messages;
+                    const newLastId = newMessages[newMessages.length - 1].id;
+                    console.log(`[增量更新] 更新lastMessageId: ${lastMessageId} -> ${newLastId}`);
+                    lastMessageId = newLastId || lastMessageId;
+                    
+                    // 更新签名
+                    lastMessageSignature = renderedMessages.map(m => `${m.user_id}-${m.content}-${m.timestamp}-${m.id || ''}`).join('|');
+                    
+                    // 批量加载群聊中的用户昵称（仅新消息）
+                    if (currentChatType === 'group') {
+                        const newUserIds = [...new Set(newMessages.filter(msg => !msg.is_self).map(msg => msg.user_id))];
+                        if (newUserIds.length > 0) {
+                            loadNicknamesBatch(newUserIds).then(nicknames => {
+                                newUserIds.forEach(userId => {
+                                    document.querySelectorAll(`[data-nickname-user-id="${userId}"]`).forEach(el => {
+                                        el.textContent = nicknames[userId] || `用户${userId.slice(-6)}`;
+                                    });
                                 });
                             });
-                        });
+                        }
                     }
+                } else {
+                    // 没有新消息：什么都不做，保持现有消息
+                    console.log(`[增量更新] 没有新消息，保持现有 ${renderedMessages.length} 条消息`);
                 }
             } else {
-                // 全量更新
+                // 全量更新模式
+                console.log(`[全量更新] 接收到 ${data.data.messages.length} 条消息`);
                 renderChatHistory(data.data.messages);
                 
                 // 更新最后消息ID
                 if (data.data.messages.length > 0) {
-                    lastMessageId = data.data.messages[data.data.messages.length - 1].id || null;
+                    const newLastId = data.data.messages[data.data.messages.length - 1].id;
+                    console.log(`[全量更新] 设置lastMessageId: ${newLastId}`);
+                    lastMessageId = newLastId || null;
                 }
             }
             
@@ -693,6 +707,11 @@ const resetChatWindow = () => {
 function changeDaysRange() {
     const daysValue = document.getElementById('days-range').value;
     currentDaysRange = daysValue === 'all' ? 'all' : parseInt(daysValue);
+    
+    // 日期范围变化时，需要清空增量状态，重新全量加载
+    lastMessageSignature = '';
+    renderedMessages = [];
+    lastMessageId = null;
     
     // 如果有选中的聊天，重新加载聊天记录
     if (currentChatId) {
@@ -960,10 +979,13 @@ function selectChat(chatId, chatType) {
     // 停止之前的实时刷新
     stopChatRefresh();
     
-    // 清理消息缓存，因为切换了聊天对象
-    lastMessageSignature = '';
-    renderedMessages = [];
-    lastMessageId = null;
+    // 只有切换聊天对象时才清理消息缓存和lastMessageId
+    const isNewChat = currentChatId !== chatId || currentChatType !== chatType;
+    if (isNewChat) {
+        lastMessageSignature = '';
+        renderedMessages = [];
+        lastMessageId = null;
+    }
     
     currentChatId = chatId;
     
@@ -1045,6 +1067,10 @@ function loadChatHistory(chatId, chatType) {
                 messageArea.innerHTML = '<div class="text-center text-muted"><i class="bi bi-clock-history" style="font-size: 3rem;"></i><p class="mt-2">没有历史表</p></div>';
             } else {
                 renderChatHistory(data.data.messages);
+                // 记录最后消息ID，以便后续增量刷新
+                if (data.data.messages.length > 0) {
+                    lastMessageId = data.data.messages[data.data.messages.length - 1].id || null;
+                }
             }
         } else {
             messageArea.innerHTML = '<div class="text-center p-3 text-danger">加载聊天记录失败: ' + data.message + '</div>';

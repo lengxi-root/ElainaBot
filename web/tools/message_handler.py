@@ -220,6 +220,7 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
         chat_type = data.get('chat_type')
         chat_id = data.get('chat_id')
         show_all = data.get('show_all', False)  # 是否显示全部历史记录
+        since_id = data.get('since_id', None)  # 增量获取：只获取大于此ID的消息
         days_range = min(data.get('days_range', 1), 30) if not show_all else 365  # 全部历史最多查询365天
         
         if not chat_type or not chat_id:
@@ -267,34 +268,53 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
             
             # 构建where条件
             if chat_type == 'group':
-                where_condition = "(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)"
-                params = (chat_id, chat_id)
+                base_condition = "(group_id = %s AND group_id != 'c2c') OR (user_id = 'ZFC2G' AND group_id = %s)"
+                params = [chat_id, chat_id]
             else:
-                where_condition = "(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')"
-                params = (chat_id, chat_id)
+                base_condition = "(user_id = %s AND group_id = 'c2c') OR (user_id = %s AND group_id = 'ZFC2C')"
+                params = [chat_id, chat_id]
+            
+            # 如果是增量获取，添加ID条件
+            if since_id:
+                where_condition = f"({base_condition}) AND id > %s"
+                params.append(since_id)
+            else:
+                where_condition = base_condition
             
             # 构建多表联合查询（从所有存在的日期表中查询）
             union_parts = []
             all_params = []
             for table_name in existing_tables:
                 union_parts.append(f"""
-                    SELECT user_id, group_id, content, timestamp, type
+                    SELECT user_id, group_id, content, timestamp, type, id
                     FROM {table_name}
                     WHERE {where_condition}
                 """)
                 all_params.extend(params)
             
-            # 获取消息（全部历史最多500条，普通模式200条）
-            message_limit = 500 if show_all else 200
-            sql = f"""
-                SELECT user_id, group_id, content, timestamp, type
-                FROM (
-                    {' UNION ALL '.join(union_parts)}
-                    ORDER BY timestamp DESC
-                    LIMIT {message_limit}
-                ) AS combined_messages
-                ORDER BY timestamp ASC
-            """
+            # 获取消息（增量模式最多50条新消息，全部历史最多500条，普通模式200条）
+            if since_id:
+                message_limit = 50  # 增量获取限制为50条
+                sql = f"""
+                    SELECT user_id, group_id, content, timestamp, type, id
+                    FROM (
+                        {' UNION ALL '.join(union_parts)}
+                        ORDER BY id ASC
+                        LIMIT {message_limit}
+                    ) AS combined_messages
+                    ORDER BY id ASC
+                """
+            else:
+                message_limit = 500 if show_all else 200
+                sql = f"""
+                    SELECT user_id, group_id, content, timestamp, type, id
+                    FROM (
+                        {' UNION ALL '.join(union_parts)}
+                        ORDER BY id DESC
+                        LIMIT {message_limit}
+                    ) AS combined_messages
+                    ORDER BY id ASC
+                """
             cursor.execute(sql, all_params)
             messages = cursor.fetchall()
             
@@ -332,11 +352,20 @@ def handle_get_chat_history(LOG_DB_CONFIG, appid):
                     'content': msg['content'],
                     'timestamp': msg['timestamp'].strftime(timestamp_format) if msg['timestamp'] else '',
                     'avatar': get_chat_avatar('robot' if is_self_message else msg['user_id'], 'user', appid), 
-                    'is_self': is_self_message
+                    'is_self': is_self_message,
+                    'id': msg.get('id')  # 添加消息ID字段
                 })
             
-            return jsonify({'success': True, 'data': {'messages': message_list,
-                'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type, appid)}}})
+            # 返回结果，增量模式包含is_incremental标识
+            return jsonify({
+                'success': True, 
+                'data': {
+                    'messages': message_list,
+                    'chat_info': {'chat_id': chat_id, 'chat_type': chat_type, 'avatar': get_chat_avatar(chat_id, chat_type, appid)},
+                    'is_incremental': bool(since_id),
+                    'has_more': len(message_list) == message_limit if since_id else False
+                }
+            })
             
         finally:
             cursor.close()

@@ -456,7 +456,13 @@ const ROBOT_QQ = '{{ ROBOT_QQ }}';  // 机器人QQ号
 let currentSendMethod = 'text';
 let chatRefreshTimer = null;  // 聊天记录刷新定时器
 let isRefreshing = false;     // 防止重复刷新
-let lastMessageSignature = '';  // 上次消息的签名，用于避免不必要的重新渲染
+let lastMessageSignature = '';
+// 头像缓存映射，避免重复下载
+const avatarCache = new Map();
+// 已渲染的消息缓存，用于智能更新
+let renderedMessages = [];
+// 最后一条消息的ID，用于增量获取
+let lastMessageId = null;  // 上次消息的签名，用于避免不必要的重新渲染
 let markdownTemplates = {};  // 存储模板信息
 let currentDaysRange = 3;     // 当前选择的日期范围，默认3天
 
@@ -569,16 +575,24 @@ function refreshChatHistory() {
         return;
     }
     
+    // 构建请求数据：如果有lastMessageId，则进行增量获取
+    const requestData = {
+        chat_type: currentChatType,
+        chat_id: currentChatId,
+        days_range: currentDaysRange
+    };
+    
+    // 如果有最后消息ID，添加since_id参数进行增量获取
+    if (lastMessageId) {
+        requestData.since_id = lastMessageId;
+    }
+    
     fetch(`/web/api/message/get_chat_history?token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-            chat_type: currentChatType,
-            chat_id: currentChatId,
-            days_range: currentDaysRange
-        })
+        body: JSON.stringify(requestData)
     })
     .then(response => response.json())
     .then(data => {
@@ -587,8 +601,46 @@ function refreshChatHistory() {
             const messageArea = document.getElementById('message-area');
             const isAtBottom = messageArea.scrollTop + messageArea.clientHeight >= messageArea.scrollHeight - 10;
             
-            // 更新聊天记录
-            renderChatHistory(data.data.messages);
+            if (data.data.is_incremental && data.data.messages.length > 0) {
+                // 增量更新：直接追加新消息
+                data.data.messages.forEach(msg => {
+                    const messageHtml = createMessageHtml(msg);
+                    messageArea.insertAdjacentHTML('beforeend', messageHtml);
+                    // 更新消息缓存
+                    renderedMessages.push(msg);
+                });
+                
+                // 更新最后消息ID
+                const newMessages = data.data.messages;
+                if (newMessages.length > 0) {
+                    lastMessageId = newMessages[newMessages.length - 1].id || lastMessageId;
+                }
+                
+                // 更新签名
+                lastMessageSignature = renderedMessages.map(m => `${m.user_id}-${m.content}-${m.timestamp}-${m.id || ''}`).join('|');
+                
+                // 批量加载群聊中的用户昵称（仅新消息）
+                if (currentChatType === 'group') {
+                    const newUserIds = [...new Set(newMessages.filter(msg => !msg.is_self).map(msg => msg.user_id))];
+                    if (newUserIds.length > 0) {
+                        loadNicknamesBatch(newUserIds).then(nicknames => {
+                            newUserIds.forEach(userId => {
+                                document.querySelectorAll(`[data-nickname-user-id="${userId}"]`).forEach(el => {
+                                    el.textContent = nicknames[userId] || `用户${userId.slice(-6)}`;
+                                });
+                            });
+                        });
+                    }
+                }
+            } else {
+                // 全量更新
+                renderChatHistory(data.data.messages);
+                
+                // 更新最后消息ID
+                if (data.data.messages.length > 0) {
+                    lastMessageId = data.data.messages[data.data.messages.length - 1].id || null;
+                }
+            }
             
             // 如果之前在底部，保持在底部；否则保持原位置
             if (isAtBottom) {
@@ -908,6 +960,11 @@ function selectChat(chatId, chatType) {
     // 停止之前的实时刷新
     stopChatRefresh();
     
+    // 清理消息缓存，因为切换了聊天对象
+    lastMessageSignature = '';
+    renderedMessages = [];
+    lastMessageId = null;
+    
     currentChatId = chatId;
     
     // 更新选中状态
@@ -999,91 +1056,67 @@ function loadChatHistory(chatId, chatType) {
     });
 }
 
-// 生成头像HTML
+// 生成头像HTML（带缓存机制）
 const getAvatarHtml = (isSelf, userId, avatarUrl) => {
-    if (isSelf) {
-        return `<img src="https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background-color: #0d6efd;"><i class="bi bi-robot" style="color: white;"></i></div>`;
+    const cacheKey = isSelf ? 'robot' : `${userId}-${avatarUrl}`;
+    
+    // 检查缓存
+    if (avatarCache.has(cacheKey)) {
+        return avatarCache.get(cacheKey);
     }
-    const placeholder = userId.slice(-2).toUpperCase() || userId.toUpperCase();
-    return `<img src="${avatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none;">${placeholder}</div>`;
+    
+    let html;
+    if (isSelf) {
+        html = `<img src="https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background-color: #0d6efd;"><i class="bi bi-robot" style="color: white;"></i></div>`;
+    } else {
+        const placeholder = userId.slice(-2).toUpperCase() || userId.toUpperCase();
+        html = `<img src="${avatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none;">${placeholder}</div>`;
+    }
+    
+    // 缓存结果
+    avatarCache.set(cacheKey, html);
+    return html;
 };
 
-// 渲染聊天记录
+// 渲染聊天记录（智能更新）
 function renderChatHistory(messages) {
     const messageArea = document.getElementById('message-area');
     
     if (messages.length === 0) {
         lastMessageSignature = '';
+        renderedMessages = [];
         messageArea.innerHTML = '<div class="text-center text-muted"><i class="bi bi-chat-text" style="font-size: 3rem;"></i><p class="mt-2">暂无聊天记录</p></div>';
         return;
     }
     
-    const signature = messages.map(m => `${m.user_id}-${m.content}-${m.timestamp}`).join('|');
+    // 优化：使用ID作为唯一标识，更准确的数据比较
+    const signature = messages.map(m => `${m.user_id}-${m.content}-${m.timestamp}-${m.id || ''}`).join('|');
     if (signature === lastMessageSignature) return;
     lastMessageSignature = signature;
     
-    const html = messages.map(msg => {
-        const isSelf = msg.is_self;
-        const avatarHtml = getAvatarHtml(isSelf, msg.user_id, msg.avatar);
-        const timeHtml = `<span class="small text-muted ms-2">${formatTimeWithoutYear(msg.timestamp)}</span>`;
-        const nicknameHtml = !isSelf && currentChatType === 'group' 
-            ? `<div class="small mb-1"><span class="text-primary" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</span>${timeHtml}</div>` 
-            : `<div class="small text-muted mb-1">${timeHtml}</div>`;
-        
-        // 解析content中的图片链接（格式：文本<图片URL>）
-        let textContent = msg.content || '';
-        let imagesHtml = '';
-        
-        // 使用正则提取<URL>格式的图片链接
-        const imageUrlRegex = /<(https?:\/\/[^>]+)>/g;
-        const imageUrls = [];
-        let match;
-        
-        while ((match = imageUrlRegex.exec(textContent)) !== null) {
-            imageUrls.push(match[1]);
+    // 检查是否只是新增消息，避免全量重渲染
+    if (renderedMessages.length > 0 && messages.length > renderedMessages.length) {
+        const newMessages = messages.slice(renderedMessages.length);
+        if (JSON.stringify(messages.slice(0, renderedMessages.length)) === JSON.stringify(renderedMessages)) {
+            // 只有新增消息，使用增量更新
+            newMessages.forEach(msg => {
+                const messageHtml = createMessageHtml(msg);
+                messageArea.insertAdjacentHTML('beforeend', messageHtml);
+            });
+            renderedMessages = messages;
+            return;
         }
-        
-        // 从文本中移除<URL>标记
-        textContent = textContent.replace(imageUrlRegex, '').trim();
-        
-        // HTML转义文本内容，防止标签被解析
-        const escapedText = escapeHtml(textContent);
-        
-        // 生成图片HTML
-        if (imageUrls.length > 0) {
-            const maxWidth = 300;
-            const maxHeight = 400;
-            
-            imagesHtml = imageUrls.map(url => {
-                return `<img src="${url}" 
-                    referrerpolicy="no-referrer"
-                    style="max-width: ${maxWidth}px; max-height: ${maxHeight}px; border-radius: 8px; margin-top: 8px; cursor: pointer; display: block;" 
-                    onclick="window.open('${url}', '_blank')"
-                    onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
-                    title="图片"
-                    alt="图片">
-                    <div style="display: none; padding: 10px; background: #f0f0f0; border-radius: 8px; margin-top: 8px;">
-                        <i class="bi bi-image"></i> 图片加载失败
-                    </div>`;
-            }).join('');
-        }
-        
-        return `
-            <div class="message-bubble ${isSelf ? 'self' : 'other'}">
-                <div class="d-flex ${isSelf ? 'justify-content-end' : ''}">
-                    ${!isSelf ? avatarHtml : ''}
-                    <div class="message-content">
-                        ${nicknameHtml}
-                        ${escapedText}
-                        ${imagesHtml}
-                    </div>
-                    ${isSelf ? avatarHtml : ''}
-                </div>
-            </div>
-        `;
-    }).join('');
+    }
     
+    // 全量重渲染
+    const html = messages.map(msg => createMessageHtml(msg)).join('');
     messageArea.innerHTML = html;
+    renderedMessages = messages;
+    
+    // 更新最后消息ID
+    if (messages.length > 0) {
+        lastMessageId = messages[messages.length - 1].id || null;
+    }
     
     // 批量加载群聊中的用户昵称
     if (currentChatType === 'group') {
@@ -1378,5 +1411,67 @@ const showSendStatus = (msg, success) => {
         setTimeout(() => div.style.display = 'none', 5000);
     }
 };
+
+// 创建单个消息HTML（抽取出来的公共函数）
+function createMessageHtml(msg) {
+    const isSelf = msg.is_self;
+    const avatarHtml = getAvatarHtml(isSelf, msg.user_id, msg.avatar);
+    const timeHtml = `<span class="small text-muted ms-2">${formatTimeWithoutYear(msg.timestamp)}</span>`;
+    const nicknameHtml = !isSelf && currentChatType === 'group' 
+        ? `<div class="small mb-1"><span class="text-primary" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</span>${timeHtml}</div>` 
+        : `<div class="small text-muted mb-1">${timeHtml}</div>`;
+    
+    // 解析content中的图片链接（格式：文本<图片URL>）
+    let textContent = msg.content || '';
+    let imagesHtml = '';
+    
+    // 使用正则提取<URL>格式的图片链接
+    const imageUrlRegex = /<(https?:\/\/[^>]+)>/g;
+    const imageUrls = [];
+    let match;
+    
+    while ((match = imageUrlRegex.exec(textContent)) !== null) {
+        imageUrls.push(match[1]);
+    }
+    
+    // 从文本中移除<URL>标记
+    textContent = textContent.replace(imageUrlRegex, '').trim();
+    
+    // HTML转义文本内容，防止标签被解析
+    const escapedText = escapeHtml(textContent);
+    
+    // 生成图片HTML
+    if (imageUrls.length > 0) {
+        const maxWidth = 300;
+        const maxHeight = 400;
+        
+        imagesHtml = imageUrls.map(url => {
+            return `<img src="${url}" 
+                referrerpolicy="no-referrer"
+                style="max-width: ${maxWidth}px; max-height: ${maxHeight}px; border-radius: 8px; margin-top: 8px; cursor: pointer; display: block;" 
+                onclick="window.open('${url}', '_blank')"
+                onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+                title="图片"
+                alt="图片">
+                <div style="display: none; padding: 10px; background: #f0f0f0; border-radius: 8px; margin-top: 8px;">
+                    <i class="bi bi-image"></i> 图片加载失败
+                </div>`;
+        }).join('');
+    }
+    
+    return `
+        <div class="message-bubble ${isSelf ? 'self' : 'other'}">
+            <div class="d-flex ${isSelf ? 'justify-content-end' : ''}">
+                ${!isSelf ? avatarHtml : ''}
+                <div class="message-content">
+                    ${nicknameHtml}
+                    ${escapedText}
+                    ${imagesHtml}
+                </div>
+                ${isSelf ? avatarHtml : ''}
+            </div>
+        </div>
+    `;
+}
 </script>
 {% endblock %}

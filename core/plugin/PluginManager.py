@@ -20,7 +20,7 @@ from config import (
     SEND_DEFAULT_RESPONSE, OWNER_IDS, MAINTENANCE_MODE,
     DEFAULT_RESPONSE_EXCLUDED_REGEX
 )
-from core.plugin.message_templates import MessageTemplate, MSG_TYPE_MAINTENANCE, MSG_TYPE_GROUP_ONLY, MSG_TYPE_OWNER_ONLY, MSG_TYPE_DEFAULT, MSG_TYPE_BLACKLIST
+from core.plugin.message_templates import MessageTemplate, MSG_TYPE_MAINTENANCE, MSG_TYPE_GROUP_ONLY, MSG_TYPE_OWNER_ONLY, MSG_TYPE_DEFAULT, MSG_TYPE_BLACKLIST, MSG_TYPE_GROUP_BLACKLIST
 from web.app import add_plugin_log, add_framework_log, add_error_log
 from function.log_db import add_log_to_db
 
@@ -35,6 +35,13 @@ try:
     _blacklist_enabled = BLACKLIST_ENABLED
 except ImportError:
     _blacklist_enabled = False
+
+# 如果config中没有GROUP_BLACKLIST_ENABLED配置，默认为False
+try:
+    from config import GROUP_BLACKLIST_ENABLED
+    _group_blacklist_enabled = GROUP_BLACKLIST_ENABLED
+except ImportError:
+    _group_blacklist_enabled = False
 
 def _log_error(error_msg, error_trace=None):
     """统一的错误日志输出函数"""
@@ -55,6 +62,9 @@ _plugin_gc_interval = 30
 _blacklist_cache = {}
 _blacklist_last_load = 0
 _blacklist_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "blacklist.json")
+_group_blacklist_cache = {}
+_group_blacklist_last_load = 0
+_group_blacklist_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "group_blacklist.json")
 _last_quick_check_time = 0
 _plugins_loaded = False
 _last_cache_cleanup = 0
@@ -195,6 +205,56 @@ class PluginManager:
                 _log_error(f"加载黑名单数据失败: {str(e)}", traceback.format_exc())
                 
         return _blacklist_cache
+    
+    @classmethod
+    def load_group_blacklist(cls):
+        """加载群黑名单数据"""
+        global _group_blacklist_cache, _group_blacklist_last_load, _group_blacklist_file, _group_blacklist_enabled
+        
+        # 如果群黑名单功能未启用，返回空字典
+        if not _group_blacklist_enabled:
+            return {}
+        
+        # 确保文件存在
+        data_dir = os.path.dirname(_group_blacklist_file)
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+                
+        if not os.path.exists(_group_blacklist_file):
+            with open(_group_blacklist_file, 'w', encoding='utf-8') as f:
+                json.dump({}, f, ensure_ascii=False, indent=2)
+                
+        # 检查是否需要重新加载
+        current_time = time.time()
+        if _group_blacklist_last_load == 0 or (current_time - _group_blacklist_last_load > 60):
+            try:
+                if os.path.exists(_group_blacklist_file):
+                    mtime = os.path.getmtime(_group_blacklist_file)
+                    if not _group_blacklist_cache or mtime > _group_blacklist_last_load:
+                        with open(_group_blacklist_file, 'r', encoding='utf-8') as f:
+                            _group_blacklist_cache = json.load(f)
+                            _group_blacklist_last_load = current_time
+            except Exception as e:
+                _log_error(f"加载群黑名单数据失败: {str(e)}", traceback.format_exc())
+                
+        return _group_blacklist_cache
+    
+    @classmethod
+    def is_group_blacklisted(cls, group_id):
+        """检查群组是否在黑名单中"""
+        global _group_blacklist_enabled
+        
+        # 如果群黑名单功能未启用，直接返回False
+        if not _group_blacklist_enabled:
+            return False, ""
+            
+        if not group_id:
+            return False, ""
+            
+        blacklist = cls.load_group_blacklist()
+        if group_id in blacklist:
+            return True, blacklist.get(group_id, "未指明原因")
+        return False, ""
     
     @classmethod
     def is_blacklisted(cls, user_id):
@@ -854,9 +914,9 @@ class PluginManager:
     def reload_config_status(cls):
         """
         重新加载配置状态
-        用于在运行时更新维护模式和黑名单开关状态
+        用于在运行时更新维护模式、黑名单和群黑名单开关状态
         """
-        global _maintenance_mode_enabled, _blacklist_enabled
+        global _maintenance_mode_enabled, _blacklist_enabled, _group_blacklist_enabled
         try:
             # 重新导入config模块以获取最新配置
             import importlib
@@ -866,8 +926,14 @@ class PluginManager:
             _maintenance_mode_enabled = config_module.MAINTENANCE_MODE
             # 如果config中没有BLACKLIST_ENABLED配置，默认为False
             _blacklist_enabled = getattr(config_module, 'BLACKLIST_ENABLED', False)
+            # 如果config中没有GROUP_BLACKLIST_ENABLED配置，默认为False
+            _group_blacklist_enabled = getattr(config_module, 'GROUP_BLACKLIST_ENABLED', False)
             
-            status_msg = f"配置状态已更新 - 维护模式: {'启用' if _maintenance_mode_enabled else '关闭'}, 黑名单: {'启用' if _blacklist_enabled else '关闭'}"
+            # 重新加载群黑名单数据
+            if _group_blacklist_enabled:
+                cls.load_group_blacklist()
+            
+            status_msg = f"配置状态已更新 - 维护模式: {'启用' if _maintenance_mode_enabled else '关闭'}, 黑名单: {'启用' if _blacklist_enabled else '关闭'}, 群黑名单: {'启用' if _group_blacklist_enabled else '关闭'}"
             add_framework_log(status_msg)
             return True
         except Exception as e:
@@ -879,7 +945,7 @@ class PluginManager:
     @classmethod
     def dispatch_message(cls, event):
         try:
-            global _maintenance_mode_enabled, _blacklist_enabled, _last_background_cleanup
+            global _maintenance_mode_enabled, _blacklist_enabled, _group_blacklist_enabled, _last_background_cleanup
             
             # 检测插件更新（支持热加载）
             cls.load_plugins()
@@ -892,6 +958,13 @@ class PluginManager:
             
             if hasattr(event, 'handled') and event.handled:
                 return True
+            
+            # 群黑名单检查（仅在启用时执行）
+            if _group_blacklist_enabled and hasattr(event, 'group_id') and event.group_id:
+                is_group_blacklisted, reason = cls.is_group_blacklisted(event.group_id)
+                if is_group_blacklisted:
+                    MessageTemplate.send(event, MSG_TYPE_GROUP_BLACKLIST, group_id=event.group_id)
+                    return True
             
             # 黑名单检查（仅在启用时执行）
             if _blacklist_enabled and hasattr(event, 'user_id') and event.user_id:

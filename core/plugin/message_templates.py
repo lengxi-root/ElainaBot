@@ -29,8 +29,6 @@ INTERACTION = 'INTERACTION_CREATE'             # 按钮交互消息类型
 CHANNEL_MESSAGE = 'AT_MESSAGE_CREATE'          # 频道消息类型
 GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'            # 被拉进群事件类型
 
-# 各个模板处理函数，便于单独修改
-
 def _handle_welcome(event, **kwargs):
     """群欢迎消息处理"""
     if USE_MARKDOWN:
@@ -419,6 +417,39 @@ def _handle_blacklist(event, **kwargs):
     
     return result is not None
 
+def _handle_group_blacklist(event, **kwargs):
+    """群黑名单消息处理"""
+    group_id = kwargs.get('group_id', '未知群组')
+    
+    message = "该群组已被列入黑名单，机器人已停止服务\n\n>如有疑问，请联系管理员"
+    
+    # 添加反馈按钮
+    buttons = event.button([
+       event.rows([
+                    {
+                        'text': '加群反馈',
+                        'link': 'https://qm.qq.com/q/w5kFw95zDq',
+                        'type': 0,
+                        'style': 1
+                    },
+                    {
+                        'text': '频道反馈',
+                        'link': 'https://pd.qq.com/s/4mrty8rgq?b=9',
+                        'type': 0,
+                        'style': 1
+                    },
+                    {
+                        'text': '问卷反馈',
+                        'link': 'https://www.wjx.cn/vm/wVmvlOu.aspx',
+                        'type': 0,
+                        'style': 1
+                    },
+                ])
+            ])
+    
+    result = event.reply(message, buttons)
+    return result is not None
+
 # 消息处理器映射表
 MESSAGE_HANDLERS = {
     MSG_TYPE_WELCOME: _handle_welcome,
@@ -430,6 +461,7 @@ MESSAGE_HANDLERS = {
     MSG_TYPE_MAINTENANCE: _handle_maintenance,
     MSG_TYPE_API_ERROR: _handle_api_error,
     MSG_TYPE_BLACKLIST: _handle_blacklist,
+    MSG_TYPE_GROUP_BLACKLIST: _handle_group_blacklist,
 }
 
 class MessageTemplate:

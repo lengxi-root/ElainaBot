@@ -17,6 +17,7 @@ SEND_DEFAULT_RESPONSE = False                     # 无匹配命令时是否发�
 DEFAULT_RESPONSE_EXCLUDED_REGEX = []             # 排除默认回复的消息正则表达式列表
 MAINTENANCE_MODE = False                         # 维护模式开关，开启后机器人暂停服务
 BLACKLIST_ENABLED = True                         # 黑名单功能开关，关闭后黑名单用户能正常使用插件
+GROUP_BLACKLIST_ENABLED = True  # 群黑名单功能开关，开启后黑名单群内所有消息都会发送群黑名单模板
 ENABLE_WELCOME_MESSAGE = False                    # 是否启用入群欢迎消息功能
 ENABLE_NEW_USER_WELCOME = False                   # 是否启用新用户首次交互欢迎
 ENABLE_FRIEND_ADD_MESSAGE = False                 # 是否启用添加好友自动发送消息功能

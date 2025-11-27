@@ -25,12 +25,17 @@ BOT_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", 
 CONFIRMED_USERS_FILE = os.path.join(BOT_DATA_DIR, "查询机器人_确认用户.json")
 QUERY_RECORDS_FILE = os.path.join(BOT_DATA_DIR, "查询机器人_记录.json")
 BLACKLIST_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "blacklist.json")
+GROUP_BLACKLIST_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "group_blacklist.json")
 
 os.makedirs(BOT_DATA_DIR, exist_ok=True)
+# 确保data目录存在
+data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+os.makedirs(data_dir, exist_ok=True)
 
 confirmed_users = set()
 query_records = {}
 blacklist = {}
+group_blacklist_data = {}
 
 def load_bot_query_data():
     global confirmed_users, query_records
@@ -71,8 +76,21 @@ def save_blacklist():
     with open(BLACKLIST_FILE, 'w', encoding='utf-8') as f:
         json.dump(blacklist, f, ensure_ascii=False, indent=2)
 
+def load_group_blacklist():
+    global group_blacklist_data
+    if not os.path.exists(GROUP_BLACKLIST_FILE):
+        group_blacklist_data = {}
+        return
+    with open(GROUP_BLACKLIST_FILE, 'r', encoding='utf-8') as f:
+        group_blacklist_data = json.load(f)
+
+def save_group_blacklist():
+    with open(GROUP_BLACKLIST_FILE, 'w', encoding='utf-8') as f:
+        json.dump(group_blacklist_data, f, ensure_ascii=False, indent=2)
+
 load_bot_query_data()
 load_blacklist()
+load_group_blacklist()
 
 class system_plugin(Plugin):
     priority = 10
@@ -178,7 +196,9 @@ class system_plugin(Plugin):
             r'黑名单添加 *(.+?) *([a-zA-Z0-9]+)': {'handler': 'add_blacklist', 'owner_only': True},
             r'黑名单删除 *([a-zA-Z0-9]+)': {'handler': 'remove_blacklist', 'owner_only': True},
             r'黑名单查看': {'handler': 'view_blacklist', 'owner_only': True},
-            r'黑名单帮助': {'handler': 'show_blacklist_help', 'owner_only': True}
+            r'黑名单帮助': {'handler': 'show_blacklist_help', 'owner_only': True},
+            r'^群黑名单添加 +(?:(.+?) +)?([A-Z0-9]{20,})$': {'handler': 'add_group_blacklist', 'owner_only': True},
+            r'群黑名单删除 *([a-zA-Z0-9]+)': {'handler': 'remove_group_blacklist', 'owner_only': True}
         }
     
     @staticmethod
@@ -1058,7 +1078,7 @@ class system_plugin(Plugin):
         if USE_MARKDOWN:
             button_configs = [[
                 {'text': '继续添加', 'data': f'黑名单添加 {reason} ', 'type': 2, 'enter': False, 'style': 1},
-                {'text': '查看黑名单', 'data': '黑名单查看', 'type': 2, 'style': 1}
+                {'text': '查看所有黑名单', 'data': '黑名单帮助', 'type': 2, 'style': 1}
             ]]
             buttons = system_plugin.create_buttons(event, button_configs)
             event.reply(message, buttons)
@@ -1076,12 +1096,93 @@ class system_plugin(Plugin):
     
     @staticmethod
     def view_blacklist(event):
-        if not blacklist:
-            return event.reply("黑名单为空")
-        reply = "黑名单列表：\n" + "\n".join([f"{uid}: {reason}" for uid, reason in blacklist.items()])
-        event.reply(reply)
+        # 黑名单查看也调用统一的黑名单帮助，显示所有黑名单数据
+        system_plugin.show_blacklist_help(event)
     
     @staticmethod
     def show_blacklist_help(event):
-        event.reply("黑名单指令：\n黑名单添加 [原因] [用户ID] - 添加用户\n黑名单删除 [用户ID] - 删除用户\n黑名单查看 - 查看列表\n黑名单帮助 - 显示帮助")
+        """显示所有黑名单数据（用户+群）"""
+        reply_lines = ["📖 黑名单管理"]
+        
+        # 用户黑名单
+        reply_lines.append("\n━━━ 🚫 用户黑名单 ━━━")
+        if not blacklist:
+            reply_lines.append("✅ 空")
+        else:
+            for idx, (user_id, reason) in enumerate(blacklist.items(), 1):
+                masked_id = system_plugin.mask_id(user_id)
+                reply_lines.append(f"{idx}. {masked_id}\n   原因: {reason}")
+        
+        # 群黑名单
+        reply_lines.append("\n━━━ 🚫 群黑名单 ━━━")
+        if not group_blacklist_data:
+            reply_lines.append("✅ 空")
+        else:
+            for idx, (group_id, reason) in enumerate(group_blacklist_data.items(), 1):
+                masked_id = system_plugin.mask_id(group_id)
+                reply_lines.append(f"{idx}. {masked_id}\n   原因: {reason}")
+        
+        reply_lines.append("\n>提示：黑名单数据保存在JSON文件中，添加/删除后自动重载配置")
+        
+        reply = "\n".join(reply_lines)
+        
+        if USE_MARKDOWN:
+            button_configs = [[
+                {'text': '添加用户黑名单', 'data': '黑名单添加 违规 ', 'type': 2, 'enter': False, 'style': 1},
+                {'text': '添加群黑名单', 'data': '群黑名单添加 违规 ', 'type': 2, 'enter': False, 'style': 1}
+            ]]
+            buttons = system_plugin.create_buttons(event, button_configs)
+            event.reply(reply, buttons)
+        else:
+            event.reply(reply)
+    
+    @staticmethod
+    def add_group_blacklist(event):
+        # matches[0] = 原因（可选），matches[1] = 群ID
+        reason = event.matches[0] if event.matches[0] else "未指明原因"
+        group_id = event.matches[1] if len(event.matches) > 1 and event.matches[1] else None
+        
+        if not group_id:
+            return event.reply("❌ 请提供群组ID\n💡 使用格式：\n  群黑名单添加 [群ID]\n  群黑名单添加 [原因] [群ID]")
+        
+        group_blacklist_data[group_id] = reason
+        save_group_blacklist()
+        
+        # 重新加载配置，让框架重新读取JSON文件
+        try:
+            PluginManager.reload_config_status()
+            sync_status = "✅ 已生效"
+        except Exception as e:
+            sync_status = f"⚠️ 重载失败: {str(e)}"
+        
+        message = f"已添加群组 {group_id} 到群黑名单\n原因: {reason}\n{sync_status}"
+        
+        if USE_MARKDOWN:
+            button_configs = [[
+                {'text': '继续添加', 'data': f'群黑名单添加 {reason} ', 'type': 2, 'enter': False, 'style': 1},
+                {'text': '查看所有黑名单', 'data': '黑名单帮助', 'type': 2, 'style': 1}
+            ]]
+            buttons = system_plugin.create_buttons(event, button_configs)
+            event.reply(message, buttons)
+        else:
+            event.reply(message)
+    
+    @staticmethod
+    def remove_group_blacklist(event):
+        group_id = event.matches[0]
+        if group_id not in group_blacklist_data:
+            return event.reply(f"群组 {group_id} 不在群黑名单中")
+        
+        reason = group_blacklist_data.pop(group_id, "未知")
+        save_group_blacklist()
+        
+        # 重新加载配置，让框架重新读取JSON文件
+        try:
+            PluginManager.reload_config_status()
+            sync_status = "✅ 已生效"
+        except Exception as e:
+            sync_status = f"⚠️ 重载失败: {str(e)}"
+        
+        event.reply(f"已移除群组 {group_id}\n原因: {reason}\n{sync_status}")
+    
  

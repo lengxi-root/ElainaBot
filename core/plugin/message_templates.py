@@ -21,6 +21,7 @@ MSG_TYPE_OWNER_ONLY = 'owner_only'          # 主人专属命令提示
 MSG_TYPE_MAINTENANCE = 'maintenance'        # 维护模式回复
 MSG_TYPE_API_ERROR = 'api_error'            # API错误提示消息
 MSG_TYPE_BLACKLIST = 'blacklist'            # 黑名单用户提示消息
+MSG_TYPE_GROUP_BLACKLIST = 'group_blacklist'  # 群黑名单提示消息
 
 # 消息类型映射常量
 GROUP_MESSAGE = 'GROUP_AT_MESSAGE_CREATE'      # 群消息类型

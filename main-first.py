@@ -285,18 +285,22 @@ async def handle_ws_message(raw_data):
 
 async def create_websocket_client():
     from function.ws_client import create_qq_bot_client
+    log_to_console("正在获取网关地址...")
     client = await create_qq_bot_client(WEBSOCKET_CONFIG)
     if not client:
         raise Exception("无法获取网关地址或创建客户端")
+    log_to_console("正在配置事件处理器...")
     client.add_handler('message', handle_ws_message)
-    client.add_handler('connect', lambda d: None)
-    client.add_handler('disconnect', lambda d: None)
+    client.add_handler('connect', lambda d: log_to_console("WebSocket连接已建立"))
+    client.add_handler('disconnect', lambda d: log_to_console("WebSocket连接已断开"))
     client.add_handler('error', lambda d: log_error(f"WebSocket错误: {d.get('error', '')}"))
-    client.add_handler('ready', lambda d: None)
+    client.add_handler('ready', lambda d: log_to_console(f"WebSocket已就绪 - Bot: {d.get('bot_info', {}).get('username', '二次转发接收模式')}"))
     return client
 
 def run_websocket_client():
     import asyncio
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
     for attempt in range(3):
         loop = None
@@ -304,14 +308,19 @@ def run_websocket_client():
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            log_to_console(f"正在创建WebSocket客户端...")
             client = loop.run_until_complete(create_websocket_client())
+            log_to_console("WebSocket客户端已创建，开始连接...")
             loop.run_until_complete(client.start())
+            log_to_console("WebSocket客户端连接成功")
             break
         except KeyboardInterrupt:
+            log_to_console("WebSocket客户端被用户中断")
             break
         except Exception as e:
             log_error(f"WebSocket客户端运行失败 (第 {attempt + 1}/3 次): {str(e)}")
             if attempt < 2:
+                log_to_console(f"等待 10 秒后重试...")
                 time.sleep(10)
         finally:
             try:
@@ -340,6 +349,7 @@ def setup_websocket():
         from config import appid, secret
         if appid and secret:
             threading.Thread(target=run_websocket_client, daemon=True).start()
+            log_to_console("WebSocket自动连接启动成功")
 
 def init_systems(is_subprocess=False):
     global _message_handler_ready, _plugins_preloaded

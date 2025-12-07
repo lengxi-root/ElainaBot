@@ -215,34 +215,34 @@ INITIAL_CONFIG_HTML = '''<!DOCTYPE html>
         let configItems = [], configGroups = {}, currentGroup = '', editor = null;
 
         // 必填配置组
-        const REQUIRED_GROUPS = ['基础配置', 'WEBSOCKET_CONFIG', 'WEB_SECURITY', 'DB_CONFIG', 'LOG_DB_CONFIG'];
+        const REQUIRED_GROUPS = ['基础配置', 'WEBSOCKET_CONFIG', 'WEB_CONFIG', 'DB_CONFIG', 'LOG_DB_CONFIG'];
         
         // 配置组显示名称映射（可选，用于提供友好的中文名称）
         const CONFIG_DISPLAY_NAMES = {
             '基础配置': '基础配置',
             'SERVER_CONFIG': '服务器配置',
-            'LOG_CONFIG': '日志配置',
             'WEBSOCKET_CONFIG': 'WebSocket配置',
-            'WEB_SECURITY': 'Web面板安全配置',
-            'WEB_INTERFACE': 'Web界面外观配置',
+            'WEB_CONFIG': 'Web面板配置',
             'DB_CONFIG': '主数据库配置',
             'LOG_DB_CONFIG': '日志数据库配置',
             'COS_CONFIG': '腾讯云COS配置',
-            'BILIBILI_IMAGE_BED_CONFIG': 'Bilibili图床配置'
+            'BILIBILI_IMAGE_BED_CONFIG': 'Bilibili图床配置',
+            'MARKDOWN_AJ_TEMPLATE': 'Markdown模板配置',
+            'PROTECTED_FILES': '文件保护配置'
         };
         
         // 配置组排序优先级（数字越小越靠前）
         const CONFIG_GROUP_PRIORITY = {
             '基础配置': 1,
             'WEBSOCKET_CONFIG': 2,
-            'WEB_SECURITY': 3,
+            'WEB_CONFIG': 3,
             'DB_CONFIG': 4,
             'LOG_DB_CONFIG': 5,
             'SERVER_CONFIG': 6,
-            'LOG_CONFIG': 7,
-            'WEB_INTERFACE': 8,
-            'COS_CONFIG': 9,
-            'BILIBILI_IMAGE_BED_CONFIG': 10
+            'MARKDOWN_AJ_TEMPLATE': 7,
+            'COS_CONFIG': 8,
+            'BILIBILI_IMAGE_BED_CONFIG': 9,
+            'PROTECTED_FILES': 10
         };
 
         // 初始化
@@ -503,11 +503,21 @@ def start_initial_config_wizard():
                 
                 # 在字典内部，解析键值对
                 if current_dict:
-                    dict_item_match = re.match(r"^['\"]?([a-zA-Z_][a-zA-Z0-9_]*)['\"]?\s*:\s*(.+?)(?:,\s*)?(?:#\s*(.+))?$", stripped)
+                    # 改进的正则，支持单引号、双引号或无引号的键名
+                    dict_item_match = re.match(r"^(\s*)['\"]?([a-zA-Z_][a-zA-Z0-9_]*)['\"]?\s*:\s*(.+?)(?:,\s*)?(?:#\s*(.+))?$", line)
                     if dict_item_match:
-                        key_name = dict_item_match.group(1)
-                        value_str = dict_item_match.group(2).strip().rstrip(',').strip()
-                        comment = dict_item_match.group(3).strip() if dict_item_match.group(3) else ''
+                        indent = dict_item_match.group(1)
+                        key_name = dict_item_match.group(2)
+                        value_str = dict_item_match.group(3).strip().rstrip(',').strip()
+                        comment = dict_item_match.group(4).strip() if dict_item_match.group(4) else ''
+                        
+                        # 跳过包含 f-string 或复杂表达式的值（这些通常在高级模式中编辑）
+                        if value_str.startswith('f"') or value_str.startswith("f'") or value_str.startswith('f"""') or value_str.startswith("f'''"):
+                            continue
+                        
+                        # 跳过嵌套字典和列表
+                        if value_str in ['{', '['] or value_str.endswith(('{', '[')):
+                            continue
                         
                         try:
                             value = ast.literal_eval(value_str)
@@ -534,6 +544,7 @@ def start_initial_config_wizard():
                                 'is_dict_item': True
                             })
                         except (ValueError, SyntaxError):
+                            # 如果无法解析，跳过该项（可能是复杂表达式）
                             pass
                     continue
                 
@@ -546,6 +557,10 @@ def start_initial_config_wizard():
                     
                     # 跳过字典和列表定义
                     if value_str in ['{', '['] or value_str.endswith(('{', '[')):
+                        continue
+                    
+                    # 跳过包含 f-string 或复杂表达式的值
+                    if value_str.startswith('f"') or value_str.startswith("f'") or value_str.startswith('f"""') or value_str.startswith("f'''"):
                         continue
                     
                     try:
@@ -571,6 +586,7 @@ def start_initial_config_wizard():
                             'is_dict_item': False
                         })
                     except (ValueError, SyntaxError):
+                        # 如果无法解析，跳过该项（可能是复杂表达式）
                         pass
         
         return jsonify({
@@ -642,10 +658,12 @@ def start_initial_config_wizard():
                             break
                         
                         # 在字典内匹配键值对
-                        match = re.match(rf"^(\s*)['\"]?({re.escape(key_name)})['\"]?\s*:\s*(.+?)(?:,\s*)?(\s*#.+)?$", line)
+                        match = re.match(rf"^(\s*)(['\"]?)({re.escape(key_name)})\2\s*:\s*(.+?)(?:,\s*)?(\s*#.+)?$", line)
                         if match:
-                            indent, comment = match.group(1), match.group(4) or ''
-                            value_part = f"'{key_name}': {formatted_value},"
+                            indent, quote, comment = match.group(1), match.group(2), match.group(5) or ''
+                            # 保持原有的引号风格，如果没有引号则使用单引号
+                            key_quote = quote if quote else "'"
+                            value_part = f"{key_quote}{key_name}{key_quote}: {formatted_value},"
                             if comment:
                                 clean_comment = comment.strip() if comment.strip().startswith('#') else '# ' + comment.strip()
                                 lines[i] = f'{indent}{value_part}  {clean_comment}\n'

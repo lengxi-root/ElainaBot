@@ -186,9 +186,13 @@ def login():
     if password == WEB_CONFIG['admin_password']:
         cleanup_expired_sessions()
         limit_session_count()
-        record_ip_access(request.remote_addr, 'password_success', extract_device_info(request))
         
-        current_ip = request.remote_addr
+        # 获取真实 IP（支持反向代理）
+        from web.tools.session_manager import get_real_ip
+        current_ip = get_real_ip(request)
+        
+        record_ip_access(current_ip, 'password_success', extract_device_info(request))
+        
         current_ua = request.headers.get('User-Agent', '')[:200]
         existing_session_token = None
         
@@ -217,14 +221,17 @@ def login():
         
         response = make_response(f'<script>window.location.href = "/web/?token={token}";</script>')
         cookie_expires = datetime.now() + timedelta(days=7)
+        # 检测是否为 HTTPS 环境
+        is_https = request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https'
+        
         response.set_cookie(
             'elaina_admin_session', 
             sign_cookie_value(session_token, 'elaina_cookie_secret_key_2024_v1'), 
             max_age=604800,
             expires=cookie_expires,
             httponly=True, 
-            secure=False, 
-            samesite='Lax', 
+            secure=is_https,  # HTTPS 环境下自动启用 secure
+            samesite='None' if is_https else 'Lax',  # HTTPS 环境下使用 None
             path='/'
         )
         return response
@@ -239,7 +246,7 @@ def index():
     
     response = make_response(render_template('index.html', prefix=PREFIX, ROBOT_QQ=ROBOT_QQ, appid=appid, WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_CONFIG, plugin_routes=plugin_routes))
     for header, value in [('X-Content-Type-Options', 'nosniff'), ('X-Frame-Options', 'DENY'), ('X-XSS-Protection', '1; mode=block'),
-        ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn *.nt.qq.com.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"),
+        ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn http://*.qlogo.cn *.nt.qq.com.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"),
         ('Referrer-Policy', 'strict-origin-when-cross-origin'), ('Permissions-Policy', 'geolocation=(), microphone=(), camera=()'),
         ('Strict-Transport-Security', 'max-age=0'), ('Cache-Control', 'no-cache, no-store, must-revalidate'), ('Pragma', 'no-cache'), ('Expires', '0')]:
         response.headers[header] = value

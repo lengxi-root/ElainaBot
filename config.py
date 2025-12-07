@@ -51,7 +51,7 @@ WEB_CONFIG = {
     
     # 界面外观配置
     'framework_name': "Elaina",  # 框架名称，显示在页面标题和导航栏中
-    'favicon_url': f'http://q1.qlogo.cn/g?b=qq&nk={ROBOT_QQ}&s=100',  # 网页图标URL，默认使用机器人QQ头像
+    'favicon_url': f'https://q1.qlogo.cn/g?b=qq&nk={ROBOT_QQ}&s=100',  # 网页图标URL，默认使用机器人QQ头像
     'pc_title_suffix': "仪表盘",  # PC端标题后缀
     'login_title_suffix': "面板",  # 登录页面标题后缀
 }

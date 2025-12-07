@@ -28,6 +28,22 @@ def safe_file_operation(operation, file_path, data=None, default_return=None):
     except Exception:
         return default_return
 
+def get_real_ip(request):
+    """获取真实客户端 IP，支持反向代理环境"""
+    # 优先从 X-Forwarded-For 获取（Nginx 代理）
+    forwarded_for = request.headers.get('X-Forwarded-For')
+    if forwarded_for:
+        # X-Forwarded-For 可能包含多个 IP，取第一个
+        return forwarded_for.split(',')[0].strip()
+    
+    # 其次从 X-Real-IP 获取
+    real_ip = request.headers.get('X-Real-IP')
+    if real_ip:
+        return real_ip.strip()
+    
+    # 最后使用 remote_addr
+    return request.remote_addr
+
 def extract_device_info(request):
     user_agent = request.headers.get('User-Agent', '')
     device_info = {
@@ -262,7 +278,9 @@ def require_auth(WEB_CONFIG):
                 if is_valid and session_token in valid_sessions:
                     session_info = valid_sessions[session_token]
                     if datetime.now() < session_info['expires']:
-                        if (session_info.get('ip') == request.remote_addr and \
+                        # 使用真实 IP 进行验证（支持反向代理）
+                        real_ip = get_real_ip(request)
+                        if (session_info.get('ip') == real_ip and \
                             session_info.get('user_agent', '')[:200] == request.headers.get('User-Agent', '')[:200]):
                             return f(*args, **kwargs)
                     else:
@@ -281,7 +299,8 @@ def require_socketio_token(WEB_CONFIG):
             cleanup_expired_ip_bans()
             cleanup_expired_sessions()
             
-            client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('HTTP_X_REAL_IP', request.environ.get('REMOTE_ADDR', '未知')))
+            # 使用统一的真实 IP 获取方法
+            client_ip = get_real_ip(request)
             if is_ip_banned(client_ip):
                 return False
             
@@ -303,6 +322,7 @@ def require_socketio_token(WEB_CONFIG):
                 save_session_data()
                 return False
             
+            # 使用真实 IP 进行验证
             if (session_info.get('ip') != client_ip or 
                 session_info.get('user_agent', '')[:200] != request.headers.get('User-Agent', '')[:200]):
                 del valid_sessions[session_token]

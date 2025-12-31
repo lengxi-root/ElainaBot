@@ -351,8 +351,18 @@ def handle_logout(openapi_success_response):
     return openapi_success_response(message='登出成功')
 
 def handle_get_login_status(check_openapi_login_func, openapi_success_response):
-    user_data = check_openapi_login_func(request.get_json().get('user_id', 'web_user'))
-    return openapi_success_response(logged_in=True, uin=user_data.get('uin'), appid=user_data.get('appId')) if user_data else openapi_success_response(logged_in=False)
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id', 'web_user')
+        user_data = check_openapi_login_func(user_id)
+        if user_data:
+            return openapi_success_response(logged_in=True, uin=user_data.get('uin', ''), appid=user_data.get('appId', ''))
+        else:
+            return openapi_success_response(logged_in=False)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
 
 def handle_import_templates(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
@@ -782,41 +792,196 @@ def handle_batch_add_whitelist(check_openapi_login_func, openapi_error_response)
     if not all([appid_to_use, ip_list, qrcode]):
         return openapi_error_response('缺少必要参数')
     
-    if not isinstance(ip_list, list) or len(ip_list) == 0:
-        return openapi_error_response('IP列表不能为空')
-    
     try:
-        # 将IP列表转换为逗号分隔的字符串（QQ开放平台的格式要求）
-        ip_string = ','.join(ip_list)
+        success_count = 0
+        failed_ips = []
         
-        # 调用更新白名单的API，使用add操作但包含所有IP
-        res = _bot_api.update_white_list(
-            appid=appid_to_use,
-            uin=user_data.get('uin'),
-            uid=user_data.get('developerId'),
-            ticket=user_data.get('ticket'),
-            qrcode=qrcode,
-            ip=ip_string,  # 包含所有IP的字符串
-            action='add'
-        )
-        
-        # 检查API返回状态
-        if res.get('code', 0) != 0:
-            error_msg = res.get('msg') or '批量添加IP失败'
-            return openapi_error_response(error_msg)
+        for ip in ip_list:
+            try:
+                res = _bot_api.update_white_list(
+                    appid=appid_to_use,
+                    uin=user_data.get('uin'),
+                    uid=user_data.get('developerId'),
+                    ticket=user_data.get('ticket'),
+                    qrcode=qrcode,
+                    ip=ip,
+                    action='add'
+                )
+                
+                if res.get('code', 0) == 0:
+                    success_count += 1
+                else:
+                    failed_ips.append(ip)
+            except:
+                failed_ips.append(ip)
         
         return jsonify({
             'success': True,
-            'message': f'成功批量添加 {len(ip_list)} 个IP地址',
+            'message': f'批量添加完成：成功{success_count}个，失败{len(failed_ips)}个',
             'data': {
-                'total_ips': len(ip_list),
-                'ip_list': ip_list,
-                'appid': appid_to_use
+                'success_count': success_count,
+                'failed_count': len(failed_ips),
+                'failed_ips': failed_ips
             }
         })
         
     except Exception as e:
-        return openapi_error_response(f'批量添加IP失败: {str(e)}')
+        return openapi_error_response(f'批量添加失败: {str(e)}')
+
+def handle_create_template_qr(check_openapi_login_func, openapi_error_response):
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+
+    user_data = check_openapi_login_func(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+
+    try:
+        qr_result = _bot_api.create_template_qr(uin=user_data.get('uin'), quid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+        if qr_result.get('code', 0) != 0:
+            return openapi_error_response(f'创建二维码失败: {qr_result.get("msg", "请稍后重试")}')
+
+        qrcode = qr_result.get('data', {}).get('QrCode', '')
+        if not qrcode:
+            return openapi_error_response('获取二维码失败')
+
+        from urllib.parse import quote
+        qq_auth_url = f"https://q.qq.com/qrcode/check?client=qq&code={qrcode}&ticket={user_data.get('ticket')}"
+        qr_image_url = f"https://api.2dcode.biz/v1/create-qr-code?data={quote(qq_auth_url)}"
+
+        return jsonify({'success': True, 'qrcode': qrcode, 'url': qr_image_url, 'message': '二维码创建成功，请扫码授权'})
+
+    except Exception as e:
+        return openapi_error_response(f'创建二维码失败: {str(e)}')
+
+def handle_check_template_qr(check_openapi_login_func, openapi_error_response):
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    qrcode = data.get('qrcode', '')
+
+    user_data = check_openapi_login_func(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+
+    if not qrcode:
+        return openapi_error_response('缺少二维码参数')
+
+    try:
+        auth_result = _bot_api.verify_qr_auth(uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'), qrcode=qrcode)
+        return jsonify({'success': True, 'authorized': auth_result.get('code', 0) == 0,
+                       'message': '授权成功' if auth_result.get('code', 0) == 0 else '等待授权中'})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': True, 'message': f'检查授权状态失败: {str(e)}'})
+
+def handle_preview_template(check_openapi_login_func, openapi_error_response):
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    template_data = data.get('template_data', {})
+
+    user_data = check_openapi_login_func(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+
+    if not appid_to_use or not template_data:
+        return openapi_error_response('缺少必要参数')
+
+    try:
+        preview_result = _bot_api.preview_template(bot_appid=appid_to_use, template_data=template_data,
+                                                 uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+        if preview_result.get('retcode', 0) != 0:
+            return openapi_error_response(preview_result.get('msg', '预览失败'))
+
+        preview_text = preview_result.get('data', {}).get('tpl_text', '')
+        return jsonify({'success': True, 'data': {'preview_text': preview_text}, 'message': '预览成功'})
+
+    except Exception as e:
+        return openapi_error_response(f'预览模板失败: {str(e)}')
+
+def handle_submit_template(check_openapi_login_func, openapi_error_response):
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    template_data = data.get('template_data', {})
+    qrcode = data.get('qrcode', '')
+
+    user_data = check_openapi_login_func(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+
+    if not all([appid_to_use, template_data, qrcode]):
+        return openapi_error_response('缺少必要参数')
+
+    try:
+        submit_result = _bot_api.submit_template(bot_appid=appid_to_use, template_data=template_data, qrcode=qrcode,
+                                               uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+        if submit_result.get('retcode', 0) != 0:
+            return openapi_error_response(submit_result.get('msg', '提交失败'))
+
+        template_id = submit_result.get('data', {}).get('tpl_id', '')
+        return jsonify({'success': True, 'data': {'template_id': template_id}, 'message': '模板提交成功'})
+
+    except Exception as e:
+        return openapi_error_response(f'提交模板失败: {str(e)}')
+
+def handle_audit_templates(check_openapi_login_func, openapi_error_response):
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    tpl_ids = data.get('tpl_ids', [])
+    qrcode = data.get('qrcode', '')
+
+    user_data = check_openapi_login_func(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+
+    if not all([appid_to_use, tpl_ids, qrcode]):
+        return openapi_error_response('缺少必要参数')
+
+    try:
+        audit_result = _bot_api.audit_templates(bot_appid=appid_to_use, tpl_ids=tpl_ids, qrcode=qrcode,
+                                              uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+        if audit_result.get('retcode', 0) != 0:
+            return openapi_error_response(audit_result.get('msg', '提审失败'))
+
+        return jsonify({'success': True, 'message': f'成功提审 {len(tpl_ids)} 个模板'})
+
+    except Exception as e:
+        return openapi_error_response(f'提审模板失败: {str(e)}')
+
+def handle_delete_templates(check_openapi_login_func, openapi_error_response):
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    target_appid = data.get('appid')
+    tpl_ids = data.get('tpl_ids', [])
+    qrcode = data.get('qrcode', '')
+
+    user_data = check_openapi_login_func(user_id)
+    if not user_data:
+        return openapi_error_response('未登录，请先登录开放平台')
+
+    appid_to_use = target_appid if target_appid else user_data.get('appId')
+
+    if not all([appid_to_use, tpl_ids, qrcode]):
+        return openapi_error_response('缺少必要参数')
+
+    try:
+        delete_result = _bot_api.delete_templates(bot_appid=appid_to_use, tpl_ids=tpl_ids, qrcode=qrcode,
+                                                uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+        if delete_result.get('retcode', 0) != 0:
+            return openapi_error_response(delete_result.get('msg', '删除失败'))
+
+        return jsonify({'success': True, 'message': f'成功删除 {len(tpl_ids)} 个模板'})
+
+    except Exception as e:
+        return openapi_error_response(f'删除模板失败: {str(e)}')
 
 # ===== 初始化 =====
 

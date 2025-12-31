@@ -40,11 +40,13 @@ class QQBotAPI:
                 headers["Cookie"] = self._build_cookie_string(uin, quid, ticket)
             if extra_headers:
                 headers.update(extra_headers)
+            
             with httpx.Client() as client:
                 response = client.get(url, headers=headers) if method.upper() == 'GET' else client.post(url, json=data, headers=headers)
+            
             return json.loads(self._process_response(response.content))
-        except:
-            return {"code": 500, "msg": "请求失败"}
+        except Exception as e:
+            return {"code": 500, "msg": f"请求失败: {str(e)}"}
     
     def get_message_templates(self, uin: str = "", quid: str = "", ticket: str = "", 
                              appid: str = "", start: int = 0, limit: int = 30) -> Dict[str, Any]:
@@ -75,7 +77,7 @@ class QQBotAPI:
     
     def _format_timestamp(self, timestamp) -> str:
         try:
-            return datetime.fromtimestamp(float(timestamp)).strftime("%Y-%m-%d %H:%M:%S") if timestamp else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            return datetime.fromtimestamp(float(timestamp)).strftime("%Y-%m-%d %H:%M:%S")
         except:
             return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -208,12 +210,60 @@ class QQBotAPI:
         return {"code": 0, "msg": "新增成功" if action == 'add' else "删除成功"}
     
     def verify_qr_auth(self, appid: str = "", uin: str = "", uid: str = "", ticket: str = "", qrcode: str = "") -> Dict[str, Any]:
-        if not all([appid, uin, uid, ticket, qrcode]):
+        if not all([uin, uid, ticket, qrcode]):
             return {"code": 400, "msg": "参数不完整"}
         response = self._make_request("POST", "https://q.qq.com/qrcode/get", uin, uid, ticket, {"qrcode": qrcode})
         if response.get("code") == 500:
             return {"code": 500, "msg": f"CURL错误：{response.get('msg')}"}
         return {"code": 0, "msg": "授权成功"} if response.get('code') == 0 else {"code": -1, "msg": "未授权"}
+    
+    def create_template_qr(self, uin: str = "", quid: str = "", ticket: str = "") -> Dict[str, Any]:
+        response = self._make_request("POST", "https://q.qq.com/qrcode/create", uin, quid, ticket, data={"type": 40, "miniAppId": ""},
+                                     extra_headers={"Host": "q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/qqbot/"})
+        if response.get("code") == 500:
+            return {"code": 500, "msg": response.get("msg")}
+        return response
+    
+    
+    def preview_template(self, bot_appid: str = "", template_data: Dict = None, uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+        if not bot_appid or not template_data:
+            return {"retcode": 400, "msg": "参数不完整"}
+        data = {"bot_appid": bot_appid, "info": template_data}
+        response = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/preview", uin, uid, ticket, data=data,
+                                     extra_headers={"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
+        if response.get("code") == 500:
+            return {"retcode": 500, "msg": response.get("msg")}
+        return response
+    
+    def submit_template(self, bot_appid: str = "", template_data: Dict = None, qrcode: str = "", uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+        if not all([bot_appid, template_data, qrcode]):
+            return {"retcode": 400, "msg": "参数不完整"}
+        data = {"bot_appid": bot_appid, "info": template_data, "qrcode": qrcode}
+        response = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/create", uin, uid, ticket, data=data,
+                                     extra_headers={"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
+        if response.get("code") == 500:
+            return {"retcode": 500, "msg": response.get("msg")}
+        return response
+    
+    def audit_templates(self, bot_appid: str = "", tpl_ids: list = None, qrcode: str = "", uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+        if not all([bot_appid, tpl_ids, qrcode]):
+            return {"retcode": 400, "msg": "参数不完整"}
+        data = {"bot_appid": int(bot_appid) if isinstance(bot_appid, str) else bot_appid, "tpl_id": tpl_ids, "qrcode": qrcode}
+        response = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/audit", uin, uid, ticket, data=data,
+                                     extra_headers={"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
+        if response.get("code") == 500:
+            return {"retcode": 500, "msg": response.get("msg")}
+        return response
+    
+    def delete_templates(self, bot_appid: str = "", tpl_ids: list = None, qrcode: str = "", uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+        if not all([bot_appid, tpl_ids, qrcode]):
+            return {"retcode": 400, "msg": "参数不完整"}
+        data = {"bot_appid": int(bot_appid) if isinstance(bot_appid, str) else bot_appid, "tpl_id": tpl_ids, "qrcode": qrcode}
+        response = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/delete", uin, uid, ticket, data=data,
+                                     extra_headers={"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
+        if response.get("code") == 500:
+            return {"retcode": 500, "msg": response.get("msg")}
+        return response
 
 _bot_api_instance = None
 
@@ -252,3 +302,15 @@ def update_white_list(**kwargs) -> Dict[str, Any]:
 
 def verify_qr_auth(**kwargs) -> Dict[str, Any]:
     return get_bot_api().verify_qr_auth(**kwargs)
+
+def create_template_qr(**kwargs) -> Dict[str, Any]:
+    return get_bot_api().create_template_qr(**kwargs)
+
+def check_qr_auth(**kwargs) -> Dict[str, Any]:
+    return get_bot_api().check_qr_auth(**kwargs)
+
+def preview_template(**kwargs) -> Dict[str, Any]:
+    return get_bot_api().preview_template(**kwargs)
+
+def submit_template(**kwargs) -> Dict[str, Any]:
+    return get_bot_api().submit_template(**kwargs)

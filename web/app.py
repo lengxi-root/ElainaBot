@@ -187,7 +187,6 @@ def login():
         cleanup_expired_sessions()
         limit_session_count()
         
-        # 获取真实 IP（支持反向代理）
         from web.tools.session_manager import get_real_ip
         current_ip = get_real_ip(request)
         
@@ -221,7 +220,6 @@ def login():
         
         response = make_response(f'<script>window.location.href = "/web/?token={token}";</script>')
         cookie_expires = datetime.now() + timedelta(days=7)
-        # 检测是否为 HTTPS 环境
         is_https = request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https'
         
         response.set_cookie(
@@ -363,7 +361,6 @@ def handle_plugin_api(api_path):
     except Exception as e:
         error_trace = traceback.format_exc()
         add_error_log(f"插件API处理失败: {full_api_path}", error_trace)
-        logger.error(f"插件API错误: {str(e)}\n{error_trace}")
         return jsonify({'success': False, 'message': f'处理请求失败: {str(e)}'}), 500
 
 @web.route('/api/logs/<log_type>')
@@ -718,7 +715,13 @@ try:
         handle_get_delete_qr,
         handle_check_delete_auth,
         handle_execute_delete_ip,
-        handle_batch_add_whitelist
+        handle_batch_add_whitelist,
+        handle_create_template_qr,
+        handle_check_template_qr,
+        handle_preview_template,
+        handle_submit_template,
+        handle_audit_templates,
+        handle_delete_templates
     )
 except ImportError:
     tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
@@ -743,7 +746,13 @@ except ImportError:
         handle_get_delete_qr,
         handle_check_delete_auth,
         handle_execute_delete_ip,
-        handle_batch_add_whitelist
+        handle_batch_add_whitelist,
+        handle_create_template_qr,
+        handle_check_template_qr,
+        handle_preview_template,
+        handle_submit_template,
+        handle_audit_templates,
+        handle_delete_templates
     )
 
 check_openapi_login = lambda user_id: openapi_user_data.get(user_id)
@@ -837,6 +846,36 @@ def openapi_execute_delete_ip():
 @simple_auth
 def openapi_batch_add_whitelist():
     return handle_batch_add_whitelist(check_openapi_login, openapi_error_response)
+
+@web.route('/openapi/create_template_qr', methods=['POST'])
+@simple_auth
+def openapi_create_template_qr():
+    return handle_create_template_qr(check_openapi_login, openapi_error_response)
+
+@web.route('/openapi/check_template_qr', methods=['POST'])
+@simple_auth
+def openapi_check_template_qr():
+    return handle_check_template_qr(check_openapi_login, openapi_error_response)
+
+@web.route('/openapi/preview_template', methods=['POST'])
+@simple_auth
+def openapi_preview_template():
+    return handle_preview_template(check_openapi_login, openapi_error_response)
+
+@web.route('/openapi/submit_template', methods=['POST'])
+@simple_auth
+def openapi_submit_template():
+    return handle_submit_template(check_openapi_login, openapi_error_response)
+
+@web.route('/openapi/audit_templates', methods=['POST'])
+@simple_auth
+def openapi_audit_templates():
+    return handle_audit_templates(check_openapi_login, openapi_error_response)
+
+@web.route('/openapi/delete_templates', methods=['POST'])
+@simple_auth
+def openapi_delete_templates():
+    return handle_delete_templates(check_openapi_login, openapi_error_response)
 
 @web.route('/api/system/status', methods=['GET'])
 def get_system_status():

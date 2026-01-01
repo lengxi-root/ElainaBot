@@ -498,23 +498,65 @@ class MessageEvent:
                     pass
 
     def _convert_to_silk(self, audio_data):
-        import subprocess, tempfile
-        audio_path = pcm_path = silk_path = None
+        import subprocess, tempfile, platform, stat
+        audio_path = pcm_path = silk_path = codec_path = None
         try:
+            # 写入音频数据到临时文件
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as f:
                 audio_path = f.name
                 f.write(audio_data)
+            
+            # 使用 ffmpeg 转换为 PCM (24000Hz, 单声道, s16le)
             pcm_path = audio_path + '.pcm'
             subprocess.run(
-                ['ffmpeg', '-y', '-i', audio_path, '-ar', '48000', '-ac', '1', '-f', 's16le', 
+                ['ffmpeg', '-y', '-i', audio_path, '-ar', '24000', '-ac', '1', '-f', 's16le', 
                  '-loglevel', 'quiet', '-hide_banner', pcm_path], 
                 check=True, 
                 stdout=subprocess.DEVNULL, 
                 stderr=subprocess.DEVNULL
             )
-            import pilk
+            
+            # 获取对应平台的 silk_codec 路径
+            system = platform.system().lower()
+            machine = platform.machine().lower()
+            
+            codec_name = None
+            if system == 'windows':
+                if 'amd64' in machine or 'x86_64' in machine:
+                    codec_name = 'silk_codec-windows-static-x64.exe'
+                elif '386' in machine or 'x86' in machine:
+                    codec_name = 'silk_codec-windows-static-x86.exe'
+            elif system == 'linux':
+                if 'amd64' in machine or 'x86_64' in machine:
+                    codec_name = 'silk_codec-linux-x64'
+                elif 'arm64' in machine or 'aarch64' in machine:
+                    codec_name = 'silk_codec-linux-arm64'
+            
+            if not codec_name:
+                return None
+            
+            # 获取 silk_codec 文件路径
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            codec_path = os.path.join(current_dir, 'silk', 'exec', codec_name)
+            
+            if not os.path.exists(codec_path):
+                return None
+            
+            # 设置可执行权限（Linux/Mac）
+            if system != 'windows':
+                os.chmod(codec_path, os.stat(codec_path).st_mode | stat.S_IEXEC)
+            
+            # 调用 silk_codec 进行编码
             silk_path = audio_path + '.silk'
-            pilk.encode(pcm_path, silk_path, pcm_rate=48000, tencent=True)
+            subprocess.run(
+                [codec_path, 'pts', '-i', pcm_path, '-o', silk_path, '-s', '24000'],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+            # 读取生成的 SILK 文件
             with open(silk_path, 'rb') as f:
                 return f.read()
         except:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import json, random, tempfile, hashlib, datetime, time, re, base64, os 
+import json, random, tempfile, hashlib, datetime, time, re, base64, os, logging 
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
 from config import USE_MARKDOWN, IMAGE_BED_CHANNEL_ID, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, ENABLE_FRIEND_ADD_MESSAGE, HIDE_AVATAR_GLOBAL, BILIBILI_IMAGE_BED_CONFIG
@@ -426,17 +426,26 @@ class MessageEvent:
             r'(_)([^_]*?_)',              # 斜体
             r'(``)(`)',                   # 代码块
         ]
-        
+
         for pattern in patterns:
             text = re.sub(pattern, lambda m: delimiter.join(m.groups()), text)
-        
+
         parts = text.split(delimiter) if delimiter in text else [text]
-        
+
+        # 输出拆分结果到日志
+        logging.info(f"[AJ模板拆分日志] 原始文本: {repr(text)}")
+        logging.info(f"[AJ模板拆分日志] 拆分后的parts: {[repr(p) for p in parts]}")
+
         # 构建参数列表
         keys_list = [k.strip() for k in MARKDOWN_AJ_TEMPLATE['keys'].split(',')] if ',' in MARKDOWN_AJ_TEMPLATE['keys'] else list(MARKDOWN_AJ_TEMPLATE['keys'])
         params = [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
         params.extend([{"key": keys_list[i], "values": ["\u200B"]} for i in range(len(params), len(keys_list))])
-        
+
+        # 输出最终参数分配结果到日志
+        logging.info(f"[AJ模板拆分日志] 最终参数分配:")
+        for param in params:
+            logging.info(f"  {param['key']}: {repr(param['values'][0])}")
+
         return params
 
     def reply_markdown_aj(self, text, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
@@ -692,10 +701,150 @@ class MessageEvent:
                 return None
             template_id = template_config['id']
             template_params = template_config['params']
-            param_list = [{"key": param_name, "values": [str(params[i])]} for i, param_name in enumerate(template_params) if params and i < len(params) and params[i] is not None] if params else []
-            return {"custom_template_id": template_id, "params": param_list}
-        except:
+            
+            # 构建参数列表，支持数组传递
+            param_list = []
+            if params:
+                for i, param_name in enumerate(template_params):
+                    if i < len(params) and params[i] is not None:
+                        param_value = params[i]
+                        # 如果参数是列表/元组，将其展开到 values 数组中
+                        if isinstance(param_value, (list, tuple)):
+                            # 如果数组只有一个元素，使用拆分逻辑
+                            if len(param_value) == 1:
+                                single_value = str(param_value[0])
+                                
+                                # 在开头自动添加空命令链接（使用零宽空格），用于拆分
+                                single_value = '](mqqapi://aio/inlinecmd?command=\u200b&enter=false&reply=false)' + single_value
+                                
+                                # 使用拆分方法
+                                values = self._split_markdown_to_values(single_value)
+                                logging.info(f"[Markdown模板拆分] 原始值: {repr(param_value[0])}")
+                                logging.info(f"[Markdown模板拆分] 添加后: {repr(single_value)}")
+                                logging.info(f"[Markdown模板拆分] 拆分后: {[repr(v) for v in values]}")
+                            else:
+                                values = [str(v) for v in param_value if v is not None]
+                        else:
+                            values = [str(param_value)]
+                        
+                        param_list.append({
+                            "key": param_name,
+                            "values": values
+                        })
+            
+            # 输出构建的 raw payload
+            template_data = {"custom_template_id": template_id, "params": param_list}
+            import json
+            logging.info(f"[Markdown模板] 构建的 payload:")
+            logging.info(json.dumps(template_data, ensure_ascii=False, indent=2))
+            
+            return template_data
+        except Exception as e:
+            logging.error(f"[Markdown模板发送] 构建模板数据失败: {str(e)}")
             return None
+    
+    def _split_markdown_to_values(self, text):
+        """整合拆分：先用 AJ 模板拆分 markdown 语法，再拆分 [xxx](yyy) 格式"""
+        import re
+        import uuid
+        
+        # 第一步：使用 AJ 模板的拆分逻辑
+        text = text.replace('\n', '\r')
+        delimiter = str(uuid.uuid4())
+        patterns = [
+            r'(!?\[.*?\])(\s*\(.*?\))',  # 图片/链接
+            r'(\[.*?\])(\[.*?\])',        # 引用链接
+            r'(\*)([^*]+?\*)',            # 粗体
+            r'(`)([^`]+?`)',              # 代码
+            r'(_)([^_]*?_)',              # 斜体
+        ]
+
+        for pattern in patterns:
+            text = re.sub(pattern, lambda m: delimiter.join(m.groups()), text)
+
+        parts = text.split(delimiter) if delimiter in text else [text]
+
+        # 第二步：对每个部分再检查是否有完整的 [xxx](yyy)，如果有则进一步拆分
+        final_parts = []
+        for part in parts:
+            sub_parts = self._split_bracket_links(part)
+            final_parts.extend(sub_parts)
+        
+        # 第三步：智能合并相邻的部分，避免 [xxx](yyy) 出现在单个值中
+        merged_parts = self._merge_split_parts(final_parts)
+        
+        return merged_parts if merged_parts else [text]
+    
+    def _split_bracket_links(self, text):
+        """拆分 [xxx](yyy) 格式，避免产生完整的 markdown 链接"""
+        import re
+        parts = []
+        current = ""
+        i = 0
+        
+        while i < len(text):
+            if text[i] == '[':
+                # 检查是否会形成 [xxx](yyy) 模式
+                remaining = text[i:]
+                match = re.match(r'\[([^\]]*)\]\(([^\)]*)\)', remaining)
+                
+                if match:
+                    # 会形成 [xxx](yyy)，拆分为 [xxx 和 ](yyy)
+                    bracket_content = match.group(1)
+                    paren_content = match.group(2)
+                    
+                    current += '[' + bracket_content
+                    if current:
+                        parts.append(current)
+                    
+                    current = '](' + paren_content + ')'
+                    i += len(match.group(0))
+                else:
+                    current += text[i]
+                    i += 1
+            else:
+                current += text[i]
+                i += 1
+        
+        if current:
+            parts.append(current)
+        
+        return parts if parts else [text]
+    
+    def _merge_split_parts(self, parts):
+        """智能合并拆分后的部分，避免产生过多碎片
+        规则：
+        - ]()[  这样的格式是合理的
+        - [xxx](yyy) 在单个值中是不合理的（会被解析为markdown链接）
+        - 尽可能合并相邻部分，只要不产生 [xxx](yyy) 格式
+        """
+        import re
+        
+        if not parts or len(parts) <= 1:
+            return parts
+        
+        merged = []
+        current = parts[0]
+        
+        for i in range(1, len(parts)):
+            next_part = parts[i]
+            # 尝试合并当前部分和下一部分
+            test_merged = current + next_part
+            
+            # 检查合并后是否会产生 [xxx](yyy) 格式
+            if re.search(r'\[([^\]]*)\]\(([^\)]*)\)', test_merged):
+                # 会产生 [xxx](yyy)，不能合并
+                merged.append(current)
+                current = next_part
+            else:
+                # 不会产生 [xxx](yyy)，可以合并
+                current = test_merged
+        
+        # 添加最后一个部分
+        if current:
+            merged.append(current)
+        
+        return merged
 
     def _build_markdown_message_payload(self, template_data, keyboard_id=None, hide_avatar_and_center=False):
         """构建 Markdown 模板消息 payload"""

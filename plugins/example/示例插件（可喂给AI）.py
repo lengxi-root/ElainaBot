@@ -18,6 +18,7 @@ class media_plugin(Plugin):
         return {
             # 基础媒体发送示例（仅主人可用）
             r'^图片$': {'handler': 'send_force_image', 'owner_only': True},
+            r'^本地图片$': {'handler': 'send_local_image', 'owner_only': True},
             r'^语音$': {'handler': 'send_voice', 'owner_only': True},
             r'^视频$': {'handler': 'send_video', 'owner_only': True},
             r'^图片尺寸$': {'handler': 'get_image_dimensions', 'owner_only': True},
@@ -86,6 +87,28 @@ class media_plugin(Plugin):
         event.reply_image(image_url, "这是使用reply_image方法发送的普通图片")  # 参数：图片URL或二进制数据, 文本内容
 
     @staticmethod
+    def send_local_image(event):
+        """发送本地图片示例"""
+        import os
+        
+        # 获取当前插件文件所在目录
+        plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        image_path = os.path.join(plugin_dir, "1.png")
+        
+        if not os.path.exists(image_path):
+            event.reply(f"❌ 图片文件不存在: {image_path}")
+            return
+        
+        try:
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            file_size = len(image_data) / (1024 * 1024)  # 转换为MB
+            event.reply_image(image_data, f"📸 本地图片 ({file_size:.2f}MB)")
+        except Exception as e:
+            event.reply(f"❌ 读取图片失败: {str(e)}")
+
+    @staticmethod
     def send_voice(event):
         """发送语音示例"""
         voice_url = "https://act-upload.mihoyo.com/sr-wiki/2025/06/03/160045374/420e9ac5c0c9d2b2c44b91f453b65061_2267222992827173477.wav"
@@ -95,7 +118,7 @@ class media_plugin(Plugin):
     @staticmethod
     def send_video(event):
         """发送视频示例"""
-        video_url = "https://txmov2.a.kwimgs.com/upic/2023/08/21/20/BMjAyMzA4MjEyMDMxNDdfMTQ3MDA5Nzk3Nl8xMTEwNjMwNjAyNjhfMl8z_b_B45bad63ac156a3096f9e46dc4fed890e.mp4?clientCacheKey=3xupcv5he9bsg2c_b.mp4&tt=b&di=65ed8104&bp=14214"
+        video_url = "https://i.elaina.vin/1.mp4"
         
         event.reply_video(video_url)  # 参数：视频文件URL或二进制数据
 
@@ -268,29 +291,35 @@ class media_plugin(Plugin):
     @staticmethod
     def send_markdown_template(event):
         """发送markdown模板示例"""
-        image_url = "https://gchat.qpic.cn/qmeetpic/0/0-0-52C851D5FB926BC645528EB4AB462B3D/0"
-        size_info = event.get_image_size(image_url)
-        px = size_info['px'] if size_info else "#1200px #2133px"
-
-        # 例如你的模板是{{.text}}![{{.size}}]({{.url}})![{{.size2}}]({{.url2}})![{{.size3}}]({{.url3}})![{{.size4}}]({{.url4}}){{.text2}}
-        # 第一个值是你在markdown_templates中映射的id
-        # 第二个括号内用,分割，第一个值对应着传入第一个参数，以此类推
-        # 第三个参数是按钮模板ID，不传入则只发送单markdown模板
-
-        event.reply_markdown("1", (    
-            "✨ 这是文本1",           # text
-            px,               # size  
-            image_url,              # url
-            px,               # size2
-            image_url,              # url2
-            px,               # size3
-            image_url,              # url3
-            px,               # size4
-            image_url,              # url4
-            "🎉 这是文本2"           # text2
-        ),
-        "102321943_1752737844"               # keyboard_id - 按钮模板ID
-    )  # 参数：模板名称, (参数列表)
+        
+        # 例如你的模板是 {{.text}}
+        
+        # 方式1：单个值自动拆分（使用 AJ 模板拆分逻辑）
+        # 当数组只有一个元素时，会自动按 markdown 语法拆分
+        event.reply_markdown("1", (
+            [
+                "[你好](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)\r[你好](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)\r[你好](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)\r[你好](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)\r[你好](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)"
+            ],
+        ))
+        
+        # 方式2：多个值不拆分
+        # event.reply_markdown("1", (
+        #     [
+        #         "文本1",
+        #         "文本2",
+        #         "文本3",
+        #     ],
+        # ))
+        
+    
+    #支持单参列表传入
+     #event.reply_markdown("1", (
+     #      [
+     #         "你好啊](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)[",
+     #          "你好](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)[",
+     #          "你好啊",
+     #      ],
+     #  ))
 
     @staticmethod
     def test_markdown_aj(event):

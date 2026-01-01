@@ -218,27 +218,68 @@ class system_plugin(Plugin):
     def send_dm(event):
         content = event.matches[0] if event.matches and event.matches[0] else ""
         if not content.strip():
-            event.reply(f"❌ 消息内容不能为空\n💡 使用格式：dm+消息内容")
+            event.reply(f"❌ 消息内容不能为空\n💡 使用格式：dm+消息内容\n或：dm 消息内容按钮 [(text,data,type,enter,style)]")
             return
         
-        if '\\n' in content:
-            content = content.replace('\\n', '\n')
-        if '\\t' in content:
-            content = content.replace('\\t', '\t')
-        if '\\r' in content:
-            content = content.replace('\\r', '\r')
-        if '\\\\' in content:
-            content = content.replace('\\\\', '\\')
+        # 解析按钮配置
+        button_configs = []
+        message_content = content
         
-        if USE_MARKDOWN:
-            button_configs = [[
+        # 查找所有"按钮 [...]"模式
+        button_pattern = r'按钮\s*\[([^\]]+)\]'
+        button_matches = list(re.finditer(button_pattern, content))
+        
+        if button_matches:
+            # 提取消息内容（第一个按钮之前的部分）
+            message_content = content[:button_matches[0].start()].strip()
+            
+            # 解析每一行按钮
+            for match in button_matches:
+                button_str = match.group(1)
+                row_buttons = []
+                
+                # 解析每个按钮的配置 (text,data,type,enter,style)
+                button_items = re.findall(r'\(([^)]+)\)', button_str)
+                
+                for item in button_items:
+                    parts = [p.strip() for p in item.split(',')]
+                    if len(parts) >= 2:
+                        btn_config = {
+                            'text': parts[0],
+                            'data': parts[1],
+                            'type': int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 2,
+                            'enter': parts[3].lower() in ['true', '1', 'yes'] if len(parts) > 3 else True,
+                            'style': int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 1
+                        }
+                        row_buttons.append(btn_config)
+                
+                if row_buttons:
+                    button_configs.append(row_buttons)
+        
+        # 处理转义字符
+        if '\\n' in message_content:
+            message_content = message_content.replace('\\n', '\n')
+        if '\\t' in message_content:
+            message_content = message_content.replace('\\t', '\t')
+        if '\\r' in message_content:
+            message_content = message_content.replace('\\r', '\r')
+        if '\\\\' in message_content:
+            message_content = message_content.replace('\\\\', '\\')
+        
+        # 发送消息
+        if USE_MARKDOWN and button_configs:
+            buttons = system_plugin.create_buttons(event, button_configs)
+            event.reply(message_content, buttons)
+        elif USE_MARKDOWN:
+            # 没有自定义按钮时使用默认按钮
+            default_button_configs = [[
                 {'text': '再次重试', 'data': event.content, 'enter': False, 'style': 1, 'type': 2},
                 {'text': '重新测试', 'data': 'dm', 'enter': False, 'style': 1, 'type': 2}
             ]]
-            buttons = system_plugin.create_buttons(event, button_configs)
-            event.reply(content, buttons)
+            buttons = system_plugin.create_buttons(event, default_button_configs)
+            event.reply(message_content, buttons)
         else:
-            event.reply(content)
+            event.reply(message_content)
     
     @staticmethod
     def _get_user_qq(user_id):

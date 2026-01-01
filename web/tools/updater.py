@@ -195,17 +195,6 @@ class FrameworkUpdater:
                     if self._should_skip_file(rel_path):
                         result['skipped_files'].append(rel_path)
                         continue
-                    if rel_path == 'main-first.py':
-                        try:
-                            (self.base_dir / 'main.py').parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(src_file, self.base_dir / 'main.py')
-                            result['updated_files'].append('main.py (from main-first.py)')
-                        except Exception as e:
-                            self.logger.error(f"更新 main.py 失败: {e}")
-                        continue
-                    if rel_path == 'main.py':
-                        result['skipped_files'].append(rel_path)
-                        continue
                     try:
                         dst_file.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(src_file, dst_file)

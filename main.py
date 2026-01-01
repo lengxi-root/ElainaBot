@@ -1,806 +1,490 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-"""
-ElainaBot 初次配置向导
-检测到未配置时，自动启动配置向导（无需验证）
-"""
-
-import os
-import sys
-import importlib.util
-import shutil
-import json
-import re
-import ast
-import logging
-import platform
-import subprocess
-import time
-import threading
-import traceback
 import eventlet
-eventlet.monkey_patch()
-from flask import Flask, request, jsonify, send_from_directory
+eventlet.monkey_patch(all=True, thread=True, socket=True, select=True, time=True)
+import sys, os, time, shutil
 
-def load_config_module():
-    """加载配置模块"""
+def check_config_and_redirect():
+    """检查配置文件，如果未配置则启动配置向导"""
     try:
+        import importlib.util
+        import subprocess
+        
+        # 加载配置文件
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
+        if not os.path.exists(config_path):
+            print("❌ 配置文件 config.py 不存在！")
+            sys.exit(1)
+        
         spec = importlib.util.spec_from_file_location("config", config_path)
         config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(config)
-        return config
-    except:
-        return None
-
-def check_initial_config():
-    """检查是否为初次配置"""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    marker_file = os.path.join(base_dir, 'data', '.config_completed')
-    
-    # 已有完成标记，无需配置
-    if os.path.exists(marker_file):
-        return False
-    
-    # 尝试加载配置
-    config = load_config_module()
-    if not config:
-        return True
-    
-    # 检查必填项
-    appid = str(getattr(config, 'appid', '')).strip()
-    secret = str(getattr(config, 'secret', '')).strip()
-    
-    # 为空或为示例值则需要配置
-    return not appid or not secret or appid == '102134274'
-
-# HTML 模板（内嵌）
-INITIAL_CONFIG_HTML = '''<!DOCTYPE html>
-<html lang="zh">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ElainaBot 初次配置向导</title>
-    <link href="/web/static/css/vendor/bootstrap.min.css" rel="stylesheet">
-    <link href="/web/static/css/vendor/bootstrap-icons.css" rel="stylesheet">
-    <link rel="stylesheet" href="/web/static/css/vendor/codemirror.min.css">
-    <link rel="stylesheet" href="/web/static/css/vendor/codemirror-monokai.min.css">
-    <style>
-        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
-        .wizard-container { max-width: 1200px; margin: 0 auto; }
-        .wizard-header { background: white; border-radius: 12px; padding: 30px; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-        .wizard-header h1 { color: #667eea; margin: 0; }
-        .wizard-header p { color: #718096; margin-top: 10px; margin-bottom: 0; }
-        .config-card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-        #config-editor { min-height: 500px; border: 2px solid #e2e8f0; border-radius: 8px; }
-        #config-editor .CodeMirror { height: auto; min-height: 500px; font-family: 'Consolas', 'Monaco', monospace; font-size: 14px; }
-        #config-editor .CodeMirror-scroll { min-height: 500px; }
-        .config-actions { display: flex; gap: 12px; align-items: center; }
-        .btn-config-action { 
-            white-space: nowrap; 
-            padding: 8px 16px; 
-            font-weight: 500;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        .btn-config-action:hover { 
-            transform: translateY(-2px); 
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
-        .btn-config-action i { margin-right: 6px; }
-        .btn-finish { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; 
-            border: none !important; 
-            color: white !important; 
-            font-weight: 600 !important; 
-        }
-        .btn-finish:hover { 
-            background: linear-gradient(135deg, #7c8ef5 0%, #8a5bb5 100%) !important;
-            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4) !important;
-        }
-        @media (max-width: 768px) {
-            .d-flex.justify-content-between { flex-direction: column; align-items: flex-start !important; gap: 10px; }
-            .config-actions { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
-            .btn-config-action { flex: 1 1 auto; min-width: fit-content; }
-        }
-        .alert-wizard { border-radius: 8px; border: none; border-left: 4px solid #667eea; }
-        .config-groups-section { background: #f8f9fa; border-radius: 8px; padding: 15px; }
-        .config-groups-header { font-weight: 600; color: #495057; margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
-        .config-groups { display: flex; gap: 10px; flex-wrap: wrap; }
-        .group-btn { padding: 10px 20px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; }
-        .group-btn:hover { border-color: #667eea; color: #667eea; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2); }
-        .group-btn.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-color: #667eea; box-shadow: 0 3px 12px rgba(102, 126, 234, 0.4); }
-        .config-item { border-bottom: 1px solid #f0f0f0; padding: 15px 0; }
-        .config-item:last-child { border-bottom: none; }
-        .config-item:has(.config-label-with-switch) { padding: 12px 0; }
-        .config-label { font-weight: 600; color: #2d3748; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
-        .config-label .label-name { flex-shrink: 0; font-size: 0.95rem; color: #667eea; }
-        .config-label .label-comment { font-size: 0.85rem; color: #718096; font-weight: 400; flex: 1; }
-        .config-label-with-switch { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-        .config-label-text { flex: 1; display: flex; align-items: center; gap: 10px; }
-        .config-label-text .label-name { flex-shrink: 0; font-size: 0.95rem; color: #667eea; font-weight: 600; }
-        .config-label-text .label-comment { font-size: 0.85rem; color: #718096; font-weight: 400; flex: 1; }
-        .form-control { border: 2px solid #e2e8f0; border-radius: 8px; padding: 10px; }
-        .form-control:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
-        .form-check { display: flex; align-items: center; gap: 10px; margin-bottom: 0; padding-left: 0; }
-        .form-check-input { cursor: pointer; width: 3rem; height: 1.5rem; border: 2px solid #cbd5e0; margin: 0; flex-shrink: 0; }
-        .form-check-input:checked { background-color: #667eea; border-color: #667eea; }
-        .form-check-label { cursor: pointer; font-weight: 500; color: #4a5568; margin: 0; white-space: nowrap; flex-shrink: 0; }
-        textarea.form-control { resize: vertical; min-height: 80px; }
-        @media (max-width: 768px) {
-            .config-label-with-switch { flex-direction: column; align-items: flex-start; gap: 10px; }
-            .config-label-text { width: 100%; }
-            .form-check { align-self: flex-end; }
-        }
-    </style>
-</head>
-<body>
-    <div class="wizard-container">
-        <div class="wizard-header">
-            <h1><i class="bi bi-gear-fill"></i> ElainaBot 初次配置向导</h1>
-            <p>欢迎使用 ElainaBot！请完成以下配置后开始使用</p>
-        </div>
-
-        <div class="config-card">
-            <div class="alert alert-wizard alert-info">
-                <i class="bi bi-info-circle-fill"></i> 
-                <strong>提示：</strong> 请填写必填项，请提前创建好mysql数据库，频道图床和主人openid等无需填写，其他配置可使用默认值<br>
-                <strong>请注意：</strong> 重启后遇到403，请访问 http://ip:你设置的端口号/web?token=你设置的access_token<br>可在Web面板安全配置查看或设置
-            </div>
-
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <ul class="nav nav-tabs mb-0">
-                    <li class="nav-item">
-                        <a class="nav-link active" data-bs-toggle="tab" href="#simple-mode">
-                            <i class="bi bi-ui-checks"></i> 简单模式
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="tab" href="#advanced-mode">
-                            <i class="bi bi-code-square"></i> 高级模式
-                        </a>
-                    </li>
-                </ul>
-                
-                <div class="config-actions">
-                    <button class="btn btn-secondary btn-sm btn-config-action" onclick="loadConfig()">
-                        <i class="bi bi-arrow-clockwise"></i> 重新加载
-                    </button>
-                    <button class="btn btn-primary btn-sm btn-config-action" onclick="saveConfig()">
-                        <i class="bi bi-save"></i> 保存配置
-                    </button>
-                    <button class="btn btn-success btn-sm btn-finish btn-config-action" onclick="finishConfig()">
-                        <i class="bi bi-check-circle-fill"></i> 完成配置并启动
-                    </button>
-                </div>
-            </div>
-
-            <div class="tab-content">
-                <!-- 简单模式 -->
-                <div class="tab-pane fade show active" id="simple-mode">
-                    <div class="config-groups-section mb-3">
-                        <div class="config-groups-header">
-                            <i class="bi bi-asterisk text-danger"></i> 必填配置
-                        </div>
-                        <div id="config-groups-required" class="config-groups"></div>
-                    </div>
-                    
-                    <div class="config-groups-section">
-                        <div class="config-groups-header">
-                            <i class="bi bi-gear"></i> 选填配置
-                        </div>
-                        <div id="config-groups-optional" class="config-groups"></div>
-                    </div>
-                    
-                    <div id="config-form"></div>
-                </div>
-
-                <!-- 高级模式 -->
-                <div class="tab-pane fade" id="advanced-mode">
-                    <div id="config-editor"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="/web/static/js/vendor/bootstrap.bundle.min.js"></script>
-    <script src="/web/static/js/vendor/codemirror.min.js"></script>
-    <script src="/web/static/js/vendor/codemirror-python.min.js"></script>
-    <script src="/web/static/js/vendor/codemirror-matchbrackets.min.js"></script>
-    <script src="/web/static/js/vendor/codemirror-closebrackets.min.js"></script>
-    <script src="/web/static/js/vendor/codemirror-active-line.min.js"></script>
-    
-    <script>
-        let configItems = [], configGroups = {}, currentGroup = '', editor = null;
-
-        // 必填配置组
-        const REQUIRED_GROUPS = ['基础配置', 'WEBSOCKET_CONFIG', 'WEB_CONFIG', 'DB_CONFIG', 'LOG_DB_CONFIG'];
         
-        // 配置组显示名称映射（可选，用于提供友好的中文名称）
-        const CONFIG_DISPLAY_NAMES = {
-            '基础配置': '基础配置',
-            'SERVER_CONFIG': '服务器配置',
-            'WEBSOCKET_CONFIG': 'WebSocket配置',
-            'WEB_CONFIG': 'Web面板配置',
-            'DB_CONFIG': '主数据库配置',
-            'LOG_DB_CONFIG': '日志数据库配置',
-            'COS_CONFIG': '腾讯云COS配置',
-            'BILIBILI_IMAGE_BED_CONFIG': 'Bilibili图床配置',
-            'MARKDOWN_AJ_TEMPLATE': 'Markdown模板配置',
-            'PROTECTED_FILES': '文件保护配置'
-        };
-        
-        // 配置组排序优先级（数字越小越靠前）
-        const CONFIG_GROUP_PRIORITY = {
-            '基础配置': 1,
-            'WEBSOCKET_CONFIG': 2,
-            'WEB_CONFIG': 3,
-            'DB_CONFIG': 4,
-            'LOG_DB_CONFIG': 5,
-            'SERVER_CONFIG': 6,
-            'MARKDOWN_AJ_TEMPLATE': 7,
-            'COS_CONFIG': 8,
-            'BILIBILI_IMAGE_BED_CONFIG': 9,
-            'PROTECTED_FILES': 10
-        };
-
-        // 初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            // 初始化编辑器
-            editor = CodeMirror(document.getElementById('config-editor'), {
-                mode: 'python',
-                theme: 'monokai',
-                lineNumbers: true,
-                lineWrapping: true,
-                indentUnit: 4,
-                tabSize: 4,
-                matchBrackets: true,
-                autoCloseBrackets: true,
-                styleActiveLine: true,
-                viewportMargin: Infinity
-            });
-
-            // 监听标签页切换事件
-            const advancedTab = document.querySelector('a[href="#advanced-mode"]');
-            if (advancedTab) {
-                advancedTab.addEventListener('shown.bs.tab', function() {
-                    // 切换到高级模式时刷新编辑器
-                    if (editor) {
-                        setTimeout(function() {
-                            editor.refresh();
-                        }, 50);
-                    }
-                });
-            }
-
-            loadConfig();
-        });
-
-        async function loadConfig() {
-            // 加载并解析配置
-            const response = await fetch('/api/config/parse');
-            const data = await response.json();
-
-            if (!data.success) {
-                alert('加载配置失败: ' + data.message);
-                return;
-            }
-
-            configItems = data.items;
-            configGroups = {};
-
-            // 分组
-            data.items.forEach((item, index) => {
-                item.index = index;
-                const group = item.is_dict_item ? item.dict_name : '基础配置';
-                (configGroups[group] = configGroups[group] || []).push(item);
-            });
-
-            // 获取所有配置组并排序
-            const sortGroups = groups => groups.sort((a, b) => (CONFIG_GROUP_PRIORITY[a] || 999) - (CONFIG_GROUP_PRIORITY[b] || 999));
-            const allGroups = Object.keys(configGroups);
-            const requiredGroups = sortGroups(allGroups.filter(key => REQUIRED_GROUPS.includes(key)));
-            const optionalGroups = sortGroups(allGroups.filter(key => !REQUIRED_GROUPS.includes(key)));
-            
-            // 生成按钮
-            const createButton = (key, isFirst) => {
-                const btn = document.createElement('button');
-                btn.className = 'group-btn' + (isFirst ? ' active' : '');
-                btn.textContent = CONFIG_DISPLAY_NAMES[key] || key;
-                btn.onclick = () => showGroup(key, btn);
-                return btn;
-            };
-            
-            const requiredDiv = document.getElementById('config-groups-required');
-            const optionalDiv = document.getElementById('config-groups-optional');
-            requiredDiv.innerHTML = '';
-            optionalDiv.innerHTML = '';
-            
-            requiredGroups.forEach((key, i) => requiredDiv.appendChild(createButton(key, i === 0)));
-            optionalGroups.forEach(key => optionalDiv.appendChild(createButton(key, false)));
-            
-            if (optionalGroups.length === 0) {
-                optionalDiv.parentElement.style.display = 'none';
-            }
-
-            // 显示第一组
-            if (requiredGroups[0]) showGroupInternal(requiredGroups[0]);
-
-            // 加载高级模式
-            const configResp = await fetch('/api/config/get');
-            const configData = await configResp.json();
-            if (configData.success && editor) {
-                editor.setValue(configData.content);
-                setTimeout(() => editor.refresh(), 100);
-            }
-        }
-
-        function showGroup(key, btn) {
-            document.querySelectorAll('.group-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            showGroupInternal(key);
-        }
-
-        function showGroupInternal(groupKey) {
-            currentGroup = groupKey;
-            const formDiv = document.getElementById('config-form');
-            formDiv.innerHTML = '';
-
-            (configGroups[groupKey] || []).forEach(item => {
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'config-item';
-                const name = item.is_dict_item ? item.key_name : item.name;
-
-                if (item.type === 'boolean') {
-                    // 布尔类型：标签和开关在同一行
-                    itemDiv.innerHTML = `<div class="config-label-with-switch">
-                        <div class="config-label-text">
-                            <span class="label-name">${name}</span>
-                            ${item.comment ? `<span class="label-comment">${item.comment}</span>` : ''}
-                        </div>
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="cfg-${item.index}" ${item.value ? 'checked' : ''}>
-                            <label class="form-check-label" for="cfg-${item.index}">${item.value ? '启用' : '禁用'}</label>
-                        </div>
-                    </div>`;
-                    const checkbox = itemDiv.querySelector('input');
-                    checkbox.onchange = function() {
-                        this.nextElementSibling.textContent = this.checked ? '启用' : '禁用';
-                        item.value = this.checked;
-                    };
-                } else {
-                    // 其他类型：标签在上，输入框在下
-                    const labelHtml = `<span class="label-name">${name}:</span>${item.comment ? `<span class="label-comment">${item.comment}</span>` : ''}`;
-                    let inputHtml = '';
-                    
-                    if (item.type === 'number') {
-                        inputHtml = `<input type="number" class="form-control" id="cfg-${item.index}" value="${item.value}">`;
-                    } else if (item.type === 'list') {
-                        inputHtml = `<textarea class="form-control" id="cfg-${item.index}" rows="3">${Array.isArray(item.value) ? item.value.join('\\n') : ''}</textarea>`;
-                    } else {
-                        inputHtml = `<input type="text" class="form-control" id="cfg-${item.index}" value="${item.value}">`;
-                    }
-                    
-                    itemDiv.innerHTML = `<div class="config-label">${labelHtml}</div>${inputHtml}`;
-                    const input = itemDiv.querySelector('input, textarea');
-                    input.onchange = () => {
-                        if (item.type === 'number') item.value = parseFloat(input.value);
-                        else if (item.type === 'list') item.value = input.value.split('\\n').filter(l => l.trim());
-                        else item.value = input.value;
-                    };
-                }
-
-                formDiv.appendChild(itemDiv);
-            });
-        }
-
-        async function saveConfig() {
-            const isSimpleMode = document.querySelector('.nav-link.active').getAttribute('href') === '#simple-mode';
-            
-            if (isSimpleMode) {
-                if (!confirm('确定保存配置吗？')) return;
-                const items = configItems.map(item => ({
-                    name: item.name, value: item.value, type: item.type, is_dict_item: item.is_dict_item,
-                    dict_name: item.dict_name, key_name: item.key_name
-                }));
-                const response = await fetch('/api/config/update', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({items})
-                });
-                const data = await response.json();
-                alert(data.success ? '✅ 保存成功！' : '❌ ' + data.message);
-            } else {
-                if (!confirm('确定保存配置吗？\\n\\n⚠️ 将直接替换整个配置文件！')) return;
-                const response = await fetch('/api/config/save', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({content: editor.getValue()})
-                });
-                const data = await response.json();
-                alert(data.success ? '✅ 保存成功！' : '❌ ' + data.message);
-            }
-        }
-
-        async function finishConfig() {
-            if (!confirm('确定完成配置吗？\\n\\n请确保已填写 appid 和 secret！\\n\\n完成后将自动重启框架。')) return;
-
-            const response = await fetch('/api/config/finish', { method: 'POST' });
-            const data = await response.json();
-            
-            if (data.success) {
-                alert('✅ 配置完成！框架正在重启，请等待几秒后刷新页面');
-                setTimeout(() => window.location.reload(), 5000);
-            } else {
-                alert('❌ ' + data.message);
-            }
-        }
-    </script>
-</body>
-</html>
-'''
-
-def start_initial_config_wizard():
-    """启动初次配置向导"""
-    print("\\n" + "="*60)
-    print("  欢迎使用 ElainaBot！检测到首次启动，正在启动配置向导...")
-    print("="*60 + "\\n")
-    
-    app = Flask(__name__, static_folder='web/static', static_url_path='/web/static')
-    
-    @app.route('/')
-    @app.route('/web/')
-    def index():
-        return INITIAL_CONFIG_HTML
-    
-    @app.route('/api/config/get')
-    def get_config():
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return jsonify({'success': True, 'content': f.read()})
-    
-    @app.route('/api/config/parse')
-    def parse_config():
-        """解析配置文件，提取配置项"""
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 解析配置项
-        config_items = []
-        lines = content.split('\n')
-        current_dict = None  # 当前正在解析的字典名称
-        dict_indent = 0      # 字典的缩进级别
-        
-        for i, line in enumerate(lines):
-                stripped = line.strip()
-                
-                # 跳过空行、导入语句和文档字符串
-                if not stripped or stripped.startswith('"""') or stripped.startswith("'''") or stripped.startswith('import ') or stripped.startswith('from '):
-                    continue
-                
-                # 如果是注释行，只处理作为section标题的注释（后面会有相关配置）
-                if stripped.startswith('#'):
-                    continue
-                
-                # 检测字典的开始: VAR_NAME = {
-                dict_start_pattern = r'^([A-Z_][A-Z0-9_]*)\s*=\s*\{(.*)$'
-                dict_match = re.match(dict_start_pattern, stripped)
-                if dict_match:
-                    current_dict = dict_match.group(1)
-                    dict_indent = len(line) - len(line.lstrip())
-                    # 如果是单行字典定义（如 VAR = {}），则不进入字典解析模式
-                    if dict_match.group(2).strip() == '}':
-                        current_dict = None
-                    continue
-                
-                # 检测字典的结束: }
-                if current_dict and stripped == '}':
-                    current_dict = None
-                    continue
-                
-                # 在字典内部，解析键值对
-                if current_dict:
-                    # 改进的正则，支持单引号、双引号或无引号的键名
-                    dict_item_match = re.match(r"^(\s*)['\"]?([a-zA-Z_][a-zA-Z0-9_]*)['\"]?\s*:\s*(.+?)(?:,\s*)?(?:#\s*(.+))?$", line)
-                    if dict_item_match:
-                        indent = dict_item_match.group(1)
-                        key_name = dict_item_match.group(2)
-                        value_str = dict_item_match.group(3).strip().rstrip(',').strip()
-                        comment = dict_item_match.group(4).strip() if dict_item_match.group(4) else ''
-                        
-                        # 跳过包含 f-string 或复杂表达式的值（这些通常在高级模式中编辑）
-                        if value_str.startswith('f"') or value_str.startswith("f'") or value_str.startswith('f"""') or value_str.startswith("f'''"):
-                            continue
-                        
-                        # 跳过嵌套字典和列表
-                        if value_str in ['{', '['] or value_str.endswith(('{', '[')):
-                            continue
-                        
-                        try:
-                            value = ast.literal_eval(value_str)
-                            # 只处理基本类型和字符串列表
-                            if isinstance(value, bool):
-                                value_type = 'boolean'
-                            elif isinstance(value, (int, float)):
-                                value_type = 'number'
-                            elif isinstance(value, str):
-                                value_type = 'string'
-                            elif isinstance(value, list) and all(isinstance(item, str) for item in value):
-                                value_type = 'list'
-                            else:
-                                continue
-                            
-                            config_items.append({
-                                'name': f"{current_dict}.{key_name}",
-                                'dict_name': current_dict,
-                                'key_name': key_name,
-                                'value': value,
-                                'type': value_type,
-                                'comment': comment,
-                                'line': i,
-                                'is_dict_item': True
-                            })
-                        except (ValueError, SyntaxError):
-                            # 如果无法解析，跳过该项（可能是复杂表达式）
-                            pass
-                    continue
-                
-                # 识别简单赋值（字符串、数字、布尔值）
-                match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+?)(?:\s*#\s*(.+))?$', stripped)
-                if match:
-                    var_name = match.group(1)
-                    value_str = match.group(2).strip()
-                    comment = match.group(3).strip() if match.group(3) else ''
-                    
-                    # 跳过字典和列表定义
-                    if value_str in ['{', '['] or value_str.endswith(('{', '[')):
-                        continue
-                    
-                    # 跳过包含 f-string 或复杂表达式的值
-                    if value_str.startswith('f"') or value_str.startswith("f'") or value_str.startswith('f"""') or value_str.startswith("f'''"):
-                        continue
-                    
-                    try:
-                        value = ast.literal_eval(value_str)
-                        # 只处理基本类型和字符串列表
-                        if isinstance(value, bool):
-                            value_type = 'boolean'
-                        elif isinstance(value, (int, float)):
-                            value_type = 'number'
-                        elif isinstance(value, str):
-                            value_type = 'string'
-                        elif isinstance(value, list) and all(isinstance(item, str) for item in value):
-                            value_type = 'list'
-                        else:
-                            continue
-                        
-                        config_items.append({
-                            'name': var_name,
-                            'value': value,
-                            'type': value_type,
-                            'comment': comment,
-                            'line': i,
-                            'is_dict_item': False
-                        })
-                    except (ValueError, SyntaxError):
-                        # 如果无法解析，跳过该项（可能是复杂表达式）
-                        pass
-        
-        return jsonify({
-            'success': True,
-            'items': config_items
-        })
-    
-    @app.route('/api/config/update', methods=['POST'])
-    def update_config():
-        """根据表单更新配置项"""
-        data = request.get_json()
-        if not data or 'items' not in data:
-            return jsonify({'success': False, 'message': '缺少配置项数据'}), 400
-        
-        items = data['items']
-        
-        # 读取配置文件
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        # 更新配置项
-        for item in items:
-            var_name = item['name']
-            new_value = item['value']
-            value_type = item['type']
-            is_dict_item = item.get('is_dict_item', False)
-            
-            # 格式化新值
-            if value_type == 'string':
-                formatted_value = f'"{new_value}"'
-            elif value_type == 'boolean':
-                formatted_value = 'True' if new_value else 'False'
-            elif value_type == 'number':
-                formatted_value = str(new_value)
-            elif value_type == 'list':
-                formatted_value = '[' + ', '.join([f'"{v}"' for v in new_value]) + ']' if isinstance(new_value, list) else '[]'
-            else:
-                formatted_value = str(new_value)
-            
-            # 在文件中查找并替换，保留行尾注释
-            if is_dict_item:
-                # 字典项：需要在正确的字典内匹配
-                dict_name = item.get('dict_name', '')
-                key_name = item.get('key_name', '')
-                
-                # 先找到字典的定义行
-                dict_start_pattern = rf'^({re.escape(dict_name)})\s*=\s*\{{'
-                in_target_dict = False
-                dict_depth = 0
-                
-                for i, line in enumerate(lines):
-                    # 检测目标字典的开始
-                    if re.match(dict_start_pattern, line.strip()):
-                        in_target_dict = True
-                        dict_depth = 1
-                        continue
-                    
-                    # 如果在目标字典内
-                    if in_target_dict:
-                        # 跟踪嵌套层级
-                        dict_depth += line.count('{')
-                        dict_depth -= line.count('}')
-                        
-                        # 如果字典已经结束
-                        if dict_depth == 0:
-                            in_target_dict = False
-                            break
-                        
-                        # 在字典内匹配键值对
-                        match = re.match(rf"^(\s*)(['\"]?)({re.escape(key_name)})\2\s*:\s*(.+?)(?:,\s*)?(\s*#.+)?$", line)
-                        if match:
-                            indent, quote, comment = match.group(1), match.group(2), match.group(5) or ''
-                            # 保持原有的引号风格，如果没有引号则使用单引号
-                            key_quote = quote if quote else "'"
-                            value_part = f"{key_quote}{key_name}{key_quote}: {formatted_value},"
-                            if comment:
-                                clean_comment = comment.strip() if comment.strip().startswith('#') else '# ' + comment.strip()
-                                lines[i] = f'{indent}{value_part}  {clean_comment}\n'
-                            else:
-                                lines[i] = f'{indent}{value_part}\n'
-                            break
-            else:
-                # 简单变量：匹配 VAR_NAME = value
-                for i, line in enumerate(lines):
-                    match = re.match(rf'^(\s*)({re.escape(var_name)})\s*=\s*(.+?)(\s*#.+)?$', line)
-                    if match:
-                        indent, comment = match.group(1), match.group(4) or ''
-                        value_part = f'{var_name} = {formatted_value}'
-                        if comment:
-                            clean_comment = comment.strip() if comment.strip().startswith('#') else '# ' + comment.strip()
-                            lines[i] = f'{indent}{value_part}  {clean_comment}\n'
-                        else:
-                            lines[i] = f'{indent}{value_part}\n'
-                        break
-            
-        # 生成新配置内容
-        new_content = ''.join(lines)
-        
-        # 验证语法
-        try:
-            compile(new_content, '<string>', 'exec')
-        except SyntaxError as e:
-            return jsonify({'success': False, 'message': f'配置文件语法错误: 第{e.lineno}行 - {e.msg}'}), 400
-        
-        # 保存到 config.py
-        with open(config_path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
-        
-        return jsonify({'success': True, 'message': '配置已保存，请重启框架以应用更改'})
-    
-    @app.route('/api/config/save', methods=['POST'])
-    def save_config():
-        content = request.get_json().get('content', '')
-        if not content:
-            return jsonify({'success': False, 'message': '配置内容不能为空'})
-        
-        # 验证语法
-        try:
-            compile(content, '<string>', 'exec')
-        except SyntaxError as e:
-            return jsonify({'success': False, 'message': f'语法错误: 第{e.lineno}行'})
-        
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
-        with open(config_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        
-        return jsonify({'success': True, 'message': '配置已保存'})
-    
-    @app.route('/api/config/finish', methods=['POST'])
-    def finish_config():
-        # 验证配置
-        config = load_config_module()
-        if not config:
-            return jsonify({'success': False, 'message': '配置加载失败'})
-        
+        # 获取必填配置项
         appid = str(getattr(config, 'appid', '')).strip()
         secret = str(getattr(config, 'secret', '')).strip()
         
+        # 只检查是否为空
         if not appid or not secret:
-            return jsonify({'success': False, 'message': '提示：</strong> 请填写必填项，请提前创建好mysql数据库，频道图床和主人openid等无需填写，其他配置可使用默认值'})
+            print("\n" + "="*60)
+            print("  ⚠️  检测到配置未完成，正在启动配置向导...")
+            print("="*60 + "\n")
+            print("  请填写以下必填项：")
+            print("  - appid: 机器人APPID")
+            print("  - secret: 机器人密钥")
+            print("  - ROBOT_QQ: 机器人QQ号（可选）")
+            print("\n" + "="*60 + "\n")
+            
+            # 启动配置向导
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            config_wizard = os.path.join(base_dir, 'main.sc.py')
+            
+            if not os.path.exists(config_wizard):
+                print("❌ main.sc.py 配置向导文件不存在！")
+                sys.exit(1)
+            
+            # 使用当前 Python 解释器启动 main.sc.py
+            subprocess.run([sys.executable, config_wizard])
+            sys.exit(0)
         
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        main_first = os.path.join(base_dir, 'main-first.py')
-        main_file = os.path.join(base_dir, 'main.py')
+        # 配置检查通过
+        print("✅ 配置文件检查通过")
+        print(f"   - APPID: {appid}")
+        print(f"   - ROBOT_QQ: {getattr(config, 'ROBOT_QQ', 'N/A')}")
+        return True
         
-        if not os.path.exists(main_first):
-            return jsonify({'success': False, 'message': 'main-first.py 不存在'})
-        
-        # 创建完成标记
-        os.makedirs(os.path.join(base_dir, 'data'), exist_ok=True)
-        with open(os.path.join(base_dir, 'data', '.config_completed'), 'w') as f:
-            f.write('1')
-        
-        # 备份并替换
-        shutil.copy2(main_file, os.path.join(base_dir, 'main-wizard.py.bak'))
-        shutil.copy2(main_first, main_file)
-        os.remove(main_first)
-        
-        # 创建重启脚本
-        is_windows = platform.system().lower() == 'windows'
-        restart_script = f'''import os, sys, time, subprocess, platform
-time.sleep(2)
-subprocess.run(['taskkill', '/PID', '{os.getpid()}', '/F'], check=False) if platform.system().lower() == 'windows' else None
-time.sleep(1)
-subprocess.Popen([sys.executable, r"{main_file}"], creationflags=subprocess.CREATE_NEW_CONSOLE if platform.system().lower() == 'windows' else 0, cwd=r"{base_dir}")
-time.sleep(1)
-os.remove(__file__)
-'''
-        
-        restart_file = os.path.join(base_dir, 'wizard_restart.py')
-        with open(restart_file, 'w') as f:
-            f.write(restart_script)
-        
-        # 启动重启脚本并退出
-        subprocess.Popen([sys.executable, restart_file], cwd=base_dir,
-                       creationflags=subprocess.CREATE_NEW_CONSOLE if is_windows else 0)
-        threading.Timer(1.0, lambda: os._exit(0)).start()
-        
-        return jsonify({'success': True, 'message': '配置完成！正在重启...'})
+    except Exception as e:
+        print(f"⚠️  配置检查失败: {e}")
+        print("继续启动主程序...")
+        return True
+
+def check_python_version():
+    required_version = (3, 9)
+    current_version = sys.version_info[:2]
+    if current_version < required_version:
+        print(f"❌ Python版本不符合要求！当前: {current_version[0]}.{current_version[1]}, 要求: {required_version[0]}.{required_version[1]}+")
+        sys.exit(1)
+    print(f"✅ Python版本检查通过: Python {current_version[0]}.{current_version[1]}")
+    return True
+
+def check_dependencies():
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+    except ImportError:
+        try:
+            from importlib_metadata import version, PackageNotFoundError
+        except ImportError:
+            print("⚠️  警告: 无法导入依赖检查模块，跳过依赖检查")
+            return True
     
-    logging.basicConfig(level=logging.INFO, format='[配置向导] %(message)s')
-    logging.getLogger('werkzeug').setLevel(logging.ERROR)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    requirements_file = os.path.join(base_dir, 'requirements.txt')
+    if not os.path.exists(requirements_file):
+        print("⚠️  警告: 未找到 requirements.txt 文件，跳过依赖检查")
+        return True
     
-    # 从配置文件读取端口号
-    config = load_config_module()
-    server_config = getattr(config, 'SERVER_CONFIG', {}) if config else {}
-    wizard_port = server_config.get('port', 5003)
-    wizard_host = server_config.get('host', '0.0.0.0')
-    display_host = 'localhost' if wizard_host == '0.0.0.0' else wizard_host
+    print("🔍 正在检查依赖包...")
+    missing_packages = []
+    try:
+        with open(requirements_file, 'r', encoding='utf-8') as f:
+            requirements = f.readlines()
+        
+        for line in requirements:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '==' in line:
+                package_name = line.split('==')[0].strip()
+            elif '>=' in line:
+                package_name = line.split('>=')[0].strip()
+            else:
+                package_name = line.strip()
+            
+            possible_names = [
+                package_name, package_name.lower(),
+                package_name.lower().replace('_', '-'),
+                package_name.lower().replace('-', '_'),
+            ]
+            
+            installed = False
+            for check_name in possible_names:
+                try:
+                    version(check_name)
+                    installed = True
+                    break
+                except PackageNotFoundError:
+                    continue
+            
+            if not installed:
+                missing_packages.append(package_name)
+        
+        if not missing_packages:
+            print("✅ 所有依赖包检查通过！")
+            return True
+        
+        print("\n❌ 缺少依赖包:", ', '.join(missing_packages))
+        print("💡 pip install -r requirements.txt")
+        print("\n按 Enter 继续或 Ctrl+C 退出...")
+        try:
+            input()
+        except KeyboardInterrupt:
+            sys.exit(0)
+        return True
+    except:
+        return True
+
+def check_and_replace_config():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    config_new_path = os.path.join(base_dir, 'web', 'config_new.py')
+    config_path = os.path.join(base_dir, 'config.py')
+    backup_dir = os.path.join(base_dir, 'data', 'config')
     
-    print(f"\\n✅ 配置向导已启动！")
-    print(f"📋 请访问: http://{display_host}:{wizard_port}/web/")
-    print("="*60 + "\\n")
+    if os.path.exists(config_new_path):
+        if os.path.exists(config_path):
+            os.makedirs(backup_dir, exist_ok=True)
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+            shutil.copy2(config_path, os.path.join(backup_dir, f'config_backup_{timestamp}.py'))
+        shutil.move(config_new_path, config_path)
+
+check_config_and_redirect()
+check_python_version()
+check_and_replace_config()
+check_dependencies()
+
+import json, gc, threading, logging, traceback, random, warnings, signal, multiprocessing
+from multiprocessing import Process, Event
+from flask import Flask, request, jsonify
+from flask_socketio import SocketIO
+from config import LOG_DB_CONFIG, WEBSOCKET_CONFIG, SERVER_CONFIG, WEB_CONFIG
+from function.Access import BOT凭证, BOTAPI, Json取, Json
+from function.httpx_pool import get_pool_manager
+
+warnings.filterwarnings("ignore", category=UserWarning)
+
+# 创建主框架 logger
+logger = logging.getLogger('ElainaBot')
+
+try:
+    from web.app import start_web, add_framework_log, add_error_log
+    _web_available = True
+except:
+    _web_available = False
+    add_framework_log = add_error_log = lambda *a, **k: None
+
+try:
+    from function.log_db import add_log_to_db
+except:
+    add_log_to_db = lambda *a, **k: False
+
+try:
+    from function.dau_analytics import start_dau_analytics, stop_dau_analytics
+    _dau_available = True
+except:
+    _dau_available = False
+    start_dau_analytics = stop_dau_analytics = lambda: None
+
+_logging_initialized = False
+_app_initialized = False
+http_pool = get_pool_manager()
+_web_process = None
+_web_process_event = Event()
+_gc_counter = 0
+_message_handler_ready = threading.Event()
+_plugins_preloaded = False
+_message_executor = None
+
+def log_error(error_msg, tb_str=None):
+    logger.error(f"{error_msg}\n{tb_str or traceback.format_exc()}")
+    add_error_log(error_msg, tb_str or traceback.format_exc())
+
+def cleanup_gc():
+    global _gc_counter
+    _gc_counter += 1
+    if _gc_counter >= 100:
+        gc.collect(0)
+        _gc_counter = 0
+
+
+def log_to_console(message):
+    logger.info(message)
+    add_framework_log(message)
+
+
+
+def setup_logging():
+    global _logging_initialized
+    if _logging_initialized:
+        return
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    formatter = logging.Formatter('[ElainaBot] %(asctime)s - %(levelname)s - %(message)s', datefmt='%m-%d %H:%M:%S')
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(console_handler)
+    for logger_name in ['werkzeug', 'socketio', 'engineio', 'urllib3']:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+    _logging_initialized = True
+    log_to_console("日志系统初始化成功")
     
+    # 测试logger输出
+    test_logger = logging.getLogger('test_logger')
+    test_logger.info("✅ Logger测试：控制台输出正常")
+
+sys.excepthook = lambda exctype, value, tb: log_error(f"{exctype.__name__}: {value}", "".join(traceback.format_tb(tb)))
+
+import flask.cli
+flask.cli.show_server_banner = lambda *args: None
+
+def create_app():
+    flask_app = Flask(__name__)
+    flask_app.config['SECRET_KEY'] = 'elainabot_secret'
+    flask_app.config['TEMPLATES_AUTO_RELOAD'] = True
+    flask_app.jinja_env.auto_reload = True
+    flask_app.logger.disabled = True
+    socketio = SocketIO(flask_app, cors_allowed_origins="*", async_mode='eventlet', logger=False, engineio_logger=False)
+    flask_app.socketio = socketio
+    
+    @flask_app.route('/', methods=['GET', 'POST'])
+    def handle_request():
+        if request.method == 'GET':
+            return jsonify({"message": "The service is temporarily unavailable"}), 200
+        data = request.get_data()
+        if not data:
+            return "No data received", 400
+        json_data = json.loads(data)
+        op = json_data.get("op")
+        if op == 0:
+            global _message_executor
+            if _message_executor is None:
+                from concurrent.futures import ThreadPoolExecutor
+                _message_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="MsgHandler")
+            http_ctx = {
+                'path': request.path,
+                'method': request.method,
+                'url': request.url,
+                'remote_addr': request.remote_addr,
+                'headers': dict(request.headers)
+            }
+            
+            _message_executor.submit(process_message_event, data.decode(), http_ctx)
+            return "OK"
+        elif op == 13:
+            from function.sign import Signs
+            return Signs().sign(data.decode())
+        return "Event not handled", 400
+    
+    log_to_console("Flask应用创建成功")
+    return flask_app
+
+def process_message_event(data, http_context=None):
+    if not data:
+        return False
+    
+    global _plugins_preloaded
+    if not _plugins_preloaded:
+        _message_handler_ready.wait(timeout=5)
+    
+    try:
+        from core.event.MessageEvent import MessageEvent
+        from core.plugin.PluginManager import PluginManager
+        
+        event = MessageEvent(data, http_context=http_context)
+        if event.ignore:
+            del event
+            return False
+        
+        # 立即执行web实时推送（主线程中执行）
+        try:
+            if not event.skip_recording:
+                import datetime
+                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                event._notify_web_display(timestamp)
+        except:
+            pass
+        
+        # 异步执行数据库操作
+        def async_db_tasks():
+            try:
+                if not event.skip_recording:
+                    event._record_user_and_group()
+                    event._record_message_to_db_only()  # 只执行数据库记录，不包含web推送
+                event.record_last_message_id()
+            except:
+                pass
+        
+        import threading
+        threading.Thread(target=async_db_tasks, daemon=True).start()
+        
+        try:
+            PluginManager.dispatch_message(event)
+        except Exception as e:
+            log_error(f"插件处理失败: {str(e)}")
+        
+        del event, data
+        cleanup_gc()
+        return False
+    except Exception as e:
+        log_error(f"消息处理异常: {str(e)}")
+        return False
+
+async def handle_ws_message(raw_data):
+    global _message_executor
+    if _message_executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _message_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="MsgHandler")
+    _message_executor.submit(process_message_event, raw_data)
+
+async def create_websocket_client():
+    from function.ws_client import create_qq_bot_client
+    log_to_console("正在获取网关地址...")
+    client = await create_qq_bot_client(WEBSOCKET_CONFIG)
+    if not client:
+        raise Exception("无法获取网关地址或创建客户端")
+    log_to_console("正在配置事件处理器...")
+    client.add_handler('message', handle_ws_message)
+    client.add_handler('connect', lambda d: log_to_console("WebSocket连接已建立"))
+    client.add_handler('disconnect', lambda d: log_to_console("WebSocket连接已断开"))
+    client.add_handler('error', lambda d: log_error(f"WebSocket错误: {d.get('error', '')}"))
+    client.add_handler('ready', lambda d: log_to_console(f"WebSocket已就绪 - Bot: {d.get('bot_info', {}).get('username', '二次转发接收模式')}"))
+    return client
+
+def run_websocket_client():
+    import asyncio
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    for attempt in range(3):
+        loop = None
+        client = None
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            log_to_console(f"正在创建WebSocket客户端...")
+            client = loop.run_until_complete(create_websocket_client())
+            log_to_console("WebSocket客户端已创建，开始连接...")
+            loop.run_until_complete(client.start())
+            log_to_console("WebSocket客户端连接成功")
+            break
+        except KeyboardInterrupt:
+            log_to_console("WebSocket客户端被用户中断")
+            break
+        except Exception as e:
+            log_error(f"WebSocket客户端运行失败 (第 {attempt + 1}/3 次): {str(e)}")
+            if attempt < 2:
+                log_to_console(f"等待 10 秒后重试...")
+                time.sleep(10)
+        finally:
+            try:
+                if client:
+                    del client
+                if loop:
+                    try:
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    except:
+                        pass
+                    try:
+                        loop.close()
+                    except:
+                        pass
+                    del loop
+                gc.collect()
+            except:
+                pass
+
+def setup_websocket():
+    if WEBSOCKET_CONFIG.get('enabled', False) and WEBSOCKET_CONFIG.get('auto_connect', True):
+        from config import appid, secret
+        if appid and secret:
+            threading.Thread(target=run_websocket_client, daemon=True).start()
+            log_to_console("WebSocket自动连接启动成功")
+
+def init_systems(is_subprocess=False):
+    global _message_handler_ready, _plugins_preloaded
+    setup_logging()
+    gc.enable()
+    gc.set_threshold(700, 10, 5)
+    gc.collect(0)
+    log_to_console("垃圾回收系统初始化成功")
+    
+    def init_critical_systems():
+        try:
+            from function.database import Database
+            Database()
+            log_to_console("数据库系统初始化成功")
+            from core.plugin.PluginManager import PluginManager
+            PluginManager.load_plugins()
+            log_to_console("插件系统初始化成功")
+            _plugins_preloaded = True
+            _message_handler_ready.set()
+        except Exception as e:
+            log_error(f"系统初始化失败: {str(e)}")
+            _message_handler_ready.set()
+    
+    threading.Thread(target=init_critical_systems, daemon=True).start()
+    if not is_subprocess:
+        setup_websocket()
+    return True
+
+def initialize_app():
+    global _app_initialized, app
+    if _app_initialized:
+        return app
+    app = create_app()
+    init_systems()
+    if _web_available:
+        start_web(app)
+        log_to_console("Web面板服务已集成到主进程")
+    if _dau_available:
+        start_dau_analytics()
+        log_to_console("DAU分析服务启动成功")
+    _app_initialized = True
+    return app
+
+wsgi_app = initialize_app()
+
+def signal_handler(signum, frame):
+    if _dau_available:
+        stop_dau_analytics()
+    sys.exit(0)
+
+def start_main_process():
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    app = initialize_app()
     from eventlet import wsgi
-    wsgi.server(eventlet.listen((wizard_host, wizard_port)), app, log=None, log_output=False)
+    host = SERVER_CONFIG.get('host', '0.0.0.0')
+    port = SERVER_CONFIG.get('port', 5001)
+    logger.info(f"🚀 主框架启动成功！")
+    logger.info(f"📡 主服务器地址: {host}:{port}")
+    if _web_available:
+        web_token = WEB_CONFIG.get('access_token', '')
+        display_host = 'localhost' if host == '0.0.0.0' else host
+        web_url = f"http://{display_host}:{port}/web/"
+        if web_token:
+            web_url += f"?token={web_token}"
+        logger.info(f"🌐 Web管理面板: {web_url}")
+    logger.info(f"⚡ 系统就绪，等待消息处理...")
+    wsgi.server(eventlet.listen((host, port)), app, log=None, log_output=False, keepalive=True, socket_timeout=30)
 
 if __name__ == "__main__":
-    if check_initial_config():
-        start_initial_config_wizard()
-    else:
-        # 正常模式：切换到 main-first.py
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        main_first = os.path.join(base_dir, 'main-first.py')
-        main_file = os.path.join(base_dir, 'main.py')
-        
-        if os.path.exists(main_first):
-            shutil.copy2(main_file, os.path.join(base_dir, 'main-wizard.py.bak'))
-            shutil.copy2(main_first, main_file)
-            print("✅ 配置已完成，切换到正常模式")
-            print("🔄 请重新运行: python main.py")
-            sys.exit(0)
-        else:
-            print("❌ main-first.py 不存在！")
-            sys.exit(1)
+    if hasattr(multiprocessing, 'set_start_method'):
+        try:
+            multiprocessing.set_start_method('spawn', force=True)
+        except:
+            pass
+    try:
+        start_main_process()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if _dau_available:
+            stop_dau_analytics()
+        sys.exit(0)  

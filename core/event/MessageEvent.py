@@ -432,19 +432,10 @@ class MessageEvent:
 
         parts = text.split(delimiter) if delimiter in text else [text]
 
-        # 输出拆分结果到日志
-        logging.info(f"[AJ模板拆分日志] 原始文本: {repr(text)}")
-        logging.info(f"[AJ模板拆分日志] 拆分后的parts: {[repr(p) for p in parts]}")
-
         # 构建参数列表
         keys_list = [k.strip() for k in MARKDOWN_AJ_TEMPLATE['keys'].split(',')] if ',' in MARKDOWN_AJ_TEMPLATE['keys'] else list(MARKDOWN_AJ_TEMPLATE['keys'])
         params = [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
         params.extend([{"key": keys_list[i], "values": ["\u200B"]} for i in range(len(params), len(keys_list))])
-
-        # 输出最终参数分配结果到日志
-        logging.info(f"[AJ模板拆分日志] 最终参数分配:")
-        for param in params:
-            logging.info(f"  {param['key']}: {repr(param['values'][0])}")
 
         return params
 
@@ -719,9 +710,6 @@ class MessageEvent:
                                 
                                 # 使用拆分方法
                                 values = self._split_markdown_to_values(single_value)
-                                logging.info(f"[Markdown模板拆分] 原始值: {repr(param_value[0])}")
-                                logging.info(f"[Markdown模板拆分] 添加后: {repr(single_value)}")
-                                logging.info(f"[Markdown模板拆分] 拆分后: {[repr(v) for v in values]}")
                             else:
                                 values = [str(v) for v in param_value if v is not None]
                         else:
@@ -734,9 +722,6 @@ class MessageEvent:
             
             # 输出构建的 raw payload
             template_data = {"custom_template_id": template_id, "params": param_list}
-            import json
-            logging.info(f"[Markdown模板] 构建的 payload:")
-            logging.info(json.dumps(template_data, ensure_ascii=False, indent=2))
             
             return template_data
         except Exception as e:

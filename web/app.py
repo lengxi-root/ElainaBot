@@ -117,10 +117,18 @@ def catch_error(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
             try:
-                add_log_to_db('error', {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'content': f"{func.__name__} 错误: {str(e)}"})
+                add_log_to_db('error', {
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 
+                    'content': f"{func.__name__} 错误: {str(e)}",
+                    'traceback': error_trace
+                })
             except:
                 pass
+            # 打印到控制台以便调试
+            logger.error(f"catch_error捕获异常 in {func.__name__}: {str(e)}\n{error_trace}")
             return api_error_response(str(e))
     return wrapper
 
@@ -187,6 +195,7 @@ def login():
         cleanup_expired_sessions()
         limit_session_count()
         
+        # 获取真实 IP（支持反向代理）
         from web.tools.session_manager import get_real_ip
         current_ip = get_real_ip(request)
         
@@ -220,6 +229,7 @@ def login():
         
         response = make_response(f'<script>window.location.href = "/web/?token={token}";</script>')
         cookie_expires = datetime.now() + timedelta(days=7)
+        # 检测是否为 HTTPS 环境
         is_https = request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https'
         
         response.set_cookie(
@@ -361,6 +371,7 @@ def handle_plugin_api(api_path):
     except Exception as e:
         error_trace = traceback.format_exc()
         add_error_log(f"插件API处理失败: {full_api_path}", error_trace)
+        logger.error(f"插件API错误: {str(e)}\n{error_trace}")
         return jsonify({'success': False, 'message': f'处理请求失败: {str(e)}'}), 500
 
 @web.route('/api/logs/<log_type>')

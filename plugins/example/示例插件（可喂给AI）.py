@@ -51,6 +51,10 @@ class media_plugin(Plugin):
             r'^aj模板$': {'handler': 'test_markdown_aj', 'owner_only': True},
             r'^按钮测试$': {'handler': 'test_buttons', 'owner_only': True},
             
+            # ajdm和mddm功能
+            r'^ajdm\s+(.+)$': {'handler': 'send_ajdm', 'owner_only': True},
+            r'^mddm\s+(\d+)\s+(.+)$': {'handler': 'send_mddm', 'owner_only': True},
+            
             # ark权限要求私域机器人或者公域银牌机器人（月均400dau申请）
             r'^ark23$': {'handler': 'send_ark23', 'owner_only': True},
             r'^ark24$': {'handler': 'send_ark24', 'owner_only': True},
@@ -302,6 +306,7 @@ class media_plugin(Plugin):
             ],
         ))
         
+        
         # 方式2：多个值不拆分
         # event.reply_markdown("1", (
         #     [
@@ -312,14 +317,23 @@ class media_plugin(Plugin):
         # ))
         
     
-    #支持单参列表传入
+    #支持单参列表传入，第二参
      #event.reply_markdown("1", (
      #      [
      #         "你好啊](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)[",
      #          "你好](mqqapi://aio/inlinecmd?command=你好&enter=false&reply=false)[",
      #          "你好啊",
      #      ],
+     #        "✨ 这是文本1", 
      #  ))
+
+     #双参普通发送模式
+     #event.reply_markdown("1", (    
+      #      "✨ 这是文本1",           # text
+      #      "✨ 这是文本1",               # size  
+      #  ),
+      #  "102321943_1752737844"               # keyboard_id - 按钮模板ID
+      #)  # 参数：模板名称, (参数列表)
 
     @staticmethod
     def test_markdown_aj(event):
@@ -365,6 +379,104 @@ class media_plugin(Plugin):
             "https://gchat.qpic.cn/qmeetpic/0/0-0-52C851D5FB926BC645528EB4AB462B3D/0",
             "https://i.elaina.vin/api/"
         ))  # 参数：arkid 37, (提示, 标题, 子标题, 封面, 链接）
+
+    @staticmethod
+    def send_ajdm(event):
+        """ajdm - 发送AJ模板，自动拆分内容"""
+        if not event.matches or len(event.matches) < 1:
+            event.reply("❌ 请输入内容\n\n用法：ajdm 你的内容")
+            return
+        
+        content = event.matches[0]
+        
+        try:
+            event.reply_markdown_aj(content)
+            event.reply(f"✅ AJ模板发送成功\n📝 内容长度：{len(content)}字符")
+        except Exception as e:
+            event.reply(f"❌ 发送失败：{str(e)}")
+
+    @staticmethod
+    def send_mddm(event):
+        """mddm - 发送markdown模板，支持多key多值
+        
+        格式说明：
+        - 模板ID：第一个数字，如 mddm 1 表示使用模板1
+        - 参数格式：1参内容 表示第1个参数，2参内容 表示第2个参数
+        
+        用法示例：
+        - 单参数单值：mddm 1 1参内容
+        - 单参数多值：mddm 1 1参值1,值2,值3
+        - 多参数：mddm 1 1参内容1 2参内容2 3参内容3
+        - 多参数多值：mddm 1 1参a,b,c 2参x,y,z
+        """
+        if not event.matches or len(event.matches) < 2:
+            event.reply("❌ 参数不足\n\n用法：mddm 模板ID 1参内容\n示例：mddm 1 1参你好")
+            return
+        
+        template_id = event.matches[0]
+        params_str = event.matches[1].strip()
+        
+        try:
+            import re
+            
+            # 匹配格式：数字+参+值（到下一个"数字参"或结尾）
+            # 例如：1参内容 2参内容2 3参内容3
+            param_pattern = r'(\d+)参([^0-9参]*(?:[0-9]+(?!参)[^0-9参]*)*)'
+            matches = re.findall(param_pattern, params_str)
+            
+            if not matches:
+                event.reply("❌ 参数格式错误\n\n正确格式：\n- 单参数：mddm 1 1参内容\n- 多参数：mddm 1 1参内容1 2参内容2")
+                return
+            
+            # 按参数编号排序并构建参数列表
+            params_dict = {}
+            for param_num, value_str in matches:
+                param_num = int(param_num)
+                value_str = value_str.strip()
+                
+                # 检查是否包含逗号（多值）
+                if ',' in value_str:
+                    # 多值：按逗号分割
+                    values = [v.strip() for v in value_str.split(',') if v.strip()]
+                else:
+                    # 单值：直接使用（会自动拆分）
+                    values = [value_str] if value_str else []
+                
+                if values:
+                    params_dict[param_num] = values
+            
+            if not params_dict:
+                event.reply("❌ 没有有效的参数值")
+                return
+            
+            # 按参数编号顺序构建元组
+            max_param = max(params_dict.keys())
+            params_list = []
+            for i in range(1, max_param + 1):
+                if i in params_dict:
+                    params_list.append(params_dict[i])
+                else:
+                    # 缺失的参数用空列表填充
+                    params_list.append([''])
+            
+            # 发送markdown模板
+            event.reply_markdown(template_id, tuple(params_list))
+            
+            # 构建成功消息
+            success_msg = f"✅ Markdown模板发送成功\n📋 模板ID：{template_id}\n🔢 参数数量：{len(params_dict)}\n"
+            for param_num in sorted(params_dict.keys()):
+                values = params_dict[param_num]
+                if len(values) == 1:
+                    success_msg += f"  参数{param_num}：1个值（自动拆分）\n"
+                else:
+                    success_msg += f"  参数{param_num}：{len(values)}个值\n"
+            
+            event.reply(success_msg)
+            
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            event.reply(f"❌ 发送失败：{str(e)}\n\n调试信息：\n{error_detail[:200]}")
 
     @staticmethod
     def get_message_info(event):

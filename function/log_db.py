@@ -75,7 +75,7 @@ class LogDatabasePool:
                     database=db_config.get('database', ''), charset='utf8mb4',  # 固定使用 utf8mb4
                     cursorclass=DictCursor, connect_timeout=3,  # 写死连接超时为3秒
                     read_timeout=3, write_timeout=3,  # 写死读写超时为3秒
-                    autocommit=False  # 写死不自动提交事务
+                    autocommit=False  # 不自动提交，由业务代码控制事务
                 )
             except:
                 if i < retry_count - 1:
@@ -316,19 +316,30 @@ class LogDatabaseManager:
             ))
         return values
 
-    @contextmanager
-    def _with_cursor(self, cursor_class=DictCursor):
+    def _get_cursor(self, cursor_class=DictCursor):
+        """获取数据库连接和游标（手动管理）"""
         connection = self.pool.get_connection()
         if not connection:
             raise Exception("无法获取数据库连接")
-        cursor = None
         try:
             cursor = connection.cursor(cursor_class)
-            yield cursor, connection
-        finally:
-            if cursor:
-                cursor.close()
+            return cursor, connection
+        except Exception as e:
             self.pool.release_connection(connection)
+            raise e
+
+    def _release_cursor(self, cursor, connection):
+        """释放游标和连接"""
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if connection:
+            try:
+                self.pool.release_connection(connection)
+            except:
+                pass
 
     def _format_timestamp(self, dt=None):
         if dt is None:
@@ -409,25 +420,28 @@ class LogDatabaseManager:
         table_name = self._get_table_name(log_type)
         if table_name in self.tables_created:
             return True
+        cursor, connection = None, None
         try:
-            with self._with_cursor() as (cursor, connection):
-                if self._table_exists(table_name, cursor):
-                    self.tables_created.add(table_name)
-                    return True
-                create_table_sql = self._get_create_table_sql(table_name, log_type)
-                cursor.execute(create_table_sql)
-                if log_type not in ('dau', 'id'):
-                    cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
-                if log_type == 'message':
-                    cursor.execute(f"CREATE INDEX idx_{table_name}_type ON {table_name} (type)")
-                    cursor.execute(f"CREATE INDEX idx_{table_name}_user ON {table_name} (user_id)")
-                    cursor.execute(f"CREATE INDEX idx_{table_name}_group ON {table_name} (group_id)")
-                    cursor.execute(f"CREATE INDEX idx_{table_name}_plugin ON {table_name} (plugin_name)")
-                connection.commit()
+            cursor, connection = self._get_cursor()
+            if self._table_exists(table_name, cursor):
                 self.tables_created.add(table_name)
                 return True
+            create_table_sql = self._get_create_table_sql(table_name, log_type)
+            cursor.execute(create_table_sql)
+            if log_type not in ('dau', 'id'):
+                cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
+            if log_type == 'message':
+                cursor.execute(f"CREATE INDEX idx_{table_name}_type ON {table_name} (type)")
+                cursor.execute(f"CREATE INDEX idx_{table_name}_user ON {table_name} (user_id)")
+                cursor.execute(f"CREATE INDEX idx_{table_name}_group ON {table_name} (group_id)")
+                cursor.execute(f"CREATE INDEX idx_{table_name}_plugin ON {table_name} (plugin_name)")
+            connection.commit()
+            self.tables_created.add(table_name)
+            return True
         except:
             return False
+        finally:
+            self._release_cursor(cursor, connection)
     
     def _create_all_tables(self):
         for log_type in LOG_TYPES:
@@ -494,44 +508,47 @@ class LogDatabaseManager:
                 time.sleep(3600)
     
     def _cleanup_expired_tables(self):
+        cursor, connection = None, None
         try:
             retention_days = MERGED_LOG_CONFIG.get('retention_days', 0)
             if retention_days <= 0:
                 return
             cutoff_date = datetime.datetime.now() - datetime.timedelta(days=retention_days)
             prefix = MERGED_LOG_CONFIG['table_prefix']
-            with self._with_cursor() as (cursor, connection):
-                cursor.execute("""
-                    SELECT TABLE_NAME as table_name 
-                    FROM information_schema.tables 
-                    WHERE table_schema = DATABASE() 
-                    AND TABLE_NAME LIKE %s
-                """, (f"{prefix}%",))
-                tables = cursor.fetchall()
-                deleted_count = 0
-                for table_info in tables:
-                    table_name = table_info.get('table_name', '')
-                    if not table_name:
+            cursor, connection = self._get_cursor()
+            cursor.execute("""
+                SELECT TABLE_NAME as table_name
+                FROM information_schema.tables
+                WHERE table_schema = DATABASE()
+                AND TABLE_NAME LIKE %s
+            """, (f"{prefix}%",))
+            tables = cursor.fetchall()
+            deleted_count = 0
+            for table_info in tables:
+                table_name = table_info.get('table_name', '')
+                if not table_name:
+                    continue
+                if table_name in (f"{prefix}dau", f"{prefix}id"):
+                    continue
+                try:
+                    name_without_prefix = table_name[len(prefix):]
+                    parts = name_without_prefix.split('_')
+                    if not parts or not parts[0].isdigit():
                         continue
-                    if table_name in (f"{prefix}dau", f"{prefix}id"):
+                    date_str = parts[0]
+                    if len(date_str) != 8:
                         continue
-                    try:
-                        name_without_prefix = table_name[len(prefix):]
-                        parts = name_without_prefix.split('_')
-                        if not parts or not parts[0].isdigit():
-                            continue
-                        date_str = parts[0]
-                        if len(date_str) != 8:
-                            continue
-                        table_date = datetime.datetime.strptime(date_str, '%Y%m%d')
-                        if table_date < cutoff_date:
-                            cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
-                            deleted_count += 1
-                    except (ValueError, IndexError):
-                        continue
-                connection.commit()
+                    table_date = datetime.datetime.strptime(date_str, '%Y%m%d')
+                    if table_date < cutoff_date:
+                        cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
+                        deleted_count += 1
+                except (ValueError, IndexError):
+                    continue
+            connection.commit()
         except Exception as e:
             logger.error(f"清理过期日志表失败: {e}")
+        finally:
+            self._release_cursor(cursor, connection)
     
     def _save_logs_to_db(self):
         for log_type in LOG_TYPES:
@@ -560,15 +577,17 @@ class LogDatabaseManager:
                 break
         if not logs_to_insert:
             return
+        cursor, connection = None, None
         try:
-            with self._with_cursor(cursor_class=None) as (cursor, connection):
-                sql, values = self._build_insert_sql_and_values(log_type, table_name, logs_to_insert)
-                cursor.executemany(sql, values)
-                connection.commit()
+            cursor, connection = self._get_cursor(cursor_class=None)
+            sql, values = self._build_insert_sql_and_values(log_type, table_name, logs_to_insert)
+            cursor.executemany(sql, values)
+            connection.commit()
         except:
             if MERGED_LOG_CONFIG['fallback_to_file']:
                 self._fallback_to_file(log_type, logs_to_insert)
         finally:
+            self._release_cursor(cursor, connection)
             for _ in range(len(logs_to_insert)):
                 self.log_queues[log_type].task_done()
     
@@ -596,11 +615,15 @@ class LogDatabaseManager:
 
     def _cleanup_old_ids(self):
         """清理3天前的消息ID记录"""
-        with self._with_cursor() as (cursor, connection):
+        cursor, connection = None, None
+        try:
+            cursor, connection = self._get_cursor()
             table_name = self._get_table_name('id')
             three_days_ago = (datetime.datetime.now() - datetime.timedelta(days=3)).replace(hour=0, minute=0, second=0, microsecond=0)
             cursor.execute(f"DELETE FROM `{table_name}` WHERE `timestamp` < %s", (three_days_ago,))
             connection.commit()
+        finally:
+            self._release_cursor(cursor, connection)
 
     def shutdown(self):
         self._stop_event.set()

@@ -71,24 +71,26 @@ class Database:
             cursor, connection = self._get_cursor()
             if not cursor:
                 logger.error("无法获取数据库游标，无法初始化表")
-                return
-
-            try:
-                for sql in tables.values():
-                    cursor.execute(sql)
-
-                # 检查并添加 name 列
-                self._add_name_column_if_not_exists(cursor, connection)
-                connection.commit()
-                logger.info("数据库表初始化完成")
-            finally:
-                if cursor:
-                    cursor.close()
+                # 即使cursor为None，也需要释放connection
                 if connection:
                     self._get_db_pool().release_connection(connection)
+                return
+
+            for sql in tables.values():
+                cursor.execute(sql)
+
+            # 检查并添加 name 列
+            self._add_name_column_if_not_exists(cursor, connection)
+            connection.commit()
+            logger.info("数据库表初始化完成")
         except Exception as e:
             import traceback
             logger.error(f"初始化数据库表失败: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        finally:
+            if cursor:
+                cursor.close()
+            if connection:
+                self._get_db_pool().release_connection(connection)
 
     def _add_name_column_if_not_exists(self, cursor, connection):
         """检查并添加 name 列到 users 表"""
@@ -121,6 +123,9 @@ class Database:
         """执行查询并返回结果"""
         cursor, connection = self._get_cursor()
         if not cursor:
+            # 即使cursor为None，也需要释放connection
+            if connection:
+                self._get_db_pool().release_connection(connection)
             return None
 
         try:
@@ -139,6 +144,9 @@ class Database:
         """执行更新操作"""
         cursor, connection = self._get_cursor()
         if not cursor:
+            # 即使cursor为None，也需要释放connection
+            if connection:
+                self._get_db_pool().release_connection(connection)
             return False
 
         try:

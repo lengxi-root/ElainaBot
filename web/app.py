@@ -651,10 +651,10 @@ def start_web(main_app=None, is_subprocess=False):
         app.register_blueprint(web, url_prefix=PREFIX)
         CORS(app, resources={r"/*": {"origins": "*"}})
         try:
-            socketio = SocketIO(app,
+            socketio = SocketIO(app, 
                             cors_allowed_origins="*",
                             path="/socket.io",
-                            async_mode='threading',
+                            async_mode='eventlet',
                             logger=False,
                             engineio_logger=False)
             log_handler.set_socketio(socketio)
@@ -682,10 +682,10 @@ def start_web(main_app=None, is_subprocess=False):
             if hasattr(main_app, 'socketio'):
                 socketio = main_app.socketio
             else:
-                socketio = SocketIO(main_app,
+                socketio = SocketIO(main_app, 
                                 cors_allowed_origins="*",
                                 path="/socket.io",
-                                async_mode='threading',
+                                async_mode='eventlet',
                                 logger=False,
                                 engineio_logger=False)
                 main_app.socketio = socketio

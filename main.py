@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import eventlet
+eventlet.monkey_patch(all=True, thread=True, socket=True, select=True, time=True)
 import sys, os, time, shutil
 
 def check_config_and_redirect():
@@ -243,7 +245,7 @@ def create_app():
     flask_app.config['TEMPLATES_AUTO_RELOAD'] = True
     flask_app.jinja_env.auto_reload = True
     flask_app.logger.disabled = True
-    socketio = SocketIO(flask_app, cors_allowed_origins="*", async_mode='threading', logger=False, engineio_logger=False)
+    socketio = SocketIO(flask_app, cors_allowed_origins="*", async_mode='eventlet', logger=False, engineio_logger=False)
     flask_app.socketio = socketio
     
     @flask_app.route('/', methods=['GET', 'POST'])
@@ -457,6 +459,7 @@ def start_main_process():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     app = initialize_app()
+    from eventlet import wsgi
     host = SERVER_CONFIG.get('host', '0.0.0.0')
     port = SERVER_CONFIG.get('port', 5001)
     logger.info(f"🚀 主框架启动成功！")
@@ -469,7 +472,7 @@ def start_main_process():
             web_url += f"?token={web_token}"
         logger.info(f"🌐 Web管理面板: {web_url}")
     logger.info(f"⚡ 系统就绪，等待消息处理...")
-    app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+    wsgi.server(eventlet.listen((host, port)), app, log=None, log_output=False, keepalive=True, socket_timeout=30)
 
 if __name__ == "__main__":
     if hasattr(multiprocessing, 'set_start_method'):

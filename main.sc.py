@@ -19,6 +19,8 @@ import subprocess
 import time
 import threading
 import traceback
+import eventlet
+eventlet.monkey_patch()
 from flask import Flask, request, jsonify, send_from_directory
 
 def load_config_module():
@@ -771,8 +773,9 @@ os.remove(__file__)
     print(f"\\n✅ 配置向导已启动！")
     print(f"📋 请访问: http://{display_host}:{wizard_port}/web/")
     print("="*60 + "\\n")
-
-    app.run(host=wizard_host, port=wizard_port, debug=False, use_reloader=False)
+    
+    from eventlet import wsgi
+    wsgi.server(eventlet.listen((wizard_host, wizard_port)), app, log=None, log_output=False)
 
 if __name__ == "__main__":
     if check_initial_config():

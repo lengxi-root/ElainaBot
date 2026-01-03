@@ -75,7 +75,7 @@ class LogDatabasePool:
                     database=db_config.get('database', ''), charset='utf8mb4',  # 固定使用 utf8mb4
                     cursorclass=DictCursor, connect_timeout=3,  # 写死连接超时为3秒
                     read_timeout=3, write_timeout=3,  # 写死读写超时为3秒
-                    autocommit=False  # 写死不自动提交事务
+                    autocommit=False  # 不自动提交，由业务代码控制事务
                 )
             except:
                 if i < retry_count - 1:

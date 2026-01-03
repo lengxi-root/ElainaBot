@@ -1,5 +1,6 @@
-import json, logging, threading
+import json, logging
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from function.httpx_pool import get_json
 from config import LOG_DB_CONFIG, DB_CONFIG, appid
 
@@ -9,7 +10,6 @@ class Database:
     _instance = None
     _thread_pool = None
     _enabled = DB_CONFIG.get('enabled', True)  # 默认启用
-    _cursor_lock = threading.Lock()  # 保护游标获取的线程锁
 
     def __new__(cls):
         if cls._instance is None:
@@ -41,25 +41,40 @@ class Database:
             self._db_pool = LogDatabasePool()
         return self._db_pool
     
+    @contextmanager
     def _get_cursor(self):
-        """获取数据库连接和游标（需要手动管理资源）"""
+        """上下文管理器：自动管理连接和游标"""
         pool = self._get_db_pool()
         if pool is None:
-            return None, None
-
+            yield None, None
+            return
         connection = pool.get_connection()
+        
         if not connection:
             logger.error("无法获取数据库连接")
-            return None, None
-
+            yield None, None
+            return
+        
+        cursor = None
         try:
             cursor = connection.cursor()
-            return cursor, connection
+            yield cursor, connection
         except Exception as e:
-            logger.error(f"创建游标异常: {e}")
+            logger.error(f"数据库操作异常: {e}")
+            if connection:
+                try:
+                    connection.rollback()
+                except:
+                    pass
+            raise
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
             if connection:
                 pool.release_connection(connection)
-            return None, None
 
     def _initialize_tables(self):
         tables = {
@@ -68,29 +83,21 @@ class Database:
             self.get_table_name('members'): f"CREATE TABLE IF NOT EXISTS {self.get_table_name('members')} (user_id VARCHAR(255) NOT NULL UNIQUE, PRIMARY KEY (user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         }
         try:
-            cursor, connection = self._get_cursor()
-            if not cursor:
-                logger.error("无法获取数据库游标，无法初始化表")
-                # 即使cursor为None，也需要释放connection
-                if connection:
-                    self._get_db_pool().release_connection(connection)
-                return
-
-            for sql in tables.values():
-                cursor.execute(sql)
-
-            # 检查并添加 name 列
-            self._add_name_column_if_not_exists(cursor, connection)
-            connection.commit()
-            logger.info("数据库表初始化完成")
+            with self._get_cursor() as (cursor, connection):
+                if not cursor:
+                    logger.error("无法获取数据库游标，无法初始化表")
+                    return
+                
+                for sql in tables.values():
+                    cursor.execute(sql)
+                
+                # 检查并添加 name 列
+                self._add_name_column_if_not_exists(cursor, connection)
+                connection.commit()
+                logger.info("数据库表初始化完成")
         except Exception as e:
             import traceback
             logger.error(f"初始化数据库表失败: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        finally:
-            if cursor:
-                cursor.close()
-            if connection:
-                self._get_db_pool().release_connection(connection)
 
     def _add_name_column_if_not_exists(self, cursor, connection):
         """检查并添加 name 列到 users 表"""
@@ -121,46 +128,28 @@ class Database:
 
     def _execute_query(self, sql, params=None):
         """执行查询并返回结果"""
-        cursor, connection = self._get_cursor()
-        if not cursor:
-            # 即使cursor为None，也需要释放connection
-            if connection:
-                self._get_db_pool().release_connection(connection)
-            return None
-
         try:
-            cursor.execute(sql, params or ())
-            return cursor.fetchone()
+            with self._get_cursor() as (cursor, connection):
+                if not cursor:
+                    return None
+                cursor.execute(sql, params or ())
+                return cursor.fetchone()
         except Exception as e:
             logger.error(f"数据库查询失败: {e}")
             return None
-        finally:
-            if cursor:
-                cursor.close()
-            if connection:
-                self._get_db_pool().release_connection(connection)
 
     def _execute_update(self, sql, params=None):
         """执行更新操作"""
-        cursor, connection = self._get_cursor()
-        if not cursor:
-            # 即使cursor为None，也需要释放connection
-            if connection:
-                self._get_db_pool().release_connection(connection)
-            return False
-
         try:
-            cursor.execute(sql, params or ())
-            connection.commit()
-            return True
+            with self._get_cursor() as (cursor, connection):
+                if not cursor:
+                    return False
+                cursor.execute(sql, params or ())
+                connection.commit()
+                return True
         except Exception as e:
             logger.error(f"数据库更新失败: {e}")
             return False
-        finally:
-            if cursor:
-                cursor.close()
-            if connection:
-                self._get_db_pool().release_connection(connection)
 
     def add_user(self, user_id):
         self._async_execute(self._add_user, user_id)

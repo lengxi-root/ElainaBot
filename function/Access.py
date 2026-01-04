@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import json, requests, os, sys, time, threading
+import json, requests, os, sys, time, threading, logging
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import appid, secret
+
+logger = logging.getLogger('ElainaBot.function.Access')
 
 _token_info = {'access_token': None, 'expires_in': 0, 'last_update': 0}
 _session = requests.Session()
@@ -21,7 +23,7 @@ def 获取新Token():
     global _token_info
     for i in range(3):
         try:
-            response = json.loads(curl("https://bots.qq.com/app/getAppAccessToken", "POST", 
+            response = json.loads(curl("https://bots.qq.com/app/getAppAccessToken", "POST",
                                       {'Content-Type': 'application/json'}, {"appId": appid, "clientSecret": secret}))
             if 'access_token' in response:
                 _token_info.update({
@@ -30,9 +32,15 @@ def 获取新Token():
                     'last_update': time.time()
                 })
                 return True
-        except:
+            else:
+                logger.error(f"获取访问令牌失败，: {response}")
+                if i < 2:
+                    time.sleep(3)
+        except Exception as e:
+            logger.error(f"获取访问令牌异常 (尝试 {i + 1}/3): {type(e).__name__}: {e}")
             if i < 2:
                 time.sleep(3)
+    logger.error("在3次尝试后仍然无法获取访问令牌")
     return False
 
 def 定时更新Token():

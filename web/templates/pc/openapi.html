@@ -416,7 +416,7 @@
 }
 
 .openapi-btn.primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--theme-gradient);
     color: #fff;
 }
 
@@ -481,7 +481,7 @@
 .login-icon {
     width: 80px;
     height: 80px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--theme-gradient);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -516,7 +516,7 @@
     width: 40px;
     height: 40px;
     border: 3px solid #e2e8f0;
-    border-top-color: #667eea;
+    border-top-color: var(--primary-color, #5865F2);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
@@ -577,7 +577,7 @@
 
 .bot-list-header {
     padding: 16px 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--theme-gradient);
     color: #fff;
     font-weight: 600;
     display: flex;
@@ -614,8 +614,8 @@
 }
 
 .bot-card:hover {
-    border-color: #667eea;
-    box-shadow: 0 4px 12px rgba(102,126,234,0.15);
+    border-color: var(--primary-color, #5865F2);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
 .bot-card-header {
@@ -702,7 +702,7 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--theme-gradient);
     color: #fff;
     padding: 8px 16px;
     border-radius: 20px;
@@ -790,7 +790,7 @@
 }
 
 .template-index-badge {
-    background: #667eea;
+    background: var(--primary-color, #5865F2);
     color: #fff;
     padding: 4px 10px;
     border-radius: 12px;
@@ -1504,6 +1504,18 @@ function extractTemplateParams() {
     }
 }
 
+let pendingTemplateData = null;
+
+function getTemplateParams() {
+    const params = [];
+    document.querySelectorAll('.template-param-input').forEach(input => {
+        const key = input.dataset.param;
+        const value = input.value.trim();
+        if (key) params.push({ key, value });
+    });
+    return params;
+}
+
 async function startTemplateSubmit() {
     const type = $.get('template-type-select').value;
     const name = $.get('template-name-input').value.trim();
@@ -1511,18 +1523,28 @@ async function startTemplateSubmit() {
     if (!name) return alert('请输入模板名称');
     if (!scene) return alert('请输入使用场景');
     
-    let content, params = {};
+    let templateData = {
+        tpl_name: name,
+        scene: scene,
+        tpl_type: parseInt(type)
+    };
+    
     if (type === '2') {
-        content = $.get('template-content-input').value.trim();
+        const content = $.get('template-content-input').value.trim();
         if (!content) return alert('请输入模板内容');
-        document.querySelectorAll('.template-param-input').forEach(input => {
-            params[input.dataset.param] = input.value.trim();
-        });
+        templateData.text = content;
+        templateData.tpl_fields = getTemplateParams();
     } else {
-        content = $.get('button-config-input').value.trim();
-        if (!content) return alert('请输入按钮配置');
-        try { JSON.parse(content); } catch (e) { return alert('按钮配置JSON格式错误'); }
+        const buttonConfig = $.get('button-config-input').value.trim();
+        if (!buttonConfig) return alert('请输入按钮配置');
+        try {
+            const config = JSON.parse(buttonConfig);
+            templateData.text = JSON.stringify(config);
+            templateData.tpl_fields = [];
+        } catch (e) { return alert('按钮配置JSON格式错误'); }
     }
+    
+    pendingTemplateData = templateData;
     
     const modal = new bootstrap.Modal($.get('templateSubmitQrModal'));
     modal.show();
@@ -1530,49 +1552,52 @@ async function startTemplateSubmit() {
     $.hide('template-qr-display');
     
     try {
-        const data = await API.request('/submit_template', {
-            appid: currentTemplateAppId,
-            type: parseInt(type),
-            name, scene, content, params
-        });
-        if (data.success && data.qrcode_url) {
-            $.get('template-qr-image').src = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(data.qrcode_url)}`;
+        const data = await API.request('/create_template_qr', {});
+        if (data.success && data.qrcode) {
+            $.get('template-qr-image').src = data.url;
             $.hide('template-qr-loading');
             $.show('template-qr-display');
             $.setHtml('template-submit-status', '<i class="bi bi-hourglass-split"></i> 等待扫码授权...');
-            startTemplateSubmitCheck(data.task_id || data.qrcode);
+            startTemplateSubmitCheck(data.qrcode);
         } else {
             modal.hide();
             alert('获取授权二维码失败: ' + (data.message || '未知错误'));
         }
     } catch (error) {
         modal.hide();
-        alert('提交模板失败');
+        alert('获取二维码失败');
     }
 }
 
 let templateSubmitCheckInterval = null;
-function startTemplateSubmitCheck(taskId) {
+function startTemplateSubmitCheck(qrcode) {
     if (templateSubmitCheckInterval) clearInterval(templateSubmitCheckInterval);
     templateSubmitCheckInterval = setInterval(async () => {
         try {
-            const data = await API.request('/check_template_submit', { task_id: taskId, appid: currentTemplateAppId });
-            if (data.success) {
-                if (data.status === 'completed') {
-                    clearInterval(templateSubmitCheckInterval);
+            const data = await API.request('/check_template_qr', { qrcode });
+            if (data.success && data.authorized) {
+                clearInterval(templateSubmitCheckInterval);
+                $.setHtml('template-submit-status', '<i class="bi bi-hourglass-split"></i> 授权成功，正在提交模板...');
+                const submitData = await API.request('/submit_template', {
+                    appid: currentTemplateAppId,
+                    template_data: pendingTemplateData,
+                    qrcode: qrcode
+                });
+                if (submitData.success) {
                     $.setHtml('template-submit-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 模板提交成功！</div>');
                     setTimeout(() => {
                         bootstrap.Modal.getInstance($.get('templateSubmitQrModal')).hide();
-                        getTemplates(currentTemplateAppId, currentTemplateAppName);
+                        getBotTemplates(currentTemplateAppId, currentTemplateAppName);
                     }, 1500);
-                } else if (data.status === 'failed') {
-                    clearInterval(templateSubmitCheckInterval);
-                    $.setHtml('template-submit-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 提交失败: ${data.message || '未知错误'}</div>`);
+                } else {
+                    $.setHtml('template-submit-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 提交失败: ${submitData.message || '未知错误'}</div>`);
                 }
             }
         } catch (error) {}
     }, 2000);
 }
+
+let pendingDeleteTemplateIds = [];
 
 async function deleteSelectedTemplates() {
     const checkboxes = document.querySelectorAll('.template-checkbox:checked');
@@ -1580,51 +1605,59 @@ async function deleteSelectedTemplates() {
     const templateIds = Array.from(checkboxes).map(cb => cb.dataset.tplId);
     if (!confirm(`确定要删除 ${templateIds.length} 个模板吗？`)) return;
     
+    pendingDeleteTemplateIds = templateIds;
     const modal = new bootstrap.Modal($.get('deleteTemplateQrModal'));
     modal.show();
     $.show('delete-qr-loading');
     $.hide('delete-qr-display');
     
     try {
-        const data = await API.request('/delete_templates', { appid: currentTemplateAppId, template_ids: templateIds });
-        if (data.success && data.qrcode_url) {
-            $.get('delete-qr-image').src = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(data.qrcode_url)}`;
+        const data = await API.request('/create_template_qr', {});
+        if (data.success && data.qrcode) {
+            $.get('delete-qr-image').src = data.url;
             $.hide('delete-qr-loading');
             $.show('delete-qr-display');
             $.setHtml('delete-status', '<i class="bi bi-hourglass-split"></i> 等待扫码授权...');
-            startDeleteTemplateCheck(data.task_id || data.qrcode, templateIds);
+            startDeleteTemplateCheck(data.qrcode);
         } else {
             modal.hide();
             alert('获取授权二维码失败: ' + (data.message || '未知错误'));
         }
     } catch (error) {
         modal.hide();
-        alert('删除模板失败');
+        alert('获取二维码失败');
     }
 }
 
 let deleteTemplateCheckInterval = null;
-function startDeleteTemplateCheck(taskId, templateIds) {
+function startDeleteTemplateCheck(qrcode) {
     if (deleteTemplateCheckInterval) clearInterval(deleteTemplateCheckInterval);
     deleteTemplateCheckInterval = setInterval(async () => {
         try {
-            const data = await API.request('/check_delete_template', { task_id: taskId, appid: currentTemplateAppId, template_ids: templateIds });
-            if (data.success) {
-                if (data.status === 'completed') {
-                    clearInterval(deleteTemplateCheckInterval);
+            const data = await API.request('/check_template_qr', { qrcode });
+            if (data.success && data.authorized) {
+                clearInterval(deleteTemplateCheckInterval);
+                $.setHtml('delete-status', '<i class="bi bi-hourglass-split"></i> 授权成功，正在删除模板...');
+                const deleteData = await API.request('/delete_templates', {
+                    appid: currentTemplateAppId,
+                    tpl_ids: pendingDeleteTemplateIds,
+                    qrcode: qrcode
+                });
+                if (deleteData.success) {
                     $.setHtml('delete-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 模板删除成功！</div>');
                     setTimeout(() => {
                         bootstrap.Modal.getInstance($.get('deleteTemplateQrModal')).hide();
-                        getTemplates(currentTemplateAppId, currentTemplateAppName);
+                        getBotTemplates(currentTemplateAppId, currentTemplateAppName);
                     }, 1500);
-                } else if (data.status === 'failed') {
-                    clearInterval(deleteTemplateCheckInterval);
-                    $.setHtml('delete-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 删除失败: ${data.message || '未知错误'}</div>`);
+                } else {
+                    $.setHtml('delete-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 删除失败: ${deleteData.message || '未知错误'}</div>`);
                 }
             }
         } catch (error) {}
     }, 2000);
 }
+
+let pendingAuditTemplateIds = [];
 
 async function submitSelectedTemplates() {
     const checkboxes = document.querySelectorAll('.template-checkbox:checked');
@@ -1633,46 +1666,52 @@ async function submitSelectedTemplates() {
     const templateIds = unsubmitted.map(cb => cb.dataset.tplId);
     if (!confirm(`确定要提审 ${templateIds.length} 个模板吗？`)) return;
     
+    pendingAuditTemplateIds = templateIds;
     const modal = new bootstrap.Modal($.get('auditTemplateQrModal'));
     modal.show();
     $.show('audit-qr-loading');
     $.hide('audit-qr-display');
     
     try {
-        const data = await API.request('/audit_templates', { appid: currentTemplateAppId, template_ids: templateIds });
-        if (data.success && data.qrcode_url) {
-            $.get('audit-qr-image').src = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(data.qrcode_url)}`;
+        const data = await API.request('/create_template_qr', {});
+        if (data.success && data.qrcode) {
+            $.get('audit-qr-image').src = data.url;
             $.hide('audit-qr-loading');
             $.show('audit-qr-display');
             $.setHtml('audit-status', '<i class="bi bi-hourglass-split"></i> 等待扫码授权...');
-            startAuditTemplateCheck(data.task_id || data.qrcode, templateIds);
+            startAuditTemplateCheck(data.qrcode);
         } else {
             modal.hide();
             alert('获取授权二维码失败: ' + (data.message || '未知错误'));
         }
     } catch (error) {
         modal.hide();
-        alert('提审模板失败');
+        alert('获取二维码失败');
     }
 }
 
 let auditTemplateCheckInterval = null;
-function startAuditTemplateCheck(taskId, templateIds) {
+function startAuditTemplateCheck(qrcode) {
     if (auditTemplateCheckInterval) clearInterval(auditTemplateCheckInterval);
     auditTemplateCheckInterval = setInterval(async () => {
         try {
-            const data = await API.request('/check_audit_template', { task_id: taskId, appid: currentTemplateAppId, template_ids: templateIds });
-            if (data.success) {
-                if (data.status === 'completed') {
-                    clearInterval(auditTemplateCheckInterval);
+            const data = await API.request('/check_template_qr', { qrcode });
+            if (data.success && data.authorized) {
+                clearInterval(auditTemplateCheckInterval);
+                $.setHtml('audit-status', '<i class="bi bi-hourglass-split"></i> 授权成功，正在提审模板...');
+                const auditData = await API.request('/audit_templates', {
+                    appid: currentTemplateAppId,
+                    tpl_ids: pendingAuditTemplateIds,
+                    qrcode: qrcode
+                });
+                if (auditData.success) {
                     $.setHtml('audit-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 模板提审成功！</div>');
                     setTimeout(() => {
                         bootstrap.Modal.getInstance($.get('auditTemplateQrModal')).hide();
-                        getTemplates(currentTemplateAppId, currentTemplateAppName);
+                        getBotTemplates(currentTemplateAppId, currentTemplateAppName);
                     }, 1500);
-                } else if (data.status === 'failed') {
-                    clearInterval(auditTemplateCheckInterval);
-                    $.setHtml('audit-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 提审失败: ${data.message || '未知错误'}</div>`);
+                } else {
+                    $.setHtml('audit-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 提审失败: ${auditData.message || '未知错误'}</div>`);
                 }
             }
         } catch (error) {}

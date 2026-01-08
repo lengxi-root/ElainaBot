@@ -17,11 +17,26 @@ except:
 _image_upload_counter = 0
 _image_upload_msgid = 0
 
+# 获取可选配置，不存在时默认为 False
+try:
+    from config import USE_UNION_ID_FOR_GROUP, USE_UNION_ID_FOR_CHANNEL
+except ImportError:
+    USE_UNION_ID_FOR_GROUP = USE_UNION_ID_FOR_CHANNEL = False
+
+def _swap_ids(uid, unid, should_swap):
+    if should_swap and unid:
+        return unid, uid, uid
+    return uid, unid or uid, uid
+
+_MSG_TYPES_WITH_MSG_ID = frozenset(['GROUP_AT_MESSAGE_CREATE', 'C2C_MESSAGE_CREATE', 'AT_MESSAGE_CREATE', 'DIRECT_MESSAGE_CREATE'])
+_MSG_TYPES_WITH_EVENT_ID = frozenset(['INTERACTION_CREATE', 'GROUP_ADD_ROBOT', 'FRIEND_ADD'])
+
 class MessageEvent:
     GROUP_MESSAGE = 'GROUP_AT_MESSAGE_CREATE'
     DIRECT_MESSAGE = 'C2C_MESSAGE_CREATE'
     INTERACTION = 'INTERACTION_CREATE'
     CHANNEL_MESSAGE = 'AT_MESSAGE_CREATE'
+    CHANNEL_DIRECT_MESSAGE = 'DIRECT_MESSAGE_CREATE'
     GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'
     GROUP_DEL_ROBOT = 'GROUP_DEL_ROBOT'
     FRIEND_ADD = 'FRIEND_ADD'
@@ -33,6 +48,7 @@ class MessageEvent:
         DIRECT_MESSAGE: '_parse_direct_message',
         INTERACTION: '_parse_interaction',
         CHANNEL_MESSAGE: '_parse_channel_message',
+        CHANNEL_DIRECT_MESSAGE: '_parse_channel_direct_message',
         GROUP_ADD_ROBOT: '_parse_group_add_robot',
         GROUP_DEL_ROBOT: '_parse_group_del_robot',
         FRIEND_ADD: '_parse_friend_add',
@@ -51,6 +67,10 @@ class MessageEvent:
         'channel': {
             'reply': '/channels/{channel_id}/messages',
             'recall': '/channels/{channel_id}/messages/{message_id}'
+        },
+        'channel_dm': {
+            'reply': '/dms/{guild_id}/messages',
+            'recall': '/dms/{guild_id}/messages/{message_id}'
         }
     }
     
@@ -59,6 +79,7 @@ class MessageEvent:
         DIRECT_MESSAGE: 'user', 
         INTERACTION: 'group',
         CHANNEL_MESSAGE: 'channel',
+        CHANNEL_DIRECT_MESSAGE: 'channel_dm',
         GROUP_ADD_ROBOT: 'group',
         GROUP_DEL_ROBOT: 'group',
         FRIEND_ADD: 'user',
@@ -66,15 +87,43 @@ class MessageEvent:
     }
 
     _IGNORE_ERROR_CODES = [11293, 40054002, 40054003]
+    
+    _MSG_TYPES_NEED_MSG_ID = None
+    _MSG_TYPES_NEED_EVENT_ID = None
+    _MSG_TYPES_NO_RECORD = None
+    
+    _MARKDOWN_PATTERNS = [
+        re.compile(r'(!?\[.*?\])(\s*\(.*?\))'),
+        re.compile(r'(\[.*?\])(\[.*?\])'),
+        re.compile(r'(\*)([^*]+?\*)'),
+        re.compile(r'(`)([^`]+?`)'),
+        re.compile(r'(_)([^_]*?_)'),
+        re.compile(r'(``)(`)')
+    ]
+    _LINK_PATTERN = re.compile(r'\[([^\]]*)\]\(([^\)]*)\)')
+    _FACE_PATTERN = re.compile(r'<faceType=\d+,faceId="[^"]+",ext="[^"]+">')
+    
+    @classmethod
+    def _init_type_sets(cls):
+        if cls._MSG_TYPES_NEED_MSG_ID is None:
+            cls._MSG_TYPES_NEED_MSG_ID = frozenset([cls.GROUP_MESSAGE, cls.DIRECT_MESSAGE, cls.CHANNEL_MESSAGE, cls.CHANNEL_DIRECT_MESSAGE])
+            cls._MSG_TYPES_NEED_EVENT_ID = frozenset([cls.INTERACTION, cls.GROUP_ADD_ROBOT])
+            cls._MSG_TYPES_NO_RECORD = frozenset([cls.GROUP_DEL_ROBOT, cls.FRIEND_DEL])
+    
+    @staticmethod
+    def _generate_msg_seq():
+        return random.randint(10000, 999999)
 
     def __init__(self, data, skip_recording=False, http_context=None):
+        if self._MSG_TYPES_NEED_MSG_ID is None:
+            self._init_type_sets()
         self.is_private = self.is_group = False
         self.raw_data = data
         self.user_id = self.group_id = None
         self.content = ""
         self.message_type = self.UNKNOWN_MESSAGE
         self.event_type = self.get('t')
-        self.message_id = self.get('d/id') or self.get('id') if self.event_type in ('GROUP_AT_MESSAGE_CREATE', 'C2C_MESSAGE_CREATE', 'AT_MESSAGE_CREATE') else self.get('id')
+        self.message_id = self.get('d/id') or self.get('id') if self.event_type in _MSG_TYPES_WITH_MSG_ID else self.get('id')
         self.timestamp = self.get('d/timestamp')
         self.matches = None
         self._db = None
@@ -93,7 +142,6 @@ class MessageEvent:
         return self._db
 
     def _capture_http_context(self, http_context=None):
-        """捕获HTTP请求上下文信息"""
         if http_context:
             self.request_path = http_context.get('path')
             self.request_method = http_context.get('method')
@@ -108,10 +156,6 @@ class MessageEvent:
             self.request_headers = {}
     
     def get_header(self, header_name, default=None):
-        """
-        获取指定的HTTP请求头值（不区分大小写）
-        x_appid = event.get_header('X-Bot-Appid')
-        """
         if not self.request_headers:
             return default
         header_name_lower = header_name.lower()
@@ -128,32 +172,34 @@ class MessageEvent:
         else:
             self.message_type = self.UNKNOWN_MESSAGE
             self.content = ""
-            self.user_id = self.group_id = self.channel_id = self.guild_id = None
+            self.user_id = self.group_id = self.guild_id = self.union_openid = self.raw_user_id = None
             self.is_group = self.is_private = False
 
     def _parse_group_message(self):
         self.message_type = self.GROUP_MESSAGE
         self.content = self.sanitize_content(self.get('d/content'))
         
-        # 处理图片附件，将解码后的URL追加到content
         attachments = self.get('d/attachments')
         if attachments and isinstance(attachments, list):
             for att in attachments:
                 if att.get('content_type', '').startswith('image/'):
                     import html
                     url = att.get('url', '')
-                    # 解码URL中的特殊字符
                     url = html.unescape(url)
-                    # 格式：文本<图片链接> 或 <图片链接>
                     if self.content:
                         self.content += f"<{url}>"
                     else:
                         self.content = f"<{url}>"
-                    break  # 只处理第一张图片
+                    break
         
-        self.user_id = self.get('d/author/id')
+        self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
+            self.get('d/author/id'),
+            self.get('d/author/union_openid'),
+            USE_UNION_ID_FOR_GROUP
+        )
+        
         self.group_id = self.get('d/group_id')
-        self.channel_id = self.guild_id = None
+        self.guild_id = None
         self.is_group = True
         self.is_private = False
 
@@ -161,24 +207,26 @@ class MessageEvent:
         self.message_type = self.DIRECT_MESSAGE
         self.content = self.sanitize_content(self.get('d/content'))
         
-        # 处理图片附件，将解码后的URL追加到content
         attachments = self.get('d/attachments')
         if attachments and isinstance(attachments, list):
             for att in attachments:
                 if att.get('content_type', '').startswith('image/'):
                     import html
                     url = att.get('url', '')
-                    # 解码URL中的特殊字符
                     url = html.unescape(url)
-                    # 格式：文本<图片链接> 或 <图片链接>
                     if self.content:
                         self.content += f"<{url}>"
                     else:
                         self.content = f"<{url}>"
-                    break  # 只处理第一张图片
+                    break
         
-        self.user_id = self.get('d/author/id')
-        self.group_id = self.channel_id = self.guild_id = None
+        self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
+            self.get('d/author/id'),
+            self.get('d/author/union_openid'),
+            USE_UNION_ID_FOR_GROUP
+        )
+        
+        self.group_id = self.guild_id = None
         self.is_group = False
         self.is_private = True
 
@@ -204,7 +252,9 @@ class MessageEvent:
             self.user_id = self.get('d/group_member_openid') or self.get('d/user_openid') or self.get('d/author/id')
             self.is_group = bool(self.group_id)
             self.is_private = not self.is_group
-        self.channel_id = self.guild_id = None
+        self.union_openid = None
+        self.guild_id = None
+        self.raw_user_id = self.user_id
         button_data = self.get('d/data/resolved/button_data')
         self.content = self.sanitize_content(button_data) if button_data else ""
         self.id = self.get('id')
@@ -221,17 +271,51 @@ class MessageEvent:
                         raw_content = raw_content[len(prefix):].lstrip()
                         break
         self.content = self.sanitize_content(raw_content.strip() if raw_content else "")
-        self.user_id = self.get('d/author/id')
-        self.group_id = None
-        self.channel_id = self.get('d/channel_id')
-        self.guild_id = self.get('d/guild_id')
+        
+        self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
+            self.get('d/author/id'),
+            self.get('d/author/union_openid'),
+            USE_UNION_ID_FOR_CHANNEL
+        )
+        
+        self.group_id = self.get('d/channel_id')
+        self.guild_id = None
         self.is_group = self.is_private = False
+
+    def _parse_channel_direct_message(self):
+        self.message_type = self.CHANNEL_DIRECT_MESSAGE
+        self.content = self.sanitize_content(self.get('d/content'))
+        
+        attachments = self.get('d/attachments')
+        if attachments and isinstance(attachments, list):
+            for att in attachments:
+                if att.get('content_type', '').startswith('image/'):
+                    import html
+                    url = att.get('url', '')
+                    url = html.unescape(url)
+                    if self.content:
+                        self.content += f"<{url}>"
+                    else:
+                        self.content = f"<{url}>"
+                    break
+        
+        self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
+            self.get('d/author/id'),
+            self.get('d/author/union_openid'),
+            USE_UNION_ID_FOR_CHANNEL
+        )
+        
+        self.group_id = None
+        self.guild_id = self.get('d/guild_id')
+        self.is_group = False
+        self.is_private = True
 
     def _parse_group_add_robot(self):
         self.message_type = self.GROUP_ADD_ROBOT
         self.user_id = self.get('d/op_member_openid')
+        self.raw_user_id = self.user_id
         self.group_id = self.get('d/group_openid')
-        self.channel_id = self.guild_id = None
+        self.union_openid = self.guild_id = None
         self.is_group, self.is_private = True, False
         self.timestamp = self.get('d/timestamp')
         self.id = self.get('id')
@@ -246,8 +330,9 @@ class MessageEvent:
     def _parse_group_del_robot(self):
         self.message_type = self.GROUP_DEL_ROBOT
         self.user_id = self.get('d/op_member_openid')
+        self.raw_user_id = self.user_id
         self.group_id = self.get('d/group_openid')
-        self.channel_id = self.guild_id = None
+        self.union_openid = self.guild_id = None
         self.is_group, self.is_private = True, False
         self.timestamp = self.get('d/timestamp')
         self.id = self.get('id')
@@ -259,7 +344,8 @@ class MessageEvent:
     def _parse_friend_add(self):
         self.message_type = self.FRIEND_ADD
         self.user_id = self.get('d/openid')
-        self.group_id = self.channel_id = self.guild_id = None
+        self.raw_user_id = self.user_id
+        self.group_id = self.union_openid = self.guild_id = None
         self.is_group, self.is_private = False, True
         self.timestamp = self.get('d/timestamp')
         self.id = self.get('id')
@@ -274,7 +360,8 @@ class MessageEvent:
     def _parse_friend_del(self):
         self.message_type = self.FRIEND_DEL
         self.user_id = self.get('d/openid')
-        self.group_id = self.channel_id = self.guild_id = None
+        self.raw_user_id = self.user_id
+        self.group_id = self.union_openid = self.guild_id = None
         self.is_group, self.is_private = False, True
         self.timestamp = self.get('d/timestamp')
         self.id = self.get('id')
@@ -296,12 +383,10 @@ class MessageEvent:
         return data
     
     def _set_message_id_in_payload(self, payload):
-        if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE):
+        if self.message_type in self._MSG_TYPES_NEED_MSG_ID:
             payload["msg_id"] = self.message_id
-        elif self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT):
+        elif self.message_type in self._MSG_TYPES_NEED_EVENT_ID:
             payload["event_id"] = self.get('id') or ""
-        elif self.message_type == self.CHANNEL_MESSAGE:
-            payload["msg_id"] = self.message_id
         return payload
     
     def _handle_auto_recall(self, message_id, auto_delete_time):
@@ -336,7 +421,6 @@ class MessageEvent:
         return message_id
 
     def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None, use_markdown=None):
-        """发送回复消息（支持文本、按钮、媒体、Markdown）"""
         if not self._check_send_conditions() or self.message_type not in self._MESSAGE_TYPE_TO_ENDPOINT:
             return None
         media_payload = None
@@ -347,11 +431,9 @@ class MessageEvent:
             elif isinstance(media, list) and media:
                 media_payload = media[0]
         
-        # 构建并发送消息
         hide_avatar_and_center = HIDE_AVATAR_GLOBAL if hide_avatar_and_center is None else hide_avatar_and_center
         payload = self._build_message_payload(content, buttons or [], media_payload, hide_avatar_and_center, use_markdown)
         
-        # 处理特殊事件类型
         if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD) and not payload.get('event_id'):
             payload['event_id'] = self.get('id') or f"{'ROBOT_ADD' if self.message_type == self.GROUP_ADD_ROBOT else 'FRIEND_ADD'}_{int(time.time())}"
         
@@ -407,32 +489,21 @@ class MessageEvent:
         return self.reply_markdown(template, params, keyboard_id, hide_avatar_and_center, auto_delete_time)
 
     def _process_button_parameter(self, button_param):
-        """处理按钮参数：字符串→{"id": "xxx"}, 字典→直接返回"""
         if not button_param:
             return None
         return {"id": str(button_param)} if isinstance(button_param, str) else button_param if isinstance(button_param, dict) else None
 
     def _split_markdown_to_params(self, text):
-        """分割 Markdown 文本到多个参数（AJ 模板专用）"""
         from config import MARKDOWN_AJ_TEMPLATE
         import uuid
         text = text.replace('\n', '\r')
         delimiter = str(uuid.uuid4())
-        patterns = [
-            r'(!?\[.*?\])(\s*\(.*?\))',  # 图片/链接
-            r'(\[.*?\])(\[.*?\])',        # 引用链接
-            r'(\*)([^*]+?\*)',            # 粗体
-            r'(`)([^`]+?`)',              # 代码
-            r'(_)([^_]*?_)',              # 斜体
-            r'(``)(`)',                   # 代码块
-        ]
 
-        for pattern in patterns:
-            text = re.sub(pattern, lambda m: delimiter.join(m.groups()), text)
+        for pattern in self._MARKDOWN_PATTERNS:
+            text = pattern.sub(lambda m: delimiter.join(m.groups()), text)
 
         parts = text.split(delimiter) if delimiter in text else [text]
 
-        # 构建参数列表
         keys_list = [k.strip() for k in MARKDOWN_AJ_TEMPLATE['keys'].split(',')] if ',' in MARKDOWN_AJ_TEMPLATE['keys'] else list(MARKDOWN_AJ_TEMPLATE['keys'])
         params = [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
         params.extend([{"key": keys_list[i], "values": ["\u200B"]} for i in range(len(params), len(keys_list))])
@@ -440,38 +511,33 @@ class MessageEvent:
         return params
 
     def reply_markdown_aj(self, text, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
-        """使用 AJ 模板发送 Markdown 消息（自动分割语法到不同参数）"""
         from config import MARKDOWN_AJ_TEMPLATE
         
         if not self._check_send_conditions():
             return None
         
-        # 构建 payload
         payload = {
             "msg_type": 2,
-            "msg_seq": random.randint(10000, 999999),
+            "msg_seq": self._generate_msg_seq(),
             "markdown": {
                 "custom_template_id": MARKDOWN_AJ_TEMPLATE['template_id'],
                 "params": self._split_markdown_to_params(text)
             }
         }
         
-        # 处理样式和按钮
         if hide_avatar_and_center if hide_avatar_and_center is not None else HIDE_AVATAR_GLOBAL:
             payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
         
-        button_data = self._process_button_parameter(keyboard_id)
-        if button_data:
-            payload["keyboard"] = button_data
+        if self.message_type != self.CHANNEL_DIRECT_MESSAGE:
+            button_data = self._process_button_parameter(keyboard_id)
+            if button_data:
+                payload["keyboard"] = button_data
         
-        # 设置消息 ID
         payload = self._set_message_id_in_payload(payload)
         
-        # 处理特殊事件类型
         if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
             payload['event_id'] = self.get('id') or f"{'ROBOT_ADD' if self.message_type == self.GROUP_ADD_ROBOT else 'FRIEND_ADD'}_{int(time.time())}"
         
-        # 发送消息
         message_id = self._send_with_error_handling(payload, self._get_endpoint(), "markdown AJ模板消息", f"text: {text[:50]}...")
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
@@ -602,7 +668,7 @@ class MessageEvent:
                     获取新Token()
                     time.sleep(1)
                     continue
-                self._log_error(f"发送{content_type}失败：{resp_obj.get('message')} code：{error_code}", resp_obj=resp_obj, send_payload=payload)
+                self._log_error(f"发送{content_type}失败：{resp_obj.get('message')} code：{error_code}", resp_obj=resp_obj, send_payload=payload, raw_message=self.raw_data)
                 MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
                 import json
                 return json.dumps({
@@ -626,17 +692,14 @@ class MessageEvent:
         return message_id
 
     def _build_message_payload(self, content, buttons, media, hide_avatar_and_center=False, use_markdown=None):
-        """构建消息 payload"""
         should_use_markdown = USE_MARKDOWN if use_markdown is None else use_markdown
         payload = {
             "msg_type": 7 if media else (2 if should_use_markdown else 0),
-            "msg_seq": random.randint(10000, 999999)
+            "msg_seq": self._generate_msg_seq()
         }
         
-        # 设置消息 ID
         payload = self._set_message_id_in_payload(payload)
         
-        # 处理内容
         if media:
             payload['content'] = ''
             payload['media'] = {'file_info': media['file_info']} if isinstance(media, dict) and 'file_info' in media else media
@@ -648,17 +711,17 @@ class MessageEvent:
             else:
                 payload['content'] = content
         
-        # 处理按钮
-        button_data = self._process_button_parameter(buttons)
-        if button_data:
-            payload['keyboard'] = button_data
+        if self.message_type != self.CHANNEL_DIRECT_MESSAGE:
+            button_data = self._process_button_parameter(buttons)
+            if button_data:
+                payload['keyboard'] = button_data
                 
         return payload
 
     def _build_media_message_payload(self, content, file_info):
         payload = {
             "msg_type": 7,
-            "msg_seq": random.randint(10000, 999999),
+            "msg_seq": self._generate_msg_seq(),
             "content": content or '',
             "media": {'file_info': file_info}
         }
@@ -667,7 +730,7 @@ class MessageEvent:
     def _build_ark_message_payload(self, template_id, kv_data, content):
         payload = {
             "msg_type": 3,
-            "msg_seq": random.randint(10000, 999999),
+            "msg_seq": self._generate_msg_seq(),
             "content": content or '',
             "ark": {
                 "template_id": template_id,
@@ -735,22 +798,15 @@ class MessageEvent:
             template_id = template_config['id']
             template_params = template_config['params']
             
-            # 构建参数列表，支持数组传递
             param_list = []
             if params:
                 for i, param_name in enumerate(template_params):
                     if i < len(params) and params[i] is not None:
                         param_value = params[i]
-                        # 如果参数是列表/元组，将其展开到 values 数组中
                         if isinstance(param_value, (list, tuple)):
-                            # 如果数组只有一个元素，使用拆分逻辑
                             if len(param_value) == 1:
                                 single_value = str(param_value[0])
-                                
-                                # 在开头自动添加空命令链接（使用零宽空格），用于拆分
                                 single_value = '](mqqapi://aio/inlinecmd?command=\u200b&enter=false&reply=false)' + single_value
-                                
-                                # 使用拆分方法
                                 values = self._split_markdown_to_values(single_value)
                             else:
                                 values = [str(v) for v in param_value if v is not None]
@@ -762,7 +818,6 @@ class MessageEvent:
                             "values": values
                         })
             
-            # 输出构建的 raw payload
             template_data = {"custom_template_id": template_id, "params": param_list}
             
             return template_data
@@ -771,52 +826,36 @@ class MessageEvent:
             return None
     
     def _split_markdown_to_values(self, text):
-        """整合拆分：先用 AJ 模板拆分 markdown 语法，再拆分 [xxx](yyy) 格式"""
-        import re
         import uuid
         
-        # 第一步：使用 AJ 模板的拆分逻辑
         text = text.replace('\n', '\r')
         delimiter = str(uuid.uuid4())
-        patterns = [
-            r'(!?\[.*?\])(\s*\(.*?\))',  # 图片/链接
-            r'(\[.*?\])(\[.*?\])',        # 引用链接
-            r'(\*)([^*]+?\*)',            # 粗体
-            r'(`)([^`]+?`)',              # 代码
-            r'(_)([^_]*?_)',              # 斜体
-        ]
 
-        for pattern in patterns:
-            text = re.sub(pattern, lambda m: delimiter.join(m.groups()), text)
+        for pattern in self._MARKDOWN_PATTERNS[:-1]:
+            text = pattern.sub(lambda m: delimiter.join(m.groups()), text)
 
         parts = text.split(delimiter) if delimiter in text else [text]
 
-        # 第二步：对每个部分再检查是否有完整的 [xxx](yyy)，如果有则进一步拆分
         final_parts = []
         for part in parts:
             sub_parts = self._split_bracket_links(part)
             final_parts.extend(sub_parts)
         
-        # 第三步：智能合并相邻的部分，避免 [xxx](yyy) 出现在单个值中
         merged_parts = self._merge_split_parts(final_parts)
         
         return merged_parts if merged_parts else [text]
     
     def _split_bracket_links(self, text):
-        """拆分 [xxx](yyy) 格式，避免产生完整的 markdown 链接"""
-        import re
         parts = []
         current = ""
         i = 0
         
         while i < len(text):
             if text[i] == '[':
-                # 检查是否会形成 [xxx](yyy) 模式
                 remaining = text[i:]
-                match = re.match(r'\[([^\]]*)\]\(([^\)]*)\)', remaining)
+                match = self._LINK_PATTERN.match(remaining)
                 
                 if match:
-                    # 会形成 [xxx](yyy)，拆分为 [xxx 和 ](yyy)
                     bracket_content = match.group(1)
                     paren_content = match.group(2)
                     
@@ -839,14 +878,6 @@ class MessageEvent:
         return parts if parts else [text]
     
     def _merge_split_parts(self, parts):
-        """智能合并拆分后的部分，避免产生过多碎片
-        规则：
-        - ]()[  这样的格式是合理的
-        - [xxx](yyy) 在单个值中是不合理的（会被解析为markdown链接）
-        - 尽可能合并相邻部分，只要不产生 [xxx](yyy) 格式
-        """
-        import re
-        
         if not parts or len(parts) <= 1:
             return parts
         
@@ -855,29 +886,23 @@ class MessageEvent:
         
         for i in range(1, len(parts)):
             next_part = parts[i]
-            # 尝试合并当前部分和下一部分
             test_merged = current + next_part
             
-            # 检查合并后是否会产生 [xxx](yyy) 格式
-            if re.search(r'\[([^\]]*)\]\(([^\)]*)\)', test_merged):
-                # 会产生 [xxx](yyy)，不能合并
+            if self._LINK_PATTERN.search(test_merged):
                 merged.append(current)
                 current = next_part
             else:
-                # 不会产生 [xxx](yyy)，可以合并
                 current = test_merged
         
-        # 添加最后一个部分
         if current:
             merged.append(current)
         
         return merged
 
     def _build_markdown_message_payload(self, template_data, keyboard_id=None, hide_avatar_and_center=False):
-        """构建 Markdown 模板消息 payload"""
         payload = {
             "msg_type": 2,
-            "msg_seq": random.randint(10000, 999999),
+            "msg_seq": self._generate_msg_seq(),
             "markdown": {"custom_template_id": template_data["custom_template_id"]}
         }
         
@@ -887,9 +912,10 @@ class MessageEvent:
         if hide_avatar_and_center:
             payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
         
-        button_data = self._process_button_parameter(keyboard_id)
-        if button_data:
-            payload["keyboard"] = button_data
+        if self.message_type != self.CHANNEL_DIRECT_MESSAGE:
+            button_data = self._process_button_parameter(keyboard_id)
+            if button_data:
+                payload["keyboard"] = button_data
         
         return self._set_message_id_in_payload(payload)
 
@@ -897,7 +923,8 @@ class MessageEvent:
         replacements = {
             '{group_id}': self.group_id,
             '{user_id}': self.user_id,
-            '{channel_id}': self.channel_id
+            '{channel_id}': self.group_id,  # 频道消息的 group_id 就是 channel_id
+            '{guild_id}': self.guild_id  # 频道私聊需要 guild_id
         }
         
         for key, value in replacements.items():
@@ -1011,11 +1038,11 @@ class MessageEvent:
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         db_entry = {
             'timestamp': timestamp, 
-            'type': 'received',  # 标记为接收消息类型
+            'type': 'received',
             'content': self.content or "", 
             'user_id': self.user_id or "未知用户", 
             'group_id': self.group_id or "c2c",
-            'plugin_name': ''  # 接收消息没有插件名
+            'plugin_name': ''
         }
         if SAVE_RAW_MESSAGE_TO_DB:
             db_entry['raw_message'] = json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)
@@ -1065,17 +1092,17 @@ class MessageEvent:
             threading.Thread(target=async_welcome_check, daemon=True).start()
 
     def record_last_message_id(self):
-        if self.message_type in (self.GROUP_DEL_ROBOT, self.FRIEND_DEL):
+        if self.message_type in self._MSG_TYPES_NO_RECORD:
             return False
-        message_id_to_record = self.message_id if self.message_type in (self.GROUP_MESSAGE, self.DIRECT_MESSAGE, self.CHANNEL_MESSAGE) else self.get('id') if self.message_type in (self.INTERACTION, self.GROUP_ADD_ROBOT, self.FRIEND_ADD) else None
+        message_id_to_record = self.message_id if self.message_type in self._MSG_TYPES_NEED_MSG_ID else self.get('id') if self.message_type in self._MSG_TYPES_NEED_EVENT_ID or self.message_type == self.FRIEND_ADD else None
         if not message_id_to_record:
             return False
         if self.is_group and self.group_id:
             return record_last_message_id('group', self.group_id, message_id_to_record)
         elif self.is_private and self.user_id:
             return record_last_message_id('user', self.user_id, message_id_to_record)
-        elif self.message_type == self.CHANNEL_MESSAGE and self.channel_id:
-            return record_last_message_id('channel', self.channel_id, message_id_to_record)
+        elif self.message_type == self.CHANNEL_MESSAGE and self.group_id:
+            return record_last_message_id('channel', self.group_id, message_id_to_record)
         return False
 
     def _log_error(self, msg, tb=None, resp_obj=None, send_payload=None, raw_message=None):
@@ -1091,8 +1118,6 @@ class MessageEvent:
 
     def get(self, path):
         return Json取(self.raw_data, path)
-
-    _face_pattern = re.compile(r'<faceType=\d+,faceId="[^"]+",ext="[^"]+">')
     
     def sanitize_content(self, content):
         if not content:
@@ -1100,7 +1125,7 @@ class MessageEvent:
         content = str(content)
         if content and content[0] == '/':
             content = content[1:]
-        return self._face_pattern.sub('', content).strip()
+        return self._FACE_PATTERN.sub('', content).strip()
 
     def rows(self, buttons):
         if not isinstance(buttons, list):
@@ -1108,7 +1133,7 @@ class MessageEvent:
         result = []
         for button in buttons:
             button_obj = {
-                'id': button.get('id', str(random.randint(10000, 999999))),
+                'id': button.get('id', str(self._generate_msg_seq())),
                 'render_data': {'label': button.get('text', button.get('link', '')), 'visited_label': button.get('show', button.get('text', button.get('link', ''))), 'style': button.get('style', 0)},
                 'action': {'type': 0 if 'link' in button else button.get('type', 2), 'data': button.get('data', button.get('link', button.get('text', ''))), 'unsupport_tips': button.get('tips', '.'), 'permission': {'type': 2}}
             }

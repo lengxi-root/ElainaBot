@@ -23,6 +23,11 @@ ENABLE_NEW_USER_WELCOME = False                   # 是否启用新用户首次�
 ENABLE_FRIEND_ADD_MESSAGE = False                 # 是否启用添加好友自动发送消息功能
 SAVE_RAW_MESSAGE_TO_DB = False                   # 是否将消息的原始内容存储到数据库中,开启后可能会数据库硬盘占用略微上涨
 
+# 用户ID反转模式配置（可选） - 控制user_id和union_openid的使用
+USE_UNION_ID_FOR_GROUP = False  # 群聊/私聊ID反转模式：True时user_id使用union_openid，union_openid使用原user_id；若union_openid为空则使用原user_id
+USE_UNION_ID_FOR_CHANNEL = False  # 频道ID反转模式：True时user_id使用union_openid，union_openid使用原user_id；若union_openid为空则使用原user_id
+# 注意：开启反转模式后，event.raw_user_id 始终保存原始user_id（用于@人等场景）
+
 # Markdown AJ万能模板配置 - 没有万能模板请留空
 MARKDOWN_AJ_TEMPLATE = {
     'template_id': "1",  # AJ 模板 ID

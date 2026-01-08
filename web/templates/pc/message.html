@@ -1,1262 +1,665 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
-<div class="container-fluid" style="height: calc(100vh - 60px); padding-top: 1rem;">
-    <div class="row h-100">
-        <!-- 左侧：聊天列表 -->
-        <div class="chat-list-col h-100">
-            <div class="card h-100 d-flex flex-column">
-                <div class="card-header flex-shrink-0">
-                    <div class="d-flex align-items-center chat-list-header">
-                        <i class="bi bi-people me-2"></i>
-                        <div class="btn-group btn-group-sm chat-type-buttons me-2" role="group">
-                            <button type="button" class="btn btn-outline-primary active" id="btn-users" onclick="switchChatType('user')">
-                                <i class="bi bi-person"></i> 好友
-                            </button>
-                            <button type="button" class="btn btn-outline-primary" id="btn-groups" onclick="switchChatType('group')">
-                                <i class="bi bi-people"></i> 群聊
-                            </button>
-                        </div>
-                        <select class="form-select form-select-sm" id="days-range" onchange="changeDaysRange()" style="width: auto; min-width: 100px;">
-                            <option value="1">今天</option>
-                            <option value="2">2天</option>
-                            <option value="3" selected>3天</option>
-                            <option value="all">全部</option>
-                        </select>
-                    </div>
+<div class="message-container">
+    <div class="message-layout">
+        <!-- 左侧聊天列表 -->
+        <div class="chat-list-panel">
+            <div class="panel-header">
+                <div class="header-title">
+                    <i class="bi bi-chat-dots"></i>
+                    <span>消息列表</span>
                 </div>
-                <div class="card-body p-0 flex-grow-1 d-flex flex-column" style="min-height: 0; overflow: hidden;">
-                    <!-- 搜索框 -->
-                    <div class="p-3 border-bottom flex-shrink-0">
-                        <div class="input-group">
-                            <span class="input-group-text">
-                                <i class="bi bi-search"></i>
-                            </span>
-                            <input type="text" class="form-control" id="search-input" placeholder="搜索聊天...">
-                            <button class="btn btn-outline-secondary" type="button" onclick="searchChats()">
-                                搜索
-                            </button>
-                        </div>
+                <div class="header-controls">
+                    <div class="chat-type-toggle">
+                        <button class="toggle-btn active" id="btn-users" onclick="switchChatType('user')">
+                            <i class="bi bi-person"></i> 好友
+                        </button>
+                        <button class="toggle-btn" id="btn-groups" onclick="switchChatType('group')">
+                            <i class="bi bi-people"></i> 群聊
+                        </button>
                     </div>
-                    
-                    <!-- 聊天列表 -->
-                    <div id="chat-list" class="list-group list-group-flush flex-grow-1" style="overflow-y: auto; min-height: 0;">
-                        <div class="text-center p-3">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">加载中...</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-
+                    <select class="days-select" id="days-range" onchange="changeDaysRange()">
+                        <option value="1" selected>今天</option>
+                        <option value="2">2天</option>
+                        <option value="3">3天</option>
+                        <option value="all">全部</option>
+                    </select>
+                </div>
+            </div>
+            <div class="search-box">
+                <i class="bi bi-search"></i>
+                <input type="text" id="search-input" placeholder="搜索聊天...">
+                <button class="search-btn" onclick="searchChats()">搜索</button>
+            </div>
+            <div class="chat-list" id="chat-list">
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <span>加载中...</span>
                 </div>
             </div>
         </div>
-        
-        <!-- 右侧：聊天窗口 -->
-        <div class="chat-window-col h-100">
-            <div class="card h-100 d-flex flex-column">
-                <div class="card-header flex-shrink-0" id="chat-header">
-                    <div class="d-flex align-items-center">
-                        <div id="current-chat-avatar" class="me-3">
-                            <i class="bi bi-chat-square-dots text-muted" style="font-size: 2rem;"></i>
-                        </div>
-                        <div>
-                            <h5 class="mb-0" id="current-chat-name">选择一个聊天</h5>
-                            <small class="text-muted" id="current-chat-info">点击左侧列表选择聊天对象</small>
-                        </div>
+
+        <!-- 右侧聊天窗口 -->
+        <div class="chat-window-panel">
+            <div class="chat-header" id="chat-header">
+                <div class="chat-avatar-wrap" id="current-chat-avatar">
+                    <i class="bi bi-chat-square-dots"></i>
+                </div>
+                <div class="chat-info">
+                    <div class="chat-name" id="current-chat-name">选择一个聊天</div>
+                    <div class="chat-desc" id="current-chat-info">点击左侧列表选择聊天对象</div>
+                </div>
+            </div>
+
+            <div class="message-area" id="message-area">
+                <div class="empty-state">
+                    <i class="bi bi-chat-text"></i>
+                    <p>选择聊天对象开始对话</p>
+                </div>
+            </div>
+
+            <div class="send-area" id="send-area" style="display: none;">
+                <div class="send-method-row">
+                    <label>发送方式:</label>
+                    <select class="method-select" id="send-method" onchange="changeSendMethod()">
+                        <option value="text">普通消息</option>
+                        <option value="markdown">原生Markdown</option>
+                        <option value="template_markdown">模板Markdown</option>
+                        <option value="image">图片</option>
+                        <option value="voice">语音</option>
+                        <option value="video">视频</option>
+                        <option value="ark">ARK卡片</option>
+                    </select>
+                    <div class="send-help" id="send-help" style="display: none;">
+                        <i class="bi bi-info-circle"></i>
+                        <span id="help-content"></span>
                     </div>
                 </div>
-                
-                <!-- 聊天记录区域 -->
-                <div class="card-body p-0 d-flex flex-column flex-grow-1" style="min-height: 0; overflow: hidden;">
-                    <div id="message-area" class="flex-grow-1 p-3" style="overflow-y: auto; background-color: #f8f9fa; min-height: 0;">
-                        <div class="text-center text-muted">
-                            <i class="bi bi-chat-text" style="font-size: 3rem;"></i>
-                            <p class="mt-2">选择聊天对象开始对话</p>
+
+                <!-- 普通消息/原生markdown输入 -->
+                <div id="text-input-area" class="input-group-area">
+                    <textarea id="message-input" placeholder="输入消息内容..." rows="2"></textarea>
+                    <button class="send-btn" onclick="sendMessage()"><i class="bi bi-send"></i> 发送</button>
+                </div>
+
+                <!-- 模板markdown输入 -->
+                <div id="template-markdown-input-area" class="input-group-area" style="display: none;">
+                    <div class="template-row">
+                        <div class="template-field">
+                            <label>模板选择:</label>
+                            <select id="markdown-template" onchange="updateTemplateHelp()">
+                                <option value="">请选择模板</option>
+                            </select>
+                        </div>
+                        <div class="template-field">
+                            <label>按钮ID (可选):</label>
+                            <input type="text" id="markdown-keyboard" placeholder="如: 102321943_1752737844">
                         </div>
                     </div>
-                    
-                    <!-- 发送消息区域 -->
-                    <div class="border-top p-3 flex-shrink-0" id="send-area" style="display: none; max-height: 40vh; overflow-y: auto;">
-                        <!-- 发送方法选择 -->
-                        <div class="row g-2 mb-2 align-items-center">
-                            <div class="col-auto">
-                                <label for="send-method" class="form-label mb-0">发送方式:</label>
-                            </div>
-                            <div class="col-auto">
-                                <select class="form-select form-select-sm" id="send-method" onchange="changeSendMethod()">
-                                    <option value="text">普通消息</option>
-                                    <option value="markdown">原生Markdown</option>
-                                    <option value="template_markdown">模板Markdown</option>
-                                    <option value="image">图片</option>
-                                    <option value="voice">语音</option>
-                                    <option value="video">视频</option>
-                                    <option value="ark">ARK卡片</option>
-                                </select>
-                            </div>
-                            <div class="col">
-                                <!-- 帮助信息区域 - 移动到这里 -->
-                                <div id="send-help" style="display: none;">
-                                    <small class="text-info">
-                                        <i class="bi bi-info-circle"></i> 
-                                        <span id="help-content"></span>
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 普通消息/原生markdown输入 -->
-                        <div id="text-input-area" class="send-input-area">
-                            <div class="row g-2">
-                                <div class="col">
-                                    <textarea class="form-control" id="message-input" rows="2" placeholder="输入消息内容..." style="resize: none;"></textarea>
-                                </div>
-                                <div class="col-auto d-flex flex-column justify-content-end">
-                                    <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">
-                                        <i class="bi bi-send"></i> 发送
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 模板markdown输入 -->
-                        <div id="template-markdown-input-area" class="send-input-area" style="display: none;">
-                            <div class="row g-2 mb-2">
-                                <div class="col-6">
-                                    <label class="form-label">模板选择:</label>
-                                    <select class="form-select" id="markdown-template" onchange="updateTemplateHelp()">
-                                        <option value="">请选择模板</option>
-                                        <option value="1">模板1 - 多图文本</option>
-                                        <option value="2">模板2 - 图片按钮</option>
-                                        <option value="3">模板3 - 代码块</option>
-                                        <option value="4">模板4 - 纯文本</option>
-                                        <option value="5">模板5 - 单图文本</option>
-                                    </select>
-                                </div>
-                                <div class="col-6">
-                                    <label class="form-label">按钮ID (可选):</label>
-                                    <input type="text" class="form-control" id="markdown-keyboard" placeholder="如: 102321943_1752737844">
-                                </div>
-                            </div>
-                            <div class="row g-2">
-                                <div class="col">
-                                    <label class="form-label">模板参数 (用逗号分隔):</label>
-                                    <textarea class="form-control" id="markdown-params" rows="1" placeholder="参数1,参数2,参数3..." style="resize: none;"></textarea>
-                                </div>
-                                <div class="col-auto d-flex align-items-end">
-                                    <button class="btn btn-primary" onclick="sendMessage()">
-                                        <i class="bi bi-send"></i> 发送模板
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 图片输入 -->
-                        <div id="image-input-area" class="send-input-area" style="display: none;">
-                            <div class="row g-2">
-                                <div class="col">
-                                    <label class="form-label">图片URL:</label>
-                                    <input type="url" class="form-control" id="image-url" placeholder="https://example.com/image.jpg">
-                                </div>
-                                <div class="col">
-                                    <label class="form-label">文本:</label>
-                                    <input type="text" class="form-control" id="image-text" placeholder="图片描述">
-                                </div>
-                                <div class="col-auto d-flex align-items-end">
-                                    <button class="btn btn-primary" onclick="sendMessage()">
-                                        <i class="bi bi-send"></i> 发送
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 语音输入 -->
-                        <div id="voice-input-area" class="send-input-area" style="display: none;">
-                            <div class="row g-2">
-                                <div class="col">
-                                    <label class="form-label">语音文件URL:</label>
-                                    <input type="url" class="form-control" id="voice-url" placeholder="https://example.com/voice.mp3">
-                                </div>
-                                <div class="col-auto d-flex align-items-end">
-                                    <button class="btn btn-primary" onclick="sendMessage()">
-                                        <i class="bi bi-mic"></i> 发送语音
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 视频输入 -->
-                        <div id="video-input-area" class="send-input-area" style="display: none;">
-                            <div class="row g-2">
-                                <div class="col">
-                                    <label class="form-label">视频文件URL:</label>
-                                    <input type="url" class="form-control" id="video-url" placeholder="https://example.com/video.mp4">
-                                </div>
-                                <div class="col-auto d-flex align-items-end">
-                                    <button class="btn btn-primary" onclick="sendMessage()">
-                                        <i class="bi bi-camera-video"></i> 发送视频
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- ARK卡片输入 -->
-                        <div id="ark-input-area" class="send-input-area" style="display: none;">
-                            <div class="row g-2">
-                                <div class="col-3">
-                                    <label class="form-label">ARK类型:</label>
-                                    <select class="form-select" id="ark-type" onchange="updateArkHelp()">
-                                        <option value="">请选择类型</option>
-                                        <option value="23">列表卡片 (23)</option>
-                                        <option value="24">信息卡片 (24)</option>
-                                        <option value="37">通知卡片 (37)</option>
-                                    </select>
-                                </div>
-                                <div class="col">
-                                    <label class="form-label">卡片参数 (逗号分隔，列表项用括号):</label>
-                                    <input type="text" class="form-control" id="ark-params" placeholder="描述,提示,(项1),(项2,链接)...">
-                                </div>
-                                <div class="col-auto d-flex align-items-end">
-                                    <button class="btn btn-primary" onclick="sendMessage()">
-                                        <i class="bi bi-send"></i> 发送
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        
-                        <div class="mt-2">
-                            <small class="text-muted" id="id-status">
-                                <i class="bi bi-info-circle"></i> 
-                                <span id="id-expire-info">请选择聊天对象</span>
-                            </small>
-                            <div id="send-status" style="display: none;" class="mt-1">
-                                <small id="send-status-content"></small>
-                            </div>
-                        </div>
+                    <div class="template-params-row">
+                        <label>模板参数 (用逗号分隔):</label>
+                        <textarea id="markdown-params" rows="1" placeholder="参数1,参数2,参数3..."></textarea>
+                        <button class="send-btn" onclick="sendMessage()"><i class="bi bi-send"></i> 发送模板</button>
                     </div>
+                </div>
+
+                <!-- 图片输入 -->
+                <div id="image-input-area" class="input-group-area" style="display: none;">
+                    <div class="media-row">
+                        <div class="media-field"><label>图片URL:</label><input type="url" id="image-url" placeholder="https://example.com/image.jpg"></div>
+                        <div class="media-field"><label>文本:</label><input type="text" id="image-text" placeholder="图片描述"></div>
+                        <button class="send-btn" onclick="sendMessage()"><i class="bi bi-send"></i> 发送</button>
+                    </div>
+                </div>
+
+                <!-- 语音输入 -->
+                <div id="voice-input-area" class="input-group-area" style="display: none;">
+                    <div class="media-row">
+                        <div class="media-field flex-grow"><label>语音文件URL:</label><input type="url" id="voice-url" placeholder="https://example.com/voice.mp3"></div>
+                        <button class="send-btn" onclick="sendMessage()"><i class="bi bi-mic"></i> 发送语音</button>
+                    </div>
+                </div>
+
+                <!-- 视频输入 -->
+                <div id="video-input-area" class="input-group-area" style="display: none;">
+                    <div class="media-row">
+                        <div class="media-field flex-grow"><label>视频文件URL:</label><input type="url" id="video-url" placeholder="https://example.com/video.mp4"></div>
+                        <button class="send-btn" onclick="sendMessage()"><i class="bi bi-camera-video"></i> 发送视频</button>
+                    </div>
+                </div>
+
+                <!-- ARK卡片输入 -->
+                <div id="ark-input-area" class="input-group-area" style="display: none;">
+                    <div class="ark-row">
+                        <div class="ark-type-field"><label>ARK类型:</label>
+                            <select id="ark-type" onchange="updateArkHelp()">
+                                <option value="">请选择类型</option>
+                                <option value="23">列表卡片 (23)</option>
+                                <option value="24">信息卡片 (24)</option>
+                                <option value="37">通知卡片 (37)</option>
+                            </select>
+                        </div>
+                        <div class="ark-params-field"><label>卡片参数:</label><input type="text" id="ark-params" placeholder="描述,提示,(项1),(项2,链接)..."></div>
+                        <button class="send-btn" onclick="sendMessage()"><i class="bi bi-send"></i> 发送</button>
+                    </div>
+                </div>
+
+                <div class="send-status-row">
+                    <span class="id-status"><i class="bi bi-info-circle"></i> <span id="id-expire-info">请选择聊天对象</span></span>
+                    <div id="send-status" style="display: none;"><span id="send-status-content"></span></div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 自定义样式 -->
 <style>
-/* 聊天列表和窗口的自定义宽度 */
-.chat-list-col {
-    flex: 0 0 20%;
-    max-width: 20%;
-    padding-right: 15px;
-    padding-left: 15px;
-    min-height: 0;
+.message-container { height: calc(100vh - 60px); padding: 1rem; background: #f5f7fa; }
+.message-layout { display: flex; height: 100%; gap: 1rem; }
+
+/* 左侧聊天列表面板 */
+.chat-list-panel {
+    width: 280px; min-width: 280px; background: #fff; border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.1); display: flex; flex-direction: column; overflow: hidden;
+}
+.panel-header {
+    background: var(--theme-gradient);
+    padding: 1rem; color: #fff;
+}
+.header-title { display: flex; align-items: center; gap: 0.5rem; font-size: 1.1rem; font-weight: 600; margin-bottom: 0.75rem; }
+.header-controls { display: flex; gap: 0.5rem; align-items: center; }
+.chat-type-toggle { display: flex; background: rgba(255,255,255,0.2); border-radius: 20px; padding: 3px; }
+.toggle-btn {
+    padding: 0.35rem 0.75rem; border: none; background: transparent; color: rgba(255,255,255,0.8);
+    border-radius: 18px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s;
+}
+.toggle-btn.active { background: #fff; color: var(--primary-color, #5865F2); }
+.toggle-btn:hover:not(.active) { background: rgba(255,255,255,0.15); }
+.days-select {
+    padding: 0.35rem 0.5rem; border: none; background: rgba(255,255,255,0.2); color: #fff;
+    border-radius: 8px; font-size: 0.8rem; cursor: pointer;
+}
+.days-select option { color: #333; }
+
+.search-box {
+    display: flex; align-items: center; padding: 0.5rem; gap: 0.4rem; border-bottom: 1px solid #eee;
+}
+.search-box i { color: #999; font-size: 0.85rem; flex-shrink: 0; }
+.search-box input {
+    flex: 1; min-width: 0; border: none; outline: none; font-size: 0.85rem; background: #f5f7fa;
+    padding: 0.4rem 0.6rem; border-radius: 6px;
+}
+.search-btn {
+    padding: 0.4rem 0.6rem; background: var(--theme-gradient);
+    color: #fff; border: none; border-radius: 6px; font-size: 0.75rem; cursor: pointer; flex-shrink: 0;
 }
 
-.chat-list-col .card {
-    min-height: 0;
-}
-
-.chat-list-col .card-body {
-    min-height: 0;
-}
-
-.chat-window-col {
-    flex: 0 0 80%;
-    max-width: 80%;
-    padding-right: 15px;
-    padding-left: 15px;
-}
-
-/* 响应式：小屏幕上调整 */
-@media (max-width: 768px) {
-    .chat-list-col {
-        flex: 0 0 100%;
-        max-width: 100%;
-        padding-right: 10px;
-        padding-left: 10px;
-        height: 50vh !important;
-    }
-    .chat-window-col {
-        flex: 0 0 100%;
-        max-width: 100%;
-        padding-right: 10px;
-        padding-left: 10px;
-        margin-top: 15px;
-        height: 50vh !important;
-    }
-    
-    /* 优化聊天列表 */
-    .list-group-item {
-        padding: 0.75rem;
-    }
-    
-    .chat-item .d-flex {
-        width: 100%;
-    }
-    
-    .chat-avatar,
-    .chat-avatar-placeholder {
-        width: 45px !important;
-        height: 45px !important;
-        font-size: 1rem;
-    }
-    
-    .list-group-item h6 {
-        font-size: 0.9rem;
-        margin-bottom: 0.3rem;
-        line-height: 1.3;
-    }
-    
-    .list-group-item h6 span {
-        display: inline-block;
-        max-width: calc(100% - 80px);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    
-    .list-group-item small {
-        font-size: 0.75rem;
-        line-height: 1.3;
-    }
-}
-
-/* 缩小聊天列表标题和按钮文字 */
-.chat-list-header {
-    font-size: 0.9rem;
-}
-
-.chat-list-header #chat-list-title {
-    font-weight: normal;
-}
-
-.chat-type-buttons {
-    margin-right: 8px;
-}
-
-.chat-type-buttons .btn {
-    font-size: 0.8rem;
-    padding: 0.35rem 0.7rem;
-}
-
+.chat-list { flex: 1; overflow-y: auto; }
 .chat-item {
-    cursor: pointer;
-    transition: background-color 0.2s;
+    display: flex; align-items: center; padding: 0.75rem 1rem; gap: 0.75rem;
+    cursor: pointer; transition: all 0.2s; border-bottom: 1px solid #f0f0f0;
 }
-.chat-item:hover {
-    background-color: #f8f9fa;
-}
-.chat-item.active {
-    background-color: #e7f3ff;
-    border-left: 4px solid #0d6efd;
-}
-
-.message-bubble {
-    max-width: 70%;
-    margin-bottom: 1rem;
-}
-.message-bubble.self {
-    margin-left: auto;
-}
-.message-bubble.other {
-    margin-right: auto;
-}
-
-.message-content {
-    padding: 0.5rem 1rem;
-    border-radius: 1rem;
-    word-wrap: break-word;
-}
-.message-bubble.self .message-content {
-    background-color: #0d6efd;
-    color: white;
-}
-.message-bubble.other .message-content {
-    background-color: #e9ecef;
-    color: #333;
-}
-
-/* 图片样式 */
-.message-content img {
-    display: block;
-    margin-top: 8px;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: transform 0.2s;
-}
-.message-content img:hover {
-    transform: scale(1.02);
-}
-
-.chat-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    object-fit: cover;
-}
-
+.chat-item:hover { background: #f8f9ff; }
+.chat-item.active { background: rgba(88,101,242,0.1); border-left: 3px solid var(--primary-color, #5865F2); }
+.chat-avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; }
 .chat-avatar-placeholder {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background-color: #6c757d;
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
+    width: 42px; height: 42px; border-radius: 50%; background: #1a1a2e;
+    color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.9rem;
 }
+.chat-item-info { flex: 1; min-width: 0; }
+.chat-item-name { font-weight: 500; font-size: 0.9rem; color: #333; display: flex; align-items: center; gap: 0.5rem; }
+.chat-item-name .time { font-size: 0.75rem; color: #999; font-weight: 400; }
+.chat-item-id { font-size: 0.75rem; color: #999; margin-top: 2px; }
 
-/* 移动端优化 */
+/* 右侧聊天窗口面板 */
+.chat-window-panel {
+    flex: 1; background: #fff; border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.1); display: flex; flex-direction: column; overflow: hidden;
+}
+.chat-header {
+    display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem;
+    background: var(--theme-gradient); color: #fff;
+}
+.chat-avatar-wrap { font-size: 2rem; opacity: 0.9; }
+.chat-avatar-wrap img { width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3); }
+.chat-avatar-wrap .chat-avatar-placeholder {
+    width: 48px; height: 48px; background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.3);
+}
+.chat-info { flex: 1; }
+.chat-name { font-size: 1.1rem; font-weight: 600; }
+.chat-desc { font-size: 0.85rem; opacity: 0.85; margin-top: 2px; }
+
+.message-area {
+    flex: 1; padding: 1rem; overflow-y: auto; background: #f8f9ff;
+}
+.empty-state { text-align: center; color: #999; padding: 3rem; }
+.empty-state i { font-size: 3rem; opacity: 0.5; }
+.empty-state p { margin-top: 0.75rem; }
+.loading-state { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 2rem; color: #999; }
+.spinner { width: 32px; height: 32px; border: 3px solid #eee; border-top-color: var(--primary-color, #5865F2); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 消息气泡 */
+.message-bubble { max-width: 70%; margin-bottom: 1rem; }
+.message-bubble.self { margin-left: auto; }
+.message-bubble.other { margin-right: auto; }
+.message-bubble .d-flex { display: flex; }
+.message-bubble.self .d-flex { justify-content: flex-end; }
+.message-content {
+    padding: 0.6rem 1rem; border-radius: 16px; word-wrap: break-word; max-width: 100%;
+}
+.message-bubble.self .message-content { background: var(--theme-gradient); color: #fff; border-bottom-right-radius: 4px; }
+.message-bubble.other .message-content { background: #fff; color: #333; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-bottom-left-radius: 4px; }
+.message-content img { display: block; margin-top: 8px; border-radius: 8px; cursor: pointer; max-width: 300px; max-height: 400px; }
+.message-content .small { font-size: 0.75rem; }
+.me-2 { margin-right: 0.5rem; }
+.ms-2 { margin-left: 0.5rem; }
+.mb-1 { margin-bottom: 0.25rem; }
+.text-muted { color: #999 !important; }
+.text-primary { color: var(--primary-color, #5865F2) !important; }
+
+/* 发送区域 */
+.send-area { padding: 1rem; border-top: 1px solid #eee; background: #fff; }
+.send-method-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.send-method-row label { font-size: 0.85rem; color: #666; }
+.method-select {
+    padding: 0.4rem 0.75rem; border: 1px solid #e0e0e0; border-radius: 8px;
+    font-size: 0.85rem; background: #fff; cursor: pointer; min-width: 140px;
+}
+.method-select:focus { border-color: var(--primary-color, #5865F2); outline: none; }
+.send-help { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--primary-color, #5865F2); }
+
+.input-group-area {
+    display: flex; gap: 0.75rem; align-items: flex-end; padding: 0.75rem;
+    background: #f8f9ff; border-radius: 12px; border: 1px solid #e8e8e8;
+}
+.input-group-area textarea, .input-group-area input[type="text"], .input-group-area input[type="url"] {
+    flex: 1; border: 1px solid #e0e0e0; border-radius: 8px; padding: 0.6rem 0.75rem;
+    font-size: 0.9rem; resize: none; background: #fff;
+}
+.input-group-area textarea:focus, .input-group-area input:focus { border-color: var(--primary-color, #5865F2); outline: none; }
+.send-btn {
+    padding: 0.6rem 1.25rem; background: var(--theme-gradient);
+    color: #fff; border: none; border-radius: 8px; font-size: 0.9rem; cursor: pointer;
+    display: flex; align-items: center; gap: 0.4rem; white-space: nowrap; transition: all 0.2s;
+}
+.send-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102,126,234,0.3); }
+.send-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+/* 模板/媒体/ARK输入样式 */
+.template-row, .media-row, .ark-row { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; width: 100%; }
+.template-field, .media-field, .ark-type-field, .ark-params-field { display: flex; flex-direction: column; gap: 0.35rem; }
+.template-field { flex: 1; min-width: 180px; }
+.media-field { flex: 1; min-width: 150px; }
+.media-field.flex-grow { flex: 2; }
+.ark-type-field { min-width: 150px; }
+.ark-params-field { flex: 1; }
+.template-row label, .media-row label, .ark-row label { font-size: 0.8rem; color: #666; }
+.template-row select, .ark-row select {
+    padding: 0.5rem 0.75rem; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 0.85rem; background: #fff;
+}
+.template-params-row { display: flex; gap: 0.75rem; align-items: flex-end; margin-top: 0.75rem; width: 100%; }
+.template-params-row label { font-size: 0.8rem; color: #666; margin-bottom: 0.35rem; display: block; }
+.template-params-row textarea { flex: 1; }
+
+.send-status-row { display: flex; align-items: center; gap: 1rem; margin-top: 0.5rem; font-size: 0.8rem; }
+.id-status { color: #999; }
+.text-success { color: #28a745 !important; }
+.text-danger { color: #dc3545 !important; }
+
+/* 响应式 */
 @media (max-width: 768px) {
-    .chat-list-header {
-        font-size: 0.85rem;
-    }
-    
-    .chat-type-buttons .btn {
-        font-size: 0.75rem;
-        padding: 0.3rem 0.6rem;
-    }
-    
-    #chat-list {
-        height: 400px;
-    }
-    
-    .list-group-item .chat-avatar,
-    .list-group-item .chat-avatar-placeholder {
-        width: 45px !important;
-        height: 45px !important;
-    }
-}
-
-
-
-/* 发送方法样式 */
-.send-input-area {
-    padding: 10px;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    background-color: #f8f9fa;
-}
-
-#send-method {
-    min-width: 150px;
+    .message-layout { flex-direction: column; }
+    .chat-list-panel { width: 100%; min-width: auto; height: 40vh; }
+    .chat-window-panel { height: 60vh; }
+    .header-controls { flex-wrap: wrap; }
+    .message-bubble { max-width: 85%; }
 }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// 全局变量
 let currentChatType = 'user';
 let currentChatId = null;
 let searchQuery = '';
-const ROBOT_QQ = '{{ ROBOT_QQ }}';  // 机器人QQ号
+const ROBOT_QQ = '{{ ROBOT_QQ }}';
 let currentSendMethod = 'text';
-let chatRefreshTimer = null;  // 聊天记录刷新定时器
-let isRefreshing = false;     // 防止重复刷新
+let chatRefreshTimer = null;
+let isRefreshing = false;
 let lastMessageSignature = '';
-// 头像缓存映射，避免重复下载
 const avatarCache = new Map();
-// 已渲染的消息缓存，用于智能更新
 let renderedMessages = [];
-// 最后一条消息的ID，用于增量获取
-let lastMessageId = null;  // 上次消息的签名，用于避免不必要的重新渲染
-let markdownTemplates = {};  // 存储模板信息
-let currentDaysRange = 3;     // 当前选择的日期范围，默认3天
+let lastMessageId = null;
+let markdownTemplates = {};
+let currentDaysRange = 1;
 
-// 时间和昵称处理函数
 const formatTimeWithoutYear = (t) => t ? t.replace(/^\d{4}[-\/年]/, '').replace(/^\d{4}\s+/, '') : '';
 const getDatePart = (t) => t ? (formatTimeWithoutYear(t).match(/^(\d{1,2}[-\/月]\d{1,2}[日]?)/) || [])[1] || '' : '';
 const getTimePart = (t) => t ? (t.match(/(\d{1,2}:\d{2})(:\d{2})?/) || [])[1] || '' : '';
 const truncateNickname = (n) => n && n.length > 4 ? n.substring(0, 4) + '***' : n || '';
+const escapeHtml = (text) => { if (!text) return ''; const div = document.createElement('div'); div.textContent = text; return div.innerHTML; };
 
-// HTML转义函数，防止用户输入的HTML标签被解析
-const escapeHtml = (text) => {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-};
-
-// 加载模板列表
 function loadMarkdownTemplates() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    
+    const token = new URLSearchParams(window.location.search).get('token');
     if (!token) return;
-    
     fetch(`/web/api/message/get_templates?token=${encodeURIComponent(token)}`)
-        .then(response => response.json())
+        .then(r => r.json())
         .then(data => {
             if (data.success) {
-                const templates = data.data.templates;
-                const selectElement = document.getElementById('markdown-template');
-                
-                // 清空现有选项（保留第一个"请选择模板"）
-                selectElement.innerHTML = '<option value="">请选择模板</option>';
-                
-                // 动态添加模板选项
-                templates.forEach(template => {
-                    markdownTemplates[template.id] = template;
-                    const option = document.createElement('option');
-                    option.value = template.id;
-                    option.textContent = `模板${template.id} - ${template.param_count}个参数`;
-                    selectElement.appendChild(option);
+                const select = document.getElementById('markdown-template');
+                select.innerHTML = '<option value="">请选择模板</option>';
+                data.data.templates.forEach(t => {
+                    markdownTemplates[t.id] = t;
+                    select.innerHTML += `<option value="${t.id}">模板${t.id} - ${t.param_count}个参数</option>`;
                 });
             }
-        })
-        .catch(error => {
-            console.error('加载模板列表失败:', error);
-        });
+        }).catch(e => console.error('加载模板失败:', e));
 }
 
-// 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
     loadChatList();
     loadMarkdownTemplates();
-    
-    // 确保发送方法选择器与全局变量同步
     document.getElementById('send-method').value = currentSendMethod;
     changeSendMethod();
-    
-    // 回车发送消息
     document.getElementById('message-input').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
-    
-    // 搜索框实时搜索
     document.getElementById('search-input').addEventListener('input', function() {
         const value = this.value.trim();
         if (value !== searchQuery) {
             searchQuery = value;
-            
-            // 延迟搜索，避免频繁请求
             clearTimeout(window.searchTimeout);
-            window.searchTimeout = setTimeout(() => {
-                loadChatList();
-            }, 300);
+            window.searchTimeout = setTimeout(() => loadChatList(), 300);
         }
     });
 });
 
-// 聊天记录刷新管理
 window.addEventListener('beforeunload', () => stopChatRefresh());
+const stopChatRefresh = () => { if (chatRefreshTimer) clearInterval(chatRefreshTimer); chatRefreshTimer = null; isRefreshing = false; };
+const startChatRefresh = () => { stopChatRefresh(); if (currentChatId) chatRefreshTimer = setInterval(refreshChatHistory, 1000); };
 
-const stopChatRefresh = () => {
-    if (chatRefreshTimer) clearInterval(chatRefreshTimer);
-    chatRefreshTimer = null;
-    isRefreshing = false;
-};
-
-const startChatRefresh = () => {
-    stopChatRefresh();
-    if (currentChatId) chatRefreshTimer = setInterval(refreshChatHistory, 1000);
-};
-
-// 刷新聊天记录（静默刷新，不显示加载状态）
 function refreshChatHistory() {
-    if (!currentChatId || isRefreshing) {
-        return;
-    }
-    
+    if (!currentChatId || isRefreshing) return;
     isRefreshing = true;
-    
-    // 获取token
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    
-    if (!token) {
-        isRefreshing = false;
-        return;
-    }
-    
-    // 构建请求数据：如果有lastMessageId，则进行增量获取
-    const requestData = {
-        chat_type: currentChatType,
-        chat_id: currentChatId,
-        days_range: currentDaysRange === 'all' ? 30 : currentDaysRange,
-        show_all: currentDaysRange === 'all'
-    };
-    
-    // 如果有最后消息ID，添加since_id参数进行增量获取
-    if (lastMessageId) {
-        requestData.since_id = lastMessageId;
-        console.log(`[增量获取] since_id: ${lastMessageId}, days_range: ${requestData.days_range}`);
-    } else {
-        console.log(`[全量获取] days_range: ${requestData.days_range}, show_all: ${requestData.show_all}`);
-    }
-    
+    const token = new URLSearchParams(window.location.search).get('token');
+    if (!token) { isRefreshing = false; return; }
+    const requestData = { chat_type: currentChatType, chat_id: currentChatId, days_range: currentDaysRange === 'all' ? 30 : currentDaysRange, show_all: currentDaysRange === 'all' };
+    if (lastMessageId) requestData.since_id = lastMessageId;
     fetch(`/web/api/message/get_chat_history?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData)
-    })
-    .then(response => response.json())
-    .then(data => {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(requestData)
+    }).then(r => r.json()).then(data => {
         if (data.success) {
-            // 保存当前滚动位置
             const messageArea = document.getElementById('message-area');
             const isAtBottom = messageArea.scrollTop + messageArea.clientHeight >= messageArea.scrollHeight - 10;
-            
             if (data.data.is_incremental) {
-                // 增量更新模式
                 if (data.data.messages.length > 0) {
-                    // 有新消息：直接追加
-                    console.log(`[增量更新] 接收到 ${data.data.messages.length} 条新消息`);
                     data.data.messages.forEach(msg => {
-                        const messageHtml = createMessageHtml(msg);
-                        messageArea.insertAdjacentHTML('beforeend', messageHtml);
-                        // 更新消息缓存
+                        messageArea.insertAdjacentHTML('beforeend', createMessageHtml(msg));
                         renderedMessages.push(msg);
                     });
-                    
-                    // 更新最后消息ID
-                    const newMessages = data.data.messages;
-                    const newLastId = newMessages[newMessages.length - 1].id;
-                    console.log(`[增量更新] 更新lastMessageId: ${lastMessageId} -> ${newLastId}`);
-                    lastMessageId = newLastId || lastMessageId;
-                    
-                    // 更新签名
+                    lastMessageId = data.data.messages[data.data.messages.length - 1].id || lastMessageId;
                     lastMessageSignature = renderedMessages.map(m => `${m.user_id}-${m.content}-${m.timestamp}-${m.id || ''}`).join('|');
-                    
-                    // 批量加载群聊中的用户昵称（仅新消息）
                     if (currentChatType === 'group') {
-                        const newUserIds = [...new Set(newMessages.filter(msg => !msg.is_self).map(msg => msg.user_id))];
-                        if (newUserIds.length > 0) {
-                            loadNicknamesBatch(newUserIds).then(nicknames => {
-                                newUserIds.forEach(userId => {
-                                    document.querySelectorAll(`[data-nickname-user-id="${userId}"]`).forEach(el => {
-                                        el.textContent = nicknames[userId] || `用户${userId.slice(-6)}`;
-                                    });
-                                });
-                            });
-                        }
+                        const newUserIds = [...new Set(data.data.messages.filter(msg => !msg.is_self).map(msg => msg.user_id))];
+                        if (newUserIds.length > 0) loadNicknamesBatch(newUserIds).then(nicknames => {
+                            newUserIds.forEach(userId => document.querySelectorAll(`[data-nickname-user-id="${userId}"]`).forEach(el => el.textContent = nicknames[userId] || `用户${userId.slice(-6)}`));
+                        });
                     }
-                } else {
-                    // 没有新消息：什么都不做，保持现有消息
-                    console.log(`[增量更新] 没有新消息，保持现有 ${renderedMessages.length} 条消息`);
                 }
             } else {
-                // 全量更新模式
-                console.log(`[全量更新] 接收到 ${data.data.messages.length} 条消息`);
                 renderChatHistory(data.data.messages);
-                
-                // 更新最后消息ID
-                if (data.data.messages.length > 0) {
-                    const newLastId = data.data.messages[data.data.messages.length - 1].id;
-                    console.log(`[全量更新] 设置lastMessageId: ${newLastId}`);
-                    lastMessageId = newLastId || null;
-                }
+                if (data.data.messages.length > 0) lastMessageId = data.data.messages[data.data.messages.length - 1].id || null;
             }
-            
-            // 如果之前在底部，保持在底部；否则保持原位置
-            if (isAtBottom) {
-                messageArea.scrollTop = messageArea.scrollHeight;
-            }
+            if (isAtBottom) messageArea.scrollTop = messageArea.scrollHeight;
         }
-    })
-    .catch(error => {
-        console.error('刷新聊天记录失败:', error);
-    })
-    .finally(() => {
-        isRefreshing = false;
-    });
+    }).catch(e => console.error('刷新聊天记录失败:', e)).finally(() => isRefreshing = false);
 }
 
-// 切换聊天类型（好友/群聊）
 function switchChatType(type) {
-    // 停止当前的实时刷新
     stopChatRefresh();
-    
     currentChatType = type;
-    currentChatId = null;  // 清空当前选中的聊天
+    currentChatId = null;
     searchQuery = '';
     document.getElementById('search-input').value = '';
-    
-    // 更新按钮状态
     document.getElementById('btn-users').classList.toggle('active', type === 'user');
     document.getElementById('btn-groups').classList.toggle('active', type === 'group');
-    
-    // 隐藏发送区域
     document.getElementById('send-area').style.display = 'none';
-    
-    // 重置聊天窗口
     resetChatWindow();
-    
     loadChatList();
 }
 
-// 重置聊天窗口
 const resetChatWindow = () => {
-    document.getElementById('current-chat-avatar').innerHTML = '<i class="bi bi-chat-square-dots text-muted" style="font-size: 2rem;"></i>';
+    document.getElementById('current-chat-avatar').innerHTML = '<i class="bi bi-chat-square-dots"></i>';
     document.getElementById('current-chat-name').textContent = '选择一个聊天';
     document.getElementById('current-chat-info').textContent = '点击左侧列表选择聊天对象';
-    document.getElementById('message-area').innerHTML = '<div class="text-center text-muted"><i class="bi bi-chat-text" style="font-size: 3rem;"></i><p class="mt-2">选择聊天对象开始对话</p></div>';
+    document.getElementById('message-area').innerHTML = '<div class="empty-state"><i class="bi bi-chat-text"></i><p>选择聊天对象开始对话</p></div>';
     document.getElementById('id-expire-info').textContent = '请选择聊天对象';
     lastMessageSignature = '';
 };
 
-// 日期范围变化处理
 function changeDaysRange() {
     const daysValue = document.getElementById('days-range').value;
     currentDaysRange = daysValue === 'all' ? 'all' : parseInt(daysValue);
-    
-    // 日期范围变化时，需要清空增量状态，重新全量加载
-    lastMessageSignature = '';
-    renderedMessages = [];
-    lastMessageId = null;
-    
-    // 如果有选中的聊天，重新加载聊天记录
-    if (currentChatId) {
-        loadChatHistory(currentChatId, currentChatType);
-    }
-    
-    // 重新加载聊天列表（因为日期范围会影响最后消息时间显示）
+    lastMessageSignature = ''; renderedMessages = []; lastMessageId = null;
+    if (currentChatId) loadChatHistory(currentChatId, currentChatType);
     loadChatList();
 }
 
-// 切换发送方法
 function changeSendMethod() {
     currentSendMethod = document.getElementById('send-method').value;
-    
-    // 隐藏所有输入区域
-    const inputAreas = document.querySelectorAll('.send-input-area');
-    inputAreas.forEach(area => area.style.display = 'none');
-    
-    // 显示当前选中的输入区域
-    const areaMap = {
-        'text': 'text-input-area',
-        'markdown': 'text-input-area',
-        'template_markdown': 'template-markdown-input-area',
-        'image': 'image-input-area',
-        'voice': 'voice-input-area',
-        'video': 'video-input-area',
-        'ark': 'ark-input-area'
-    };
-    
+    document.querySelectorAll('.input-group-area').forEach(area => area.style.display = 'none');
+    const areaMap = { 'text': 'text-input-area', 'markdown': 'text-input-area', 'template_markdown': 'template-markdown-input-area', 'image': 'image-input-area', 'voice': 'voice-input-area', 'video': 'video-input-area', 'ark': 'ark-input-area' };
     const targetArea = document.getElementById(areaMap[currentSendMethod]);
-    if (targetArea) {
-        targetArea.style.display = 'block';
-    }
-    
-    // 更新占位符
+    if (targetArea) targetArea.style.display = 'flex';
     const messageInput = document.getElementById('message-input');
     if (messageInput && (currentSendMethod === 'text' || currentSendMethod === 'markdown')) {
-        messageInput.placeholder = currentSendMethod === 'markdown' ? 
-            '输入Markdown格式消息...\n例如: **粗体** *斜体* `代码`' : 
-            '输入消息内容...';
+        messageInput.placeholder = currentSendMethod === 'markdown' ? '输入Markdown格式消息...\n例如: **粗体** *斜体* `代码`' : '输入消息内容...';
     }
-    
-    // 更新帮助信息
     updateHelpInfo();
 }
 
-// 更新帮助信息
 function updateHelpInfo() {
     const helpArea = document.getElementById('send-help');
     const helpContent = document.getElementById('help-content');
-    
-    let helpText = '';
-    
-    switch (currentSendMethod) {
-        case 'text':
-            helpArea.style.display = 'none';
-            break;
-        case 'markdown':
-            helpText = 'Markdown格式: **粗体** *斜体* `代码` [链接](url)';
-            break;
-        case 'template_markdown':
-            helpText = '选择模板并填入对应参数，参数用逗号分隔';
-            break;
-        case 'image':
-            helpText = '请输入图片URL和可选的描述文本';
-            break;
-        case 'voice':
-            helpText = '请输入语音文件URL，支持mp3、wav等格式';
-            break;
-        case 'video':
-            helpText = '请输入视频文件URL，支持mp4等格式';
-            break;
-        case 'ark':
-            helpText = '选择ARK卡片类型并填入对应参数';
-            break;
-    }
-    
-    if (helpText) {
-        helpContent.textContent = helpText;
-        helpArea.style.display = 'block';
-    } else {
-        helpArea.style.display = 'none';
-    }
+    const helpTexts = { 'text': '', 'markdown': 'Markdown格式: **粗体** *斜体* `代码` [链接](url)', 'template_markdown': '选择模板并填入对应参数，参数用逗号分隔', 'image': '请输入图片URL和可选的描述文本', 'voice': '请输入语音文件URL，支持mp3、wav等格式', 'video': '请输入视频文件URL，支持mp4等格式', 'ark': '选择ARK卡片类型并填入对应参数' };
+    const helpText = helpTexts[currentSendMethod] || '';
+    if (helpText) { helpContent.textContent = helpText; helpArea.style.display = 'flex'; } else { helpArea.style.display = 'none'; }
 }
 
-// 更新模板帮助信息
 function updateTemplateHelp() {
     const template = document.getElementById('markdown-template').value;
     const helpArea = document.getElementById('send-help');
     const helpContent = document.getElementById('help-content');
-    
     if (template && markdownTemplates[template]) {
         const templateInfo = markdownTemplates[template];
-        const params = templateInfo.params.join(', ');
-        helpContent.textContent = `参数 (${templateInfo.param_count}个): ${params}`;
-        helpArea.style.display = 'block';
-    } else {
-        updateHelpInfo();
-    }
+        helpContent.textContent = `参数 (${templateInfo.param_count}个): ${templateInfo.params.join(', ')}`;
+        helpArea.style.display = 'flex';
+    } else updateHelpInfo();
 }
 
-// 更新ARK帮助信息
 function updateArkHelp() {
     const arkType = document.getElementById('ark-type').value;
     const helpArea = document.getElementById('send-help');
     const helpContent = document.getElementById('help-content');
-    
-    const arkHelp = {
-        '23': '列表卡片示例: 这是列表卡片,卡片测试,(功能1),(功能2),(功能3,https://example.com)',
-        '24': '信息卡片示例: 描述文本,提示文本,卡片标题,元描述,https://image.jpg,https://link.com,子标题',
-        '37': '通知卡片示例: 系统通知,更新标题,子标题,https://cover.jpg,https://link.com'
-    };
-    
-    if (arkType && arkHelp[arkType]) {
-        helpContent.textContent = arkHelp[arkType];
-        helpArea.style.display = 'block';
-    } else {
-        updateHelpInfo();
-    }
+    const arkHelp = { '23': '列表卡片示例: 这是列表卡片,卡片测试,(功能1),(功能2),(功能3,https://example.com)', '24': '信息卡片示例: 描述文本,提示文本,卡片标题,元描述,https://image.jpg,https://link.com,子标题', '37': '通知卡片示例: 系统通知,更新标题,子标题,https://cover.jpg,https://link.com' };
+    if (arkType && arkHelp[arkType]) { helpContent.textContent = arkHelp[arkType]; helpArea.style.display = 'flex'; } else updateHelpInfo();
 }
 
-// 搜索聊天
-const searchChats = () => {
-    searchQuery = document.getElementById('search-input').value.trim();
-    loadChatList();
-};
+const searchChats = () => { searchQuery = document.getElementById('search-input').value.trim(); loadChatList(); };
 
-// 加载聊天列表
 function loadChatList() {
     const chatList = document.getElementById('chat-list');
-    chatList.innerHTML = '<div class="text-center p-3"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">加载中...</span></div></div>';
-    
-    // 获取token
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    
-    if (!token) {
-        chatList.innerHTML = '<div class="text-center p-3 text-danger">未找到访问token</div>';
-        return;
-    }
-    
+    chatList.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>加载中...</span></div>';
+    const token = new URLSearchParams(window.location.search).get('token');
+    if (!token) { chatList.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-circle"></i><p>未找到访问token</p></div>'; return; }
     fetch(`/web/api/message/get_chats?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            type: currentChatType,
-            search: searchQuery,
-            days: currentDaysRange === 'all' ? 3 : currentDaysRange  // 显示全部时列表也查询3天
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            renderChatList(data.data.chats);
-        } else {
-            chatList.innerHTML = '<div class="text-center p-3 text-danger">加载失败: ' + data.message + '</div>';
-        }
-    })
-    .catch(error => {
-        chatList.innerHTML = '<div class="text-center p-3 text-danger">网络错误</div>';
-        console.error('Error:', error);
-    });
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ type: currentChatType, search: searchQuery, days: currentDaysRange === 'all' ? 3 : currentDaysRange })
+    }).then(r => r.json()).then(data => {
+        if (data.success) renderChatList(data.data.chats);
+        else chatList.innerHTML = `<div class="empty-state"><i class="bi bi-exclamation-circle"></i><p>加载失败: ${data.message}</p></div>`;
+    }).catch(e => { chatList.innerHTML = '<div class="empty-state"><i class="bi bi-wifi-off"></i><p>网络错误</p></div>'; console.error('Error:', e); });
 }
 
-// 渲染聊天列表
 function renderChatList(chats) {
     const chatList = document.getElementById('chat-list');
-    
-    if (chats.length === 0) {
-        chatList.innerHTML = '<div class="text-center p-3 text-muted">暂无数据</div>';
-        return;
-    }
-    
+    if (chats.length === 0) { chatList.innerHTML = '<div class="empty-state"><i class="bi bi-inbox"></i><p>暂无数据</p></div>'; return; }
     const html = chats.map(chat => {
         const avatar = currentChatType === 'user' 
-            ? `<img src="${chat.avatar}" class="chat-avatar" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-               <div class="chat-avatar-placeholder" style="display: none;">${chat.chat_id.slice(-2).toUpperCase()}</div>`
+            ? `<img src="${chat.avatar}" class="chat-avatar" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder" style="display: none;">${chat.chat_id.slice(-2).toUpperCase()}</div>`
             : `<div class="chat-avatar-placeholder">${chat.avatar}</div>`;
-            
-        return `
-            <div class="list-group-item chat-item" onclick="selectChat('${chat.chat_id}', '${currentChatType}')">
-                <div class="d-flex align-items-center">
-                    <div class="me-3">
-                        ${avatar}
-                    </div>
-                    <div class="flex-grow-1">
-                        <h6 class="mb-1">
-                            <span data-user-id="${chat.chat_id}">Loading...</span>
-                            <small class="text-muted ms-2">${getDatePart(chat.last_time)}</small>
-                        </h6>
-                        <small class="text-muted">
-                            ID: ${chat.chat_id.slice(0, 6)}***
-                            <span class="ms-2">${getTimePart(chat.last_time)}</span>
-                        </small>
-                    </div>
-                </div>
+        return `<div class="chat-item" onclick="selectChat('${chat.chat_id}', '${currentChatType}')">
+            <div class="chat-avatar-wrap">${avatar}</div>
+            <div class="chat-item-info">
+                <div class="chat-item-name"><span data-user-id="${chat.chat_id}">Loading...</span><span class="time">${getDatePart(chat.last_time)}</span></div>
+                <div class="chat-item-id">ID: ${chat.chat_id.slice(0, 6)}*** · ${getTimePart(chat.last_time)}</div>
             </div>
-        `;
+        </div>`;
     }).join('');
-    
     chatList.innerHTML = html;
-    
-    // 批量加载昵称
     if (currentChatType === 'user') {
-        const userIds = chats.map(chat => chat.chat_id);
-        loadNicknamesBatch(userIds).then(nicknames => {
+        loadNicknamesBatch(chats.map(c => c.chat_id)).then(nicknames => {
             chats.forEach(chat => {
                 const el = document.querySelector(`[data-user-id="${chat.chat_id}"]`);
-                if (el) {
-                    el.textContent = truncateNickname(nicknames[chat.chat_id] || `用户${chat.chat_id.slice(-6)}`);
-                }
+                if (el) el.textContent = truncateNickname(nicknames[chat.chat_id] || `用户${chat.chat_id.slice(-6)}`);
             });
         });
-    } else {
-        chats.forEach(chat => {
-            const el = document.querySelector(`[data-user-id="${chat.chat_id}"]`);
-            if (el) el.textContent = `${chat.chat_id.slice(0, 6)}***`;
-        });
-    }
+    } else chats.forEach(chat => { const el = document.querySelector(`[data-user-id="${chat.chat_id}"]`); if (el) el.textContent = `${chat.chat_id.slice(0, 6)}***`; });
 }
 
-// 通用API调用函数
 const apiCall = (endpoint, data) => {
     const token = new URLSearchParams(window.location.search).get('token');
-    return fetch(`/web/api/${endpoint}?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    }).then(r => r.json());
+    return fetch(`/web/api/${endpoint}?token=${encodeURIComponent(token)}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) }).then(r => r.json());
 };
 
-// 批量加载昵称 - 从数据库获取
 const loadNicknamesBatch = (userIds) => {
     if (!userIds || userIds.length === 0) return Promise.resolve({});
-    
-    return apiCall('message/get_nicknames_batch', {user_ids: userIds})
-        .then(d => {
-            if (d.success) {
-                return d.data.nicknames;
-            }
-            return {};
-        })
-        .catch(e => {
-            console.error('批量加载昵称失败:', e);
-            return {};
-        });
+    return apiCall('message/get_nicknames_batch', {user_ids: userIds}).then(d => d.success ? d.data.nicknames : {}).catch(e => { console.error('批量加载昵称失败:', e); return {}; });
 };
 
-// 单个加载昵称（用于聊天头部）
 const loadNicknameForHeader = (userId) => {
     loadNicknamesBatch([userId]).then(nicknames => {
         const el = document.getElementById('current-chat-name');
-        if (el && currentChatId === userId) {
-            el.textContent = nicknames[userId] || `用户 ${userId.slice(-6)}`;
-        }
+        if (el && currentChatId === userId) el.textContent = nicknames[userId] || `用户 ${userId.slice(-6)}`;
     });
 };
 
-
-
-// 选择聊天
 function selectChat(chatId, chatType) {
-    // 停止之前的实时刷新
     stopChatRefresh();
-    
-    // 只有切换聊天对象时才清理消息缓存和lastMessageId
     const isNewChat = currentChatId !== chatId || currentChatType !== chatType;
-    if (isNewChat) {
-        lastMessageSignature = '';
-        renderedMessages = [];
-        lastMessageId = null;
-    }
-    
+    if (isNewChat) { lastMessageSignature = ''; renderedMessages = []; lastMessageId = null; }
     currentChatId = chatId;
-    
-    // 更新选中状态
-    document.querySelectorAll('.chat-item').forEach(item => {
-        item.classList.remove('active');
-    });
+    document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
     event.currentTarget.classList.add('active');
-    
-    // 更新聊天窗口头部
     updateChatHeader(chatId, chatType);
-    
-    // 加载聊天记录
     loadChatHistory(chatId, chatType);
-    
-    // 显示发送区域
     document.getElementById('send-area').style.display = 'block';
-    
-    // 更新ID状态并启动实时刷新
     updateIdStatus(chatType);
     setTimeout(startChatRefresh, 1000);
 }
 
-// 更新聊天窗口头部
 function updateChatHeader(chatId, chatType) {
     const avatarElement = document.getElementById('current-chat-avatar');
     const nameElement = document.getElementById('current-chat-name');
     const infoElement = document.getElementById('current-chat-info');
-    
     if (chatType === 'user') {
         avatarElement.innerHTML = `<img src="https://q.qlogo.cn/qqapp/{{ appid }}/${chatId}/100" class="chat-avatar" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder" style="display: none;">${chatId.slice(-2).toUpperCase()}</div>`;
         nameElement.textContent = 'Loading...';
         infoElement.textContent = `用户 ID: ${chatId}`;
-        
-        // 异步加载昵称到聊天窗口头部
         loadNicknameForHeader(chatId);
     } else {
         avatarElement.innerHTML = `<div class="chat-avatar-placeholder">${chatId[0].toUpperCase()}</div>`;
-        nameElement.textContent = `${chatId}`;
+        nameElement.textContent = chatId;
         infoElement.textContent = `ID: ${chatId}`;
     }
 }
 
-// 更新ID状态信息
-const updateIdStatus = (type) => {
-    document.getElementById('id-expire-info').textContent = `ID有效期：${type === 'group' ? '5分钟' : '1小时'}，超时后无法发送消息`;
-};
+const updateIdStatus = (type) => { document.getElementById('id-expire-info').textContent = `ID有效期：${type === 'group' ? '5分钟' : '1小时'}，超时后无法发送消息`; };
 
-// 加载聊天记录
 function loadChatHistory(chatId, chatType) {
     const messageArea = document.getElementById('message-area');
-    messageArea.innerHTML = '<div class="text-center p-3"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">加载中...</span></div></div>';
-    
-    // 获取token
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    
-    if (!token) {
-        messageArea.innerHTML = '<div class="text-center p-3 text-danger">未找到访问token</div>';
-        return;
-    }
-    
+    messageArea.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>加载中...</span></div>';
+    const token = new URLSearchParams(window.location.search).get('token');
+    if (!token) { messageArea.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-circle"></i><p>未找到访问token</p></div>'; return; }
     fetch(`/web/api/message/get_chat_history?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            chat_type: chatType,
-            chat_id: chatId,
-            days_range: currentDaysRange === 'all' ? 30 : currentDaysRange,
-            show_all: currentDaysRange === 'all'  // 显示全部时启用全部历史模式
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ chat_type: chatType, chat_id: chatId, days_range: currentDaysRange === 'all' ? 30 : currentDaysRange, show_all: currentDaysRange === 'all' })
+    }).then(r => r.json()).then(data => {
         if (data.success) {
-            if (data.data.no_history) {
-                messageArea.innerHTML = '<div class="text-center text-muted"><i class="bi bi-clock-history" style="font-size: 3rem;"></i><p class="mt-2">没有历史表</p></div>';
-            } else {
-                renderChatHistory(data.data.messages);
-                // 记录最后消息ID，以便后续增量刷新
-                if (data.data.messages.length > 0) {
-                    lastMessageId = data.data.messages[data.data.messages.length - 1].id || null;
-                }
-            }
-        } else {
-            messageArea.innerHTML = '<div class="text-center p-3 text-danger">加载聊天记录失败: ' + data.message + '</div>';
-        }
-    })
-    .catch(error => {
-        messageArea.innerHTML = '<div class="text-center p-3 text-danger">网络错误</div>';
-        console.error('Error:', error);
-    });
+            if (data.data.no_history) messageArea.innerHTML = '<div class="empty-state"><i class="bi bi-clock-history"></i><p>没有历史表</p></div>';
+            else { renderChatHistory(data.data.messages); if (data.data.messages.length > 0) lastMessageId = data.data.messages[data.data.messages.length - 1].id || null; }
+        } else messageArea.innerHTML = `<div class="empty-state"><i class="bi bi-exclamation-circle"></i><p>加载失败: ${data.message}</p></div>`;
+    }).catch(e => { messageArea.innerHTML = '<div class="empty-state"><i class="bi bi-wifi-off"></i><p>网络错误</p></div>'; console.error('Error:', e); });
 }
 
-// 生成头像HTML（带缓存机制）
 const getAvatarHtml = (isSelf, userId, avatarUrl) => {
     const cacheKey = isSelf ? 'robot' : `${userId}-${avatarUrl}`;
-    
-    // 检查缓存
-    if (avatarCache.has(cacheKey)) {
-        return avatarCache.get(cacheKey);
-    }
-    
+    if (avatarCache.has(cacheKey)) return avatarCache.get(cacheKey);
     let html;
-    if (isSelf) {
-        html = `<img src="https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background-color: #0d6efd;"><i class="bi bi-robot" style="color: white;"></i></div>`;
-    } else {
-        const placeholder = userId.slice(-2).toUpperCase() || userId.toUpperCase();
-        html = `<img src="${avatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none;">${placeholder}</div>`;
-    }
-    
-    // 缓存结果
+    if (isSelf) html = `<img src="https://thirdqq.qlogo.cn/g?b=qq&nk=${ROBOT_QQ}&s=140" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"><i class="bi bi-robot" style="color: white;"></i></div>`;
+    else html = `<img src="${avatarUrl}" class="chat-avatar me-2" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="chat-avatar-placeholder me-2" style="display: none;">${(userId.slice(-2) || userId).toUpperCase()}</div>`;
     avatarCache.set(cacheKey, html);
     return html;
 };
 
-// 渲染聊天记录（智能更新）
 function renderChatHistory(messages) {
     const messageArea = document.getElementById('message-area');
-    
-    if (messages.length === 0) {
-        lastMessageSignature = '';
-        renderedMessages = [];
-        messageArea.innerHTML = '<div class="text-center text-muted"><i class="bi bi-chat-text" style="font-size: 3rem;"></i><p class="mt-2">暂无聊天记录</p></div>';
-        return;
-    }
-    
-    // 优化：使用ID作为唯一标识，更准确的数据比较
+    if (messages.length === 0) { lastMessageSignature = ''; renderedMessages = []; messageArea.innerHTML = '<div class="empty-state"><i class="bi bi-chat-text"></i><p>暂无聊天记录</p></div>'; return; }
     const signature = messages.map(m => `${m.user_id}-${m.content}-${m.timestamp}-${m.id || ''}`).join('|');
     if (signature === lastMessageSignature) return;
     lastMessageSignature = signature;
-    
-    // 检查是否只是新增消息，避免全量重渲染
     if (renderedMessages.length > 0 && messages.length > renderedMessages.length) {
         const newMessages = messages.slice(renderedMessages.length);
         if (JSON.stringify(messages.slice(0, renderedMessages.length)) === JSON.stringify(renderedMessages)) {
-            // 只有新增消息，使用增量更新
-            newMessages.forEach(msg => {
-                const messageHtml = createMessageHtml(msg);
-                messageArea.insertAdjacentHTML('beforeend', messageHtml);
-            });
+            newMessages.forEach(msg => messageArea.insertAdjacentHTML('beforeend', createMessageHtml(msg)));
             renderedMessages = messages;
             return;
         }
     }
-    
-    // 全量重渲染
-    const html = messages.map(msg => createMessageHtml(msg)).join('');
-    messageArea.innerHTML = html;
+    messageArea.innerHTML = messages.map(msg => createMessageHtml(msg)).join('');
     renderedMessages = messages;
-    
-    // 更新最后消息ID
-    if (messages.length > 0) {
-        lastMessageId = messages[messages.length - 1].id || null;
-    }
-    
-    // 批量加载群聊中的用户昵称
+    if (messages.length > 0) lastMessageId = messages[messages.length - 1].id || null;
     if (currentChatType === 'group') {
         const uniqueUsers = [...new Set(messages.filter(msg => !msg.is_self).map(msg => msg.user_id))];
-        if (uniqueUsers.length > 0) {
-            loadNicknamesBatch(uniqueUsers).then(nicknames => {
-                uniqueUsers.forEach(userId => {
-                    document.querySelectorAll(`[data-nickname-user-id="${userId}"]`).forEach(el => {
-                        el.textContent = nicknames[userId] || `用户${userId.slice(-6)}`;
-                    });
-                });
-            });
-        }
+        if (uniqueUsers.length > 0) loadNicknamesBatch(uniqueUsers).then(nicknames => {
+            uniqueUsers.forEach(userId => document.querySelectorAll(`[data-nickname-user-id="${userId}"]`).forEach(el => el.textContent = nicknames[userId] || `用户${userId.slice(-6)}`));
+        });
     }
-    
-    // 滚动到底部
     messageArea.scrollTop = messageArea.scrollHeight;
 }
 
-// 发送消息
 function sendMessage() {
-    if (!currentChatId) {
-        alert('请先选择聊天对象');
-        return;
-    }
-    
-    // 根据发送方法收集数据
+    if (!currentChatId) { alert('请先选择聊天对象'); return; }
     const sendData = collectSendData();
-    if (!sendData) {
-        return;
-    }
-    
-    // 保存当前发送方法，防止意外重置
+    if (!sendData) return;
     const originalSendMethod = currentSendMethod;
-    
-    const sendBtns = document.querySelectorAll('button[onclick="sendMessage()"]');
-    sendBtns.forEach(btn => {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>发送中...';
-    });
-    
-    // 获取token
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    
-    if (!token) {
-        showSendStatus('未找到访问token', false);
-        resetSendButtons();
-        return;
-    }
-    
+    const sendBtns = document.querySelectorAll('.send-btn');
+    sendBtns.forEach(btn => { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>发送中...'; });
+    const token = new URLSearchParams(window.location.search).get('token');
+    if (!token) { showSendStatus('未找到访问token', false); resetSendButtons(); return; }
     fetch(`/web/api/message/send?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            chat_type: currentChatType,
-            chat_id: currentChatId,
-            send_method: currentSendMethod,
-            ...sendData
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ chat_type: currentChatType, chat_id: currentChatId, send_method: currentSendMethod, ...sendData })
+    }).then(r => r.json()).then(data => {
         if (data.success) {
             const msgId = data.data.message_id;
             const isError = msgId && /消息发送失败|code:|错误|失败/.test(msgId);
-            
-            if (isError) {
-                showSendStatus('发送失败: ' + getApiErrorMessage(msgId), false);
-            } else {
-                clearCurrentInputs();
-                appendMessage(getDisplayContent(sendData), true, data.data.timestamp);
-                showSendStatus('消息发送成功', true);
-                setTimeout(refreshChatHistory, 200);
-            }
-        } else {
-            showSendStatus('发送失败: ' + data.message, false);
-        }
-    })
-    .catch(error => {
-        showSendStatus('网络错误', false);
-        console.error('Error:', error);
-    })
-    .finally(() => {
-        // 确保发送方法选择器保持原来的选择
-        currentSendMethod = originalSendMethod;
-        document.getElementById('send-method').value = originalSendMethod;
-        
-        // 重新应用当前选择的输入区域显示
-        changeSendMethod();
-        
-        resetSendButtons();
-    });
+            if (isError) showSendStatus('发送失败: ' + getApiErrorMessage(msgId), false);
+            else { clearCurrentInputs(); appendMessage(getDisplayContent(sendData), true, data.data.timestamp); showSendStatus('消息发送成功', true); setTimeout(refreshChatHistory, 200); }
+        } else showSendStatus('发送失败: ' + data.message, false);
+    }).catch(e => { showSendStatus('网络错误', false); console.error('Error:', e); })
+    .finally(() => { currentSendMethod = originalSendMethod; document.getElementById('send-method').value = originalSendMethod; changeSendMethod(); resetSendButtons(); });
 }
 
-// 获取元素值的辅助函数
 const getVal = (id) => document.getElementById(id)?.value.trim() || '';
+const validate = (value, msg) => { if (!value) { alert(msg); return false; } return true; };
 
-// 验证并提示
-const validate = (value, msg) => {
-    if (!value) { alert(msg); return false; }
-    return true;
-};
-
-// 收集发送数据
 function collectSendData() {
     const handlers = {
-        text: () => {
-            const content = getVal('message-input');
-            return validate(content, '请输入消息内容') ? { content } : null;
-        },
-        markdown: () => handlers.text(),
+        text: () => { const content = getVal('message-input'); return validate(content, '请输入消息内容') ? { content } : null; },
+        markdown: () => { const content = getVal('message-input'); return validate(content, '请输入消息内容') ? { content } : null; },
         template_markdown: () => {
             const template = document.getElementById('markdown-template').value;
             const params = getVal('markdown-params');
@@ -1264,170 +667,62 @@ function collectSendData() {
             if (!validate(template, '请选择模板') || !validate(params, '请输入模板参数')) return null;
             return { template, params: params.split(',').map(p => p.trim()), keyboard_id: keyboard || null };
         },
-        image: () => {
-            const imageUrl = getVal('image-url');
-            if (!validate(imageUrl, '请输入图片URL')) return null;
-            return { image_url: imageUrl, image_text: getVal('image-text') };
-        },
-        voice: () => {
-            const voiceUrl = getVal('voice-url');
-            return validate(voiceUrl, '请输入语音文件URL') ? { voice_url: voiceUrl } : null;
-        },
-        video: () => {
-            const videoUrl = getVal('video-url');
-            return validate(videoUrl, '请输入视频文件URL') ? { video_url: videoUrl } : null;
-        },
+        image: () => { const imageUrl = getVal('image-url'); if (!validate(imageUrl, '请输入图片URL')) return null; return { image_url: imageUrl, image_text: getVal('image-text') }; },
+        voice: () => { const voiceUrl = getVal('voice-url'); return validate(voiceUrl, '请输入语音文件URL') ? { voice_url: voiceUrl } : null; },
+        video: () => { const videoUrl = getVal('video-url'); return validate(videoUrl, '请输入视频文件URL') ? { video_url: videoUrl } : null; },
         ark: () => {
             const arkType = document.getElementById('ark-type').value;
             const arkParams = getVal('ark-params');
             if (!validate(arkType, '请选择ARK卡片类型') || !validate(arkParams, '请输入卡片参数')) return null;
-            
-            // 解析参数：支持括号格式的列表项
-            const normalParams = [];  // 普通参数
-            const listItems = [];      // 列表项（用于ark23）
-            let current = '';
-            let inBracket = false;
-            let bracketContent = [];
-            
+            const normalParams = [], listItems = [];
+            let current = '', inBracket = false, bracketContent = [];
             for (let i = 0; i < arkParams.length; i++) {
                 const char = arkParams[i];
-                
-                if (char === '(') {
-                    if (current.trim()) {
-                        normalParams.push(current.trim());
-                        current = '';
-                    }
-                    inBracket = true;
-                    bracketContent = [];
-                } else if (char === ')') {
-                    if (inBracket) {
-                        if (current.trim()) {
-                            bracketContent.push(current.trim());
-                        }
-                        // 每个括号内容作为一个列表项
-                        listItems.push(bracketContent);
-                        bracketContent = [];
-                        current = '';
-                        inBracket = false;
-                    }
-                } else if (char === ',') {
-                    if (inBracket) {
-                        bracketContent.push(current.trim());
-                        current = '';
-                    } else if (current.trim()) {
-                        normalParams.push(current.trim());
-                        current = '';
-                    }
-                } else {
-                    current += char;
-                }
+                if (char === '(') { if (current.trim()) { normalParams.push(current.trim()); current = ''; } inBracket = true; bracketContent = []; }
+                else if (char === ')') { if (inBracket) { if (current.trim()) bracketContent.push(current.trim()); listItems.push(bracketContent); bracketContent = []; current = ''; inBracket = false; } }
+                else if (char === ',') { if (inBracket) { bracketContent.push(current.trim()); current = ''; } else if (current.trim()) { normalParams.push(current.trim()); current = ''; } }
+                else current += char;
             }
-            
-            if (current.trim()) {
-                normalParams.push(current.trim());
-            }
-            
-            // 如果有列表项（ark23格式），将它们作为第三个参数
-            const params = listItems.length > 0 ? [...normalParams, listItems] : normalParams;
-            
-            return { ark_type: parseInt(arkType), ark_params: params };
+            if (current.trim()) normalParams.push(current.trim());
+            return { ark_type: parseInt(arkType), ark_params: listItems.length > 0 ? [...normalParams, listItems] : normalParams };
         }
     };
     return handlers[currentSendMethod]?.() || (alert('未知的发送方法'), null);
 }
 
-// 清空当前输入 - 只清空输入内容，保持选择的发送方法
 function clearCurrentInputs() {
-    switch (currentSendMethod) {
-        case 'text':
-        case 'markdown':
-            document.getElementById('message-input').value = '';
-            break;
-        case 'template_markdown':
-            document.getElementById('markdown-params').value = '';
-            document.getElementById('markdown-keyboard').value = '';
-            break;
-        case 'image':
-            document.getElementById('image-url').value = '';
-            document.getElementById('image-text').value = '';
-            break;
-        case 'voice':
-            document.getElementById('voice-url').value = '';
-            break;
-        case 'video':
-            document.getElementById('video-url').value = '';
-            break;
-        case 'ark':
-            document.getElementById('ark-params').value = '';
-            break;
-    }
+    const clearMap = { 'text': ['message-input'], 'markdown': ['message-input'], 'template_markdown': ['markdown-params', 'markdown-keyboard'], 'image': ['image-url', 'image-text'], 'voice': ['voice-url'], 'video': ['video-url'], 'ark': ['ark-params'] };
+    (clearMap[currentSendMethod] || []).forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 }
 
-// 获取显示内容
-const getDisplayContent = (d) => ({
-    text: d.content, markdown: d.content,
-    template_markdown: `[模板消息: ${d.template}]`,
-    image: `[图片消息: ${d.image_text || '图片'}]`,
-    voice: '[语音消息]', video: '[视频消息]',
-    ark: `[ARK卡片: 类型${d.ark_type}]`
-}[currentSendMethod] || '[消息]');
+const getDisplayContent = (d) => ({ text: d.content, markdown: d.content, template_markdown: `[模板消息: ${d.template}]`, image: `[图片消息: ${d.image_text || '图片'}]`, voice: '[语音消息]', video: '[视频消息]', ark: `[ARK卡片: 类型${d.ark_type}]` }[currentSendMethod] || '[消息]');
 
-// 重置发送按钮
 function resetSendButtons() {
-    const sendBtns = document.querySelectorAll('button[onclick="sendMessage()"]');
-    sendBtns.forEach(btn => {
+    document.querySelectorAll('.send-btn').forEach(btn => {
         btn.disabled = false;
-        
-        // 根据按钮所在的区域确定正确的文本和图标
-        if (btn.closest('#text-input-area')) {
-            btn.innerHTML = '<i class="bi bi-send"></i> 发送';
-        } else if (btn.closest('#template-markdown-input-area')) {
-            btn.innerHTML = '<i class="bi bi-send"></i> 发送模板';
-        } else if (btn.closest('#image-input-area')) {
-            btn.innerHTML = '<i class="bi bi-send"></i> 发送';
-        } else if (btn.closest('#voice-input-area')) {
-            btn.innerHTML = '<i class="bi bi-mic"></i> 发送语音';
-        } else if (btn.closest('#video-input-area')) {
-            btn.innerHTML = '<i class="bi bi-camera-video"></i> 发送视频';
-        } else if (btn.closest('#ark-input-area')) {
-            btn.innerHTML = '<i class="bi bi-send"></i> 发送';
-        } else {
-            btn.innerHTML = '<i class="bi bi-send"></i> 发送';
-        }
+        if (btn.closest('#text-input-area')) btn.innerHTML = '<i class="bi bi-send"></i> 发送';
+        else if (btn.closest('#template-markdown-input-area')) btn.innerHTML = '<i class="bi bi-send"></i> 发送模板';
+        else if (btn.closest('#voice-input-area')) btn.innerHTML = '<i class="bi bi-mic"></i> 发送语音';
+        else if (btn.closest('#video-input-area')) btn.innerHTML = '<i class="bi bi-camera-video"></i> 发送视频';
+        else btn.innerHTML = '<i class="bi bi-send"></i> 发送';
     });
 }
 
-// 添加消息到聊天记录
 const appendMessage = (content, isSelf, timestamp) => {
     const area = document.getElementById('message-area');
     const avatarHtml = isSelf ? getAvatarHtml(true, '', '') : `<div class="chat-avatar-placeholder me-2">U</div>`;
     const timeHtml = `<span class="small text-muted ms-2">${formatTimeWithoutYear(timestamp)}</span>`;
-    
-    area.insertAdjacentHTML('beforeend', `
-        <div class="message-bubble ${isSelf ? 'self' : 'other'}">
-            <div class="d-flex ${isSelf ? 'justify-content-end' : ''}">
-                ${!isSelf ? avatarHtml : ''}
-                <div class="message-content">
-                    <div class="small text-muted mb-1">${timeHtml}</div>
-                    ${content}
-                </div>
-                ${isSelf ? avatarHtml : ''}
-            </div>
-        </div>
-    `);
+    area.insertAdjacentHTML('beforeend', `<div class="message-bubble ${isSelf ? 'self' : 'other'}"><div class="d-flex ${isSelf ? 'justify-content-end' : ''}">${!isSelf ? avatarHtml : ''}<div class="message-content"><div class="small text-muted mb-1">${timeHtml}</div>${content}</div>${isSelf ? avatarHtml : ''}</div></div>`);
     area.scrollTop = area.scrollHeight;
 };
 
-// 提取API错误信息
 const getApiErrorMessage = (msg) => {
     if (!msg) return '未知错误';
     const code = (msg.match(/code:(\d+)/) || [])[1];
     const trace = (msg.match(/trace_id:([a-f0-9]+)/) || [])[1];
-    return code || trace ? `${code ? 'code:'+code : ''}${trace ? ' trace_id:'+trace : ''}`.trim() 
-        : msg.replace(/消息发送失败\s*/g, '').replace(/>\s*/g, '').replace(/注：出现错误，请截图进行反馈\s*/g, '').replace(/\s+/g, ' ').trim() || '未知错误';
+    return code || trace ? `${code ? 'code:'+code : ''}${trace ? ' trace_id:'+trace : ''}`.trim() : msg.replace(/消息发送失败\s*/g, '').replace(/>\s*/g, '').replace(/注：出现错误，请截图进行反馈\s*/g, '').replace(/\s+/g, ' ').trim() || '未知错误';
 };
 
-// 显示发送状态
 const showSendStatus = (msg, success) => {
     const div = document.getElementById('send-status');
     const content = document.getElementById('send-status-content');
@@ -1438,7 +733,6 @@ const showSendStatus = (msg, success) => {
     }
 };
 
-// 创建单个消息HTML（抽取出来的公共函数）
 function createMessageHtml(msg) {
     const isSelf = msg.is_self;
     const avatarHtml = getAvatarHtml(isSelf, msg.user_id, msg.avatar);
@@ -1446,58 +740,18 @@ function createMessageHtml(msg) {
     const nicknameHtml = !isSelf && currentChatType === 'group' 
         ? `<div class="small mb-1"><span class="text-primary" data-nickname-user-id="${msg.user_id}">用户${msg.user_id.slice(-6)}</span>${timeHtml}</div>` 
         : `<div class="small text-muted mb-1">${timeHtml}</div>`;
-    
-    // 解析content中的图片链接（格式：文本<图片URL>）
     let textContent = msg.content || '';
     let imagesHtml = '';
-    
-    // 使用正则提取<URL>格式的图片链接
     const imageUrlRegex = /<(https?:\/\/[^>]+)>/g;
     const imageUrls = [];
     let match;
-    
-    while ((match = imageUrlRegex.exec(textContent)) !== null) {
-        imageUrls.push(match[1]);
-    }
-    
-    // 从文本中移除<URL>标记
+    while ((match = imageUrlRegex.exec(textContent)) !== null) imageUrls.push(match[1]);
     textContent = textContent.replace(imageUrlRegex, '').trim();
-    
-    // HTML转义文本内容，防止标签被解析
     const escapedText = escapeHtml(textContent);
-    
-    // 生成图片HTML
     if (imageUrls.length > 0) {
-        const maxWidth = 300;
-        const maxHeight = 400;
-        
-        imagesHtml = imageUrls.map(url => {
-            return `<img src="${url}" 
-                referrerpolicy="no-referrer"
-                style="max-width: ${maxWidth}px; max-height: ${maxHeight}px; border-radius: 8px; margin-top: 8px; cursor: pointer; display: block;" 
-                onclick="window.open('${url}', '_blank')"
-                onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
-                title="图片"
-                alt="图片">
-                <div style="display: none; padding: 10px; background: #f0f0f0; border-radius: 8px; margin-top: 8px;">
-                    <i class="bi bi-image"></i> 图片加载失败
-                </div>`;
-        }).join('');
+        imagesHtml = imageUrls.map(url => `<img src="${url}" referrerpolicy="no-referrer" style="max-width: 300px; max-height: 400px; border-radius: 8px; margin-top: 8px; cursor: pointer; display: block;" onclick="window.open('${url}', '_blank')" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" title="图片" alt="图片"><div style="display: none; padding: 10px; background: #f0f0f0; border-radius: 8px; margin-top: 8px;"><i class="bi bi-image"></i> 图片加载失败</div>`).join('');
     }
-    
-    return `
-        <div class="message-bubble ${isSelf ? 'self' : 'other'}">
-            <div class="d-flex ${isSelf ? 'justify-content-end' : ''}">
-                ${!isSelf ? avatarHtml : ''}
-                <div class="message-content">
-                    ${nicknameHtml}
-                    ${escapedText}
-                    ${imagesHtml}
-                </div>
-                ${isSelf ? avatarHtml : ''}
-            </div>
-        </div>
-    `;
+    return `<div class="message-bubble ${isSelf ? 'self' : 'other'}"><div class="d-flex ${isSelf ? 'justify-content-end' : ''}">${!isSelf ? avatarHtml : ''}<div class="message-content">${nicknameHtml}${escapedText}${imagesHtml}</div>${isSelf ? avatarHtml : ''}</div></div>`;
 }
 </script>
 {% endblock %}

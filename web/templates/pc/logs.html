@@ -1,16 +1,6 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
-<style>
-.spin {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-</style>
 <!-- 单独进程Web警告 -->
 <div id="standalone-web-warning" class="alert alert-warning alert-dismissible fade show" style="display: none;" role="alert">
     <i class="bi bi-exclamation-triangle-fill"></i>
@@ -19,31 +9,32 @@
 </div>
 
 <!-- 日志标签页 -->
-<ul class="nav nav-tabs" id="logTabs" role="tablist">
-    <li class="nav-item">
-        <a class="nav-link active" id="received-tab" data-bs-toggle="tab" href="#received" role="tab">
-            <i class="bi bi-chat-dots"></i> 接收消息
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="plugin-tab" data-bs-toggle="tab" href="#plugin" role="tab">
-            <i class="bi bi-puzzle"></i> 插件日志
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="framework-tab" data-bs-toggle="tab" href="#framework" role="tab">
-            <i class="bi bi-gear"></i> 框架日志
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="error-tab" data-bs-toggle="tab" href="#error" role="tab">
-            <i class="bi bi-exclamation-triangle"></i> 错误日志
-        </a>
-    </li>
-</ul>
+<div class="logs-tabs-wrapper">
+    <div class="logs-tabs" id="logTabs" role="tablist">
+        <button class="logs-tab active" id="received-tab" data-bs-toggle="tab" data-bs-target="#received" role="tab">
+            <i class="bi bi-chat-dots"></i>
+            <span>接收消息</span>
+            <span class="tab-badge" id="received-count">0</span>
+        </button>
+        <button class="logs-tab" id="plugin-tab" data-bs-toggle="tab" data-bs-target="#plugin" role="tab">
+            <i class="bi bi-puzzle"></i>
+            <span>插件日志</span>
+            <span class="tab-badge" id="plugin-count">0</span>
+        </button>
+        <button class="logs-tab" id="framework-tab" data-bs-toggle="tab" data-bs-target="#framework" role="tab">
+            <i class="bi bi-gear"></i>
+            <span>框架日志</span>
+            <span class="tab-badge" id="framework-count">0</span>
+        </button>
+        <button class="logs-tab" id="error-tab" data-bs-toggle="tab" data-bs-target="#error" role="tab">
+            <i class="bi bi-exclamation-triangle"></i>
+            <span>错误日志</span>
+            <span class="tab-badge error" id="error-count">0</span>
+        </button>
+    </div>
+</div>
 
 <div class="tab-content">
-    <!-- 使用JS动态生成的日志面板容器 -->
     <div class="tab-pane fade show active" id="received" role="tabpanel"></div>
     <div class="tab-pane fade" id="plugin" role="tabpanel"></div>
     <div class="tab-pane fade" id="framework" role="tabpanel"></div>
@@ -51,115 +42,582 @@
 </div>
 {% endblock %}
 
+{% block extra_styles %}
+<style>
+/* 日志标签页样式 */
+.logs-tabs-wrapper {
+    margin-bottom: 20px;
+}
+
+.logs-tabs {
+    display: flex;
+    gap: 10px;
+    padding: 4px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #e2e8f0;
+}
+
+.logs-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    color: #64748b;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.logs-tab:hover {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.logs-tab.active {
+    background: var(--theme-gradient);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.logs-tab i {
+    font-size: 1.1rem;
+}
+
+.tab-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: rgba(100,116,139,0.1);
+    color: #64748b;
+}
+
+.logs-tab.active .tab-badge {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+}
+
+.tab-badge.error {
+    background: rgba(239,68,68,0.1);
+    color: #ef4444;
+}
+
+.logs-tab.active .tab-badge.error {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+}
+
+/* 日志面板卡片 */
+.logs-panel {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+}
+
+.logs-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.logs-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 0.95rem;
+}
+
+.logs-panel-title i {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    font-size: 1rem;
+}
+
+.logs-panel-title.received i { background: var(--theme-gradient); color: #fff; }
+.logs-panel-title.plugin i { background: var(--theme-gradient); color: #fff; }
+.logs-panel-title.framework i { background: var(--theme-gradient); color: #fff; }
+.logs-panel-title.error i { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; }
+
+.logs-panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.auto-scroll-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: #64748b;
+    cursor: pointer;
+}
+
+.auto-scroll-toggle input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary-color, #5865F2);
+}
+
+/* 日志容器 */
+.logs-container {
+    height: 580px;
+    overflow-y: auto;
+    background: #fafbfc;
+}
+
+/* 日志表格样式 */
+.logs-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.logs-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.logs-table th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    background: #f8fafc;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.logs-table td {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+
+.logs-table tbody tr {
+    transition: background 0.15s;
+}
+
+.logs-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.logs-table .col-time {
+    width: 180px;
+    min-width: 180px;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    font-family: 'SF Mono', Monaco, monospace;
+    white-space: nowrap;
+}
+
+.logs-table .col-group-id,
+.logs-table .col-user-id {
+    width: 120px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.8rem;
+}
+
+.logs-table .col-group-id {
+    color: var(--primary-color, #5865F2);
+}
+
+.logs-table .col-user-id {
+    color: #10b981;
+}
+
+.logs-table .col-content {
+    word-break: break-word;
+    max-width: 400px;
+}
+
+.logs-table .col-action {
+    width: 50px;
+    text-align: center;
+}
+
+/* 普通日志条目 */
+.log-entry {
+    padding: 8px 16px;
+    border-bottom: 1px solid #f1f5f9;
+    transition: background 0.15s;
+}
+
+.log-entry:hover {
+    background: #f8fafc;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-entry .timestamp {
+    color: #94a3b8;
+    font-size: 0.75rem;
+    font-family: 'SF Mono', Monaco, monospace;
+    margin-right: 10px;
+}
+
+.log-entry .message-content {
+    color: #334155;
+    font-size: 0.85rem;
+    word-break: break-word;
+}
+
+/* 复制按钮 */
+.log-copy-btn {
+    opacity: 0;
+    padding: 6px;
+    border-radius: 6px;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+tr:hover .log-copy-btn,
+.log-entry:hover .log-copy-btn {
+    opacity: 1;
+}
+
+.log-copy-btn:hover {
+    background: #e2e8f0;
+    color: var(--primary-color, #5865F2);
+}
+
+.log-copy-btn.copy-success {
+    color: #10b981 !important;
+}
+
+/* 错误日志详情 */
+.error-details-wrapper {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.detail-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.detail-toggle:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.detail-toggle.expanded {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+    color: var(--primary-color, #5865F2);
+}
+
+.detail-toggle.error {
+    border-color: #fecaca;
+    color: #ef4444;
+}
+
+.detail-toggle.error:hover {
+    background: #fef2f2;
+}
+
+.detail-toggle.error.expanded {
+    background: #fef2f2;
+    border-color: #fca5a5;
+}
+
+.detail-toggle i {
+    font-size: 0.7rem;
+    transition: transform 0.2s;
+}
+
+.detail-toggle.expanded i {
+    transform: rotate(90deg);
+}
+
+.detail-content {
+    width: 100%;
+    margin-top: 6px;
+}
+
+.detail-text {
+    padding: 10px 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #334155;
+    word-break: break-word;
+}
+
+.detail-code {
+    margin: 0;
+    padding: 10px 12px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 6px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.detail-code.error {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+/* 空状态 */
+.logs-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: #94a3b8;
+}
+
+.logs-empty i {
+    font-size: 3rem;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.logs-empty p {
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+/* 加载状态 */
+.logs-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: #64748b;
+}
+
+.logs-loading .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid #e2e8f0;
+    border-top-color: var(--primary-color, #5865F2);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 12px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 动画 */
+.animated-fade {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .logs-tabs {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    
+    .logs-tab {
+        flex: 1 1 calc(50% - 6px);
+        padding: 10px 12px;
+        font-size: 0.8rem;
+    }
+    
+    .logs-tab span:not(.tab-badge) {
+        display: none;
+    }
+    
+    .logs-table th,
+    .logs-table td {
+        padding: 10px 12px;
+        font-size: 0.8rem;
+    }
+    
+    .logs-table .col-time {
+        width: 100px;
+        font-size: 0.7rem;
+    }
+    
+    .logs-table .col-group-id,
+    .logs-table .col-user-id {
+        width: 80px;
+        font-size: 0.7rem;
+    }
+    
+    .logs-container {
+        height: 450px;
+    }
+}
+</style>
+{% endblock %}
+
 {% block scripts %}
 <script>
 const logPanelConfig = {
-    received: { title: '接收到的消息', icon: 'chat-dots', emptyText: '暂无消息', autoScroll: true },
-    plugin: { title: '插件日志', icon: 'puzzle', emptyText: '暂无日志', autoScroll: true },
-    framework: { title: '框架日志', icon: 'gear', emptyText: '暂无日志', autoScroll: true },
-    error: { title: '错误日志', icon: 'exclamation-triangle', emptyText: '暂无错误日志', autoScroll: true }
+    received: { title: '接收消息', icon: 'chat-dots', emptyText: '暂无消息记录' },
+    plugin: { title: '插件日志', icon: 'puzzle', emptyText: '暂无插件日志' },
+    framework: { title: '框架日志', icon: 'gear', emptyText: '暂无框架日志' },
+    error: { title: '错误日志', icon: 'exclamation-triangle', emptyText: '暂无错误日志' }
 };
 const logContainers = {};
+const logCounts = { received: 0, plugin: 0, framework: 0, error: 0 };
 
 function initLogPanels() {
     Object.keys(logPanelConfig).forEach(type => {
         const config = logPanelConfig[type];
         const tabPane = document.getElementById(type);
         
-        let logsContent = '';
-        if (type === 'received') {
-            logsContent = `
-                <table class="log-table">
-                    <thead>
-                        <tr>
-                            <th class="col-time">时间</th>
-                            <th class="col-group-id">群ID</th>
-                            <th class="col-user-id">用户ID</th>
-                            <th class="col-content">消息内容</th>
-                            <th class="col-action">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="${type}-logs-tbody">
-                        <tr class="empty-logs">
-                            <td colspan="5" style="text-align: center; padding: 30px;">
-                                <i class="bi bi-inbox fs-1 d-block mb-2"></i> ${config.emptyText}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            `;
-        } else {
-            logsContent = `
-                <div class="empty-logs">
-                    <i class="bi bi-inbox fs-1 d-block mb-2"></i> ${config.emptyText}
-                </div>
-            `;
-        }
+        const isTable = type === 'received';
+        const logsContent = isTable ? `
+            <table class="logs-table">
+                <thead>
+                    <tr>
+                        <th class="col-time">时间</th>
+                        <th class="col-group-id">群ID</th>
+                        <th class="col-user-id">用户ID</th>
+                        <th class="col-content">消息内容</th>
+                        <th class="col-action"></th>
+                    </tr>
+                </thead>
+                <tbody id="${type}-logs-tbody"></tbody>
+            </table>
+        ` : `<div id="${type}-logs-list"></div>`;
         
         tabPane.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h6 class="mb-0"><i class="bi bi-${config.icon}"></i> ${config.title}</h6>
-                <div class="auto-scroll-toggle">
-                    <input type="checkbox" id="${type}-auto-scroll" class="form-check-input" checked>
-                    <label for="${type}-auto-scroll" class="form-check-label ms-1">自动滚动</label>
+            <div class="logs-panel">
+                <div class="logs-panel-header">
+                    <div class="logs-panel-title ${type}">
+                        <i class="bi bi-${config.icon}"></i>
+                        <span>${config.title}</span>
+                    </div>
+                    <div class="logs-panel-actions">
+                        <label class="auto-scroll-toggle">
+                            <input type="checkbox" id="${type}-auto-scroll" checked>
+                            <span>自动滚动</span>
+                        </label>
+                    </div>
                 </div>
-            </div>
-            <div class="logs-container" id="${type}-logs">
-                ${logsContent}
+                <div class="logs-container" id="${type}-logs">
+                    ${logsContent}
+                    <div class="logs-empty" id="${type}-empty">
+                        <i class="bi bi-inbox"></i>
+                        <p>${config.emptyText}</p>
+                    </div>
+                </div>
             </div>
         `;
         
-        const container = type === 'received' 
+        const container = isTable 
             ? document.getElementById(`${type}-logs-tbody`)
-            : document.getElementById(`${type}-logs`);
+            : document.getElementById(`${type}-logs-list`);
             
         logContainers[type] = {
             container: container,
-            autoScroll: config.autoScroll || true,
-            isTable: type === 'received',
+            autoScroll: true,
+            isTable: isTable,
         };
         
         const checkbox = document.getElementById(`${type}-auto-scroll`);
-        checkbox.checked = logContainers[type].autoScroll;
         checkbox.addEventListener('change', () => {
             logContainers[type].autoScroll = checkbox.checked;
         });
     });
+    
+    // 标签页切换
+    document.querySelectorAll('.logs-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            document.querySelectorAll('.logs-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('show', 'active'));
+            
+            this.classList.add('active');
+            const target = document.querySelector(this.dataset.bsTarget);
+            if (target) {
+                target.classList.add('show', 'active');
+            }
+        });
+    });
 }
 
+function updateLogCount(type, count) {
+    logCounts[type] = count;
+    const badge = document.getElementById(`${type}-count`);
+    if (badge) {
+        badge.textContent = count > 99 ? '99+' : count;
+    }
+}
 
 function updateLogDisplay(type, logs) {
     const logInfo = logContainers[type];
     if (!logInfo) return;
     
     const container = logInfo.container;
+    const emptyEl = document.getElementById(`${type}-empty`);
+    
     if (!logs || logs.length === 0) {
-        if (logInfo.isTable) {
-            container.innerHTML = `<tr class="empty-logs"><td colspan="5" style="text-align: center; padding: 30px;"><i class="bi bi-inbox fs-1 d-block mb-2"></i> 暂无日志</td></tr>`;
-        } else {
-            container.innerHTML = `<div class="empty-logs"><i class="bi bi-inbox fs-1 d-block mb-2"></i> 暂无日志</div>`;
-        }
+        container.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = 'flex';
+        updateLogCount(type, 0);
         return;
     }
     
+    if (emptyEl) emptyEl.style.display = 'none';
     container.innerHTML = '';
     logs.forEach(log => addLogEntry(container, log, false, type));
-    
-    const emptyLog = container.querySelector('.empty-logs');
-    if (emptyLog) emptyLog.remove();
+    updateLogCount(type, logs.length);
 }
 
 function addLogEntry(container, log, prepend = false, logType = null) {
-    const emptyLog = container.querySelector('.empty-logs');
-    if (emptyLog) emptyLog.remove();
-    
-    if (!logType) {
-        logType = Object.keys(logContainers).find(key => logContainers[key].container === container);
-    }
+    const emptyEl = document.getElementById(`${logType}-empty`);
+    if (emptyEl) emptyEl.style.display = 'none';
     
     const logInfo = logContainers[logType];
     const timestamp = log.timestamp || new Date().toLocaleString('zh-CN');
-    const content = log.content || log;
     
     if (logInfo && logInfo.isTable) {
         const row = document.createElement('tr');
@@ -167,15 +625,15 @@ function addLogEntry(container, log, prepend = false, logType = null) {
         
         const groupId = log.group_id || '-';
         const userId = log.user_id || '-';
-        const messageContent = log.message || log.content;
+        const messageContent = log.message || log.content || '';
         
         row.innerHTML = `
             <td class="col-time">${timestamp}</td>
-            <td class="col-group-id">${escapeHtml(groupId)}</td>
-            <td class="col-user-id">${escapeHtml(userId)}</td>
+            <td class="col-group-id">${escapeHtml(String(groupId))}</td>
+            <td class="col-user-id">${escapeHtml(String(userId))}</td>
             <td class="col-content">${escapeHtml(messageContent)}</td>
             <td class="col-action">
-                <i class="bi bi-clipboard log-copy-btn" title="复制消息内容" onclick="copyTableLogContent(this)"></i>
+                <i class="bi bi-clipboard log-copy-btn" title="复制" onclick="copyTableLogContent(this)"></i>
             </td>
         `;
         
@@ -186,25 +644,75 @@ function addLogEntry(container, log, prepend = false, logType = null) {
         const entry = document.createElement('div');
         entry.className = 'log-entry animated-fade';
         
+        const content = log.content || log;
         let entryHtml = `
-            <div class="d-flex justify-content-between">
+            <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <span class="timestamp">[${timestamp}]</span>
-                    <span class="message-content">${content}</span>
+                    <span class="message-content">${escapeHtml(String(content))}</span>
                 </div>
-                <i class="bi bi-clipboard log-copy-btn" title="复制日志内容" onclick="copyLogContent(this)"></i>
+                <i class="bi bi-clipboard log-copy-btn" title="复制" onclick="copyLogContent(this)"></i>
             </div>
         `;
         
-        if (log.traceback) {
-            entryHtml += `
-            <div class="mt-2">
-                <button class="btn btn-sm btn-outline-danger mb-2" 
-                        onclick="this.nextElementSibling.classList.toggle('d-none');this.textContent=this.textContent.includes('显示')?'隐藏调用栈':'显示调用栈'">
-                    显示调用栈
-                </button>
-                <pre class="plugin-error d-none">${log.traceback}</pre>
-            </div>`;
+        // 错误日志额外字段 - 可折叠展开
+        if (logType === 'error') {
+            const hasExtra = log.raw_message || log.send_payload || log.resp_obj || log.traceback;
+            if (hasExtra) {
+                entryHtml += `<div class="error-details-wrapper">`;
+                
+                if (log.raw_message) {
+                    entryHtml += `
+                        <button class="detail-toggle" onclick="toggleDetail(this)">
+                            <i class="bi bi-chevron-right"></i> 原始消息
+                        </button>
+                        <div class="detail-content" style="display:none;">
+                            <div class="detail-text">${escapeHtml(String(log.raw_message))}</div>
+                        </div>
+                    `;
+                }
+                
+                if (log.send_payload) {
+                    const payload = typeof log.send_payload === 'object' 
+                        ? JSON.stringify(log.send_payload, null, 2) 
+                        : String(log.send_payload);
+                    entryHtml += `
+                        <button class="detail-toggle" onclick="toggleDetail(this)">
+                            <i class="bi bi-chevron-right"></i> 发送内容
+                        </button>
+                        <div class="detail-content" style="display:none;">
+                            <pre class="detail-code">${escapeHtml(payload)}</pre>
+                        </div>
+                    `;
+                }
+                
+                if (log.resp_obj) {
+                    const resp = typeof log.resp_obj === 'object' 
+                        ? JSON.stringify(log.resp_obj, null, 2) 
+                        : String(log.resp_obj);
+                    entryHtml += `
+                        <button class="detail-toggle" onclick="toggleDetail(this)">
+                            <i class="bi bi-chevron-right"></i> 响应对象
+                        </button>
+                        <div class="detail-content" style="display:none;">
+                            <pre class="detail-code">${escapeHtml(resp)}</pre>
+                        </div>
+                    `;
+                }
+                
+                if (log.traceback) {
+                    entryHtml += `
+                        <button class="detail-toggle error" onclick="toggleDetail(this)">
+                            <i class="bi bi-chevron-right"></i> 调用栈
+                        </button>
+                        <div class="detail-content" style="display:none;">
+                            <pre class="detail-code error">${escapeHtml(log.traceback)}</pre>
+                        </div>
+                    `;
+                }
+                
+                entryHtml += `</div>`;
+            }
         }
         
         entry.innerHTML = entryHtml;
@@ -213,9 +721,14 @@ function addLogEntry(container, log, prepend = false, logType = null) {
             : container.appendChild(entry);
     }
     
-    if (prepend && logType && logContainers[logType].autoScroll) {
-        const logsContainer = container.closest('.logs-container');
-        if (logsContainer) logsContainer.scrollTop = 0;
+    if (prepend) {
+        logCounts[logType]++;
+        updateLogCount(logType, logCounts[logType]);
+        
+        if (logContainers[logType].autoScroll) {
+            const logsContainer = container.closest('.logs-container');
+            if (logsContainer) logsContainer.scrollTop = 0;
+        }
     }
     
     while (container.children.length > 200) {
@@ -223,35 +736,44 @@ function addLogEntry(container, log, prepend = false, logType = null) {
     }
 }
 
+function toggleDetail(btn) {
+    const content = btn.nextElementSibling;
+    const icon = btn.querySelector('i');
+    const isHidden = content.style.display === 'none';
+    content.style.display = isHidden ? 'block' : 'none';
+    icon.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+    btn.classList.toggle('expanded', isHidden);
+}
+
 function copyToClipboard(content, button) {
-    const textarea = document.createElement('textarea');
-    textarea.value = content;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    const success = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    
-    button.className = success ? 'bi bi-check-circle log-copy-btn copy-success' : 'bi bi-exclamation-circle log-copy-btn copy-fail';
-    button.style.color = success ? '#28a745' : '#dc3545';
-    setTimeout(() => { 
-        button.className = 'bi bi-clipboard log-copy-btn'; 
-        button.style.color = ''; 
-    }, 2000);
+    navigator.clipboard.writeText(content).then(() => {
+        button.className = 'bi bi-check-circle log-copy-btn copy-success';
+        setTimeout(() => { button.className = 'bi bi-clipboard log-copy-btn'; }, 1500);
+    }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = content;
+        textarea.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        button.className = 'bi bi-check-circle log-copy-btn copy-success';
+        setTimeout(() => { button.className = 'bi bi-clipboard log-copy-btn'; }, 1500);
+    });
 }
 
 function copyTableLogContent(button) {
     const row = button.closest('tr');
     const cells = row.querySelectorAll('td');
-    const content = `时间: ${cells[0].textContent}\n群ID: ${cells[1].textContent}\n用户ID: ${cells[2].textContent}\n消息: ${cells[3].textContent}`;
+    const content = `[${cells[0].textContent}] 群:${cells[1].textContent} 用户:${cells[2].textContent} ${cells[3].textContent}`;
     copyToClipboard(content, button);
 }
 
 function copyLogContent(button) {
-    const contentElement = button.parentNode.parentNode.querySelector('.message-content');
-    const content = contentElement?.textContent.trim();
-    if (content) copyToClipboard(content, button);
+    const entry = button.closest('.log-entry');
+    const timestamp = entry.querySelector('.timestamp')?.textContent || '';
+    const content = entry.querySelector('.message-content')?.textContent || '';
+    copyToClipboard(`${timestamp} ${content}`, button);
 }
 
 function escapeHtml(text) {
@@ -262,88 +784,59 @@ function escapeHtml(text) {
 
 function checkStandaloneWeb() {
     fetch('/web/api/system/status')
-    .then(response => response.json())
+    .then(r => r.json())
     .then(data => {
         if (data.success && data.standalone_web === true) {
             document.getElementById('standalone-web-warning').style.display = 'block';
-        } else if (data.success) {
-            document.getElementById('standalone-web-warning').style.display = 'none';
         }
     })
     .catch(() => {});
 }
 
 function loadTodayLogs() {
-    /**
-     * 从数据库加载今日的历史日志
-     * 每次进入日志界面都会重新加载，不使用缓存
-     */
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+    const token = new URLSearchParams(window.location.search).get('token');
+    if (!token) return;
     
-    if (!token) {
-        console.warn('未找到token，跳过加载今日日志');
-        return;
-    }
-    
-    // 显示加载提示
     Object.keys(logContainers).forEach(type => {
         const container = logContainers[type].container;
-        if (logContainers[type].isTable) {
-            container.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;"><i class="bi bi-arrow-clockwise spin"></i> 正在加载今日日志...</td></tr>`;
-        } else {
-            container.innerHTML = `<div class="text-center py-3"><i class="bi bi-arrow-clockwise spin"></i> 正在加载今日日志...</div>`;
+        const emptyEl = document.getElementById(`${type}-empty`);
+        if (emptyEl) {
+            emptyEl.innerHTML = `
+                <div class="logs-loading">
+                    <div class="spinner"></div>
+                    <p>正在加载日志...</p>
+                </div>
+            `;
+            emptyEl.style.display = 'flex';
         }
     });
     
     fetch(`/web/api/logs/today?token=${encodeURIComponent(token)}`)
-    .then(response => response.json())
+    .then(r => r.json())
     .then(data => {
         if (data.success && data.data) {
-            // 处理每种类型的日志
             Object.keys(logContainers).forEach(type => {
                 const logData = data.data[type];
-                if (logData && logData.logs) {
-                    // 将历史日志添加到对应的容器中
-                    updateLogDisplay(type, logData.logs);
-                    
-                    console.log(`已加载 ${type} 类型的今日日志: ${logData.total} 条`);
-                } else {
-                    // 如果没有日志，显示空状态
-                    updateLogDisplay(type, []);
-                }
+                updateLogDisplay(type, logData?.logs || []);
             });
-            
-            console.log(`成功加载今日日志，日期: ${data.date}，每种类型最多: ${data.limit} 条`);
         } else {
-            console.error('加载今日日志失败:', data.message || '未知错误');
-            // 加载失败时显示空状态
-            Object.keys(logContainers).forEach(type => {
-                updateLogDisplay(type, []);
-            });
+            Object.keys(logContainers).forEach(type => updateLogDisplay(type, []));
         }
     })
-    .catch(error => {
-        console.error('加载今日日志请求失败:', error);
-        // 请求失败时显示空状态
-        Object.keys(logContainers).forEach(type => {
-            updateLogDisplay(type, []);
-        });
+    .catch(() => {
+        Object.keys(logContainers).forEach(type => updateLogDisplay(type, []));
     });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     initLogPanels();
     checkStandaloneWeb();
-    
-    // 加载今日历史日志
     loadTodayLogs();
     
     window.updateLogDisplay = updateLogDisplay;
     window.handleNewLog = function(data) {
-        const logType = data.type;
-        if (logContainers[logType]) {
-            addLogEntry(logContainers[logType].container, data.data, true, logType);
+        if (logContainers[data.type]) {
+            addLogEntry(logContainers[data.type].container, data.data, true, data.type);
         }
     };
     

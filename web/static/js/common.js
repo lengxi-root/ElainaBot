@@ -394,27 +394,27 @@ function updateRobotInfo(data) {
     const robotLink = document.getElementById('robot-link');
     if (robotLink && data.link) {
         robotLink.href = data.link;
-        robotLink.textContent = '访问机器人';
     }
 
     const connectionTypeEl = document.getElementById('connection-type');
     const connectionStatusEl = document.getElementById('connection-status');
+    const statusDot = document.getElementById('robot-status-dot');
     
-    if (connectionTypeEl && connectionStatusEl) {
+    if (connectionTypeEl) {
         window.websocketEnabled = data.connection_type === 'WebSocket';
         connectionTypeEl.textContent = data.connection_type || 'WebHook';
-        
-        if (data.connection_type === 'WebSocket') {
-            connectionTypeEl.className = 'badge bg-success ms-2';
-            connectionStatusEl.textContent = data.connection_status || '检测中...';
-            connectionStatusEl.className = data.connection_status === '连接成功' ? 'badge bg-success' 
-                : data.connection_status === '连接失败' ? 'badge bg-danger' 
-                : 'badge bg-warning';
-        } else {
-            connectionTypeEl.className = 'badge bg-primary ms-2';
-            connectionStatusEl.textContent = '接收中';
-            connectionStatusEl.className = 'badge bg-success';
-        }
+    }
+    
+    if (connectionStatusEl) {
+        const isOnline = data.connection_type === 'WebHook' || data.connection_status === '连接成功';
+        connectionStatusEl.textContent = isOnline ? '在线' : '离线';
+        connectionStatusEl.classList.toggle('online', isOnline);
+    }
+    
+    if (statusDot) {
+        const isOnline = data.connection_type === 'WebHook' || data.connection_status === '连接成功';
+        statusDot.classList.toggle('online', isOnline);
+        statusDot.classList.toggle('offline', !isOnline);
     }
 }
 

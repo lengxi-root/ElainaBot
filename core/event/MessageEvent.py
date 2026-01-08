@@ -88,9 +88,17 @@ class MessageEvent:
 
     _IGNORE_ERROR_CODES = [11293, 40054002, 40054003]
     
+    _TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
+    
     _MSG_TYPES_NEED_MSG_ID = None
     _MSG_TYPES_NEED_EVENT_ID = None
     _MSG_TYPES_NO_RECORD = None
+    _MSG_TYPES_NEED_EVENT_PREFIX = None
+    
+    _EVENT_PREFIX_MAP = {
+        'GROUP_ADD_ROBOT': 'ROBOT_ADD',
+        'FRIEND_ADD': 'FRIEND_ADD'
+    }
     
     _MARKDOWN_PATTERNS = [
         re.compile(r'(!?\[.*?\])(\s*\(.*?\))'),
@@ -109,10 +117,15 @@ class MessageEvent:
             cls._MSG_TYPES_NEED_MSG_ID = frozenset([cls.GROUP_MESSAGE, cls.DIRECT_MESSAGE, cls.CHANNEL_MESSAGE, cls.CHANNEL_DIRECT_MESSAGE])
             cls._MSG_TYPES_NEED_EVENT_ID = frozenset([cls.INTERACTION, cls.GROUP_ADD_ROBOT])
             cls._MSG_TYPES_NO_RECORD = frozenset([cls.GROUP_DEL_ROBOT, cls.FRIEND_DEL])
+            cls._MSG_TYPES_NEED_EVENT_PREFIX = frozenset([cls.GROUP_ADD_ROBOT, cls.FRIEND_ADD])
     
     @staticmethod
     def _generate_msg_seq():
         return random.randint(10000, 999999)
+    
+    @classmethod
+    def _get_event_prefix(cls, message_type):
+        return cls._EVENT_PREFIX_MAP.get(message_type, 'UNKNOWN')
 
     def __init__(self, data, skip_recording=False, http_context=None):
         if self._MSG_TYPES_NEED_MSG_ID is None:
@@ -412,9 +425,8 @@ class MessageEvent:
         payload = self._build_media_message_payload(content, file_info)
         endpoint = self._get_endpoint()
         
-        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
-            event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
-            payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
+        if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+            payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}")
         self._handle_auto_recall(message_id, auto_delete_time)
@@ -434,8 +446,8 @@ class MessageEvent:
         hide_avatar_and_center = HIDE_AVATAR_GLOBAL if hide_avatar_and_center is None else hide_avatar_and_center
         payload = self._build_message_payload(content, buttons or [], media_payload, hide_avatar_and_center, use_markdown)
         
-        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD) and not payload.get('event_id'):
-            payload['event_id'] = self.get('id') or f"{'ROBOT_ADD' if self.message_type == self.GROUP_ADD_ROBOT else 'FRIEND_ADD'}_{int(time.time())}"
+        if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX and not payload.get('event_id'):
+            payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, self._get_endpoint('reply'), "消息", f"content: {content}")
         self._handle_auto_recall(message_id, auto_delete_time)
@@ -477,9 +489,8 @@ class MessageEvent:
             
         endpoint = self._get_endpoint()
         
-        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
-            event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
-            payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
+        if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+            payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, endpoint, "markdown模板消息", f"template: {template}, params: {params}")
         self._handle_auto_recall(message_id, auto_delete_time)
@@ -535,8 +546,8 @@ class MessageEvent:
         
         payload = self._set_message_id_in_payload(payload)
         
-        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
-            payload['event_id'] = self.get('id') or f"{'ROBOT_ADD' if self.message_type == self.GROUP_ADD_ROBOT else 'FRIEND_ADD'}_{int(time.time())}"
+        if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+            payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
         
         message_id = self._send_with_error_handling(payload, self._get_endpoint(), "markdown AJ模板消息", f"text: {text[:50]}...")
         self._handle_auto_recall(message_id, auto_delete_time)
@@ -684,9 +695,8 @@ class MessageEvent:
             return None
         payload = payload_builder(**kwargs)
         endpoint = self._get_endpoint()
-        if self.message_type in (self.GROUP_ADD_ROBOT, self.FRIEND_ADD):
-            event_prefix = "ROBOT_ADD" if self.message_type == self.GROUP_ADD_ROBOT else "FRIEND_ADD"
-            payload['event_id'] = self.get('id') or f"{event_prefix}_{int(time.time())}"
+        if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+            payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
         message_id = self._send_with_error_handling(payload, endpoint, content_type)
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
@@ -1029,13 +1039,13 @@ class MessageEvent:
 
     def _record_message_to_db(self):
         self._record_message_to_db_only()
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.datetime.now().strftime(self._TIMESTAMP_FORMAT)
         self._notify_web_display(timestamp)
     
     def _record_message_to_db_only(self):
         from function.log_db import add_log_to_db
         from config import SAVE_RAW_MESSAGE_TO_DB
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.datetime.now().strftime(self._TIMESTAMP_FORMAT)
         db_entry = {
             'timestamp': timestamp, 
             'type': 'received',
@@ -1106,7 +1116,7 @@ class MessageEvent:
         return False
 
     def _log_error(self, msg, tb=None, resp_obj=None, send_payload=None, raw_message=None):
-        log_data = {'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'content': msg, 'traceback': tb or ""}
+        log_data = {'timestamp': datetime.datetime.now().strftime(self._TIMESTAMP_FORMAT), 'content': msg, 'traceback': tb or ""}
         if resp_obj is not None:
             log_data['resp_obj'] = str(resp_obj)
         if send_payload is not None:

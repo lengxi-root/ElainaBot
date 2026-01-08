@@ -7,91 +7,59 @@ from config import LOG_DB_CONFIG, WEB_CONFIG, ROBOT_QQ, appid, WEBSOCKET_CONFIG
 from function.log_db import add_log_to_db, add_sent_message_to_db
 from core.event.MessageEvent import MessageEvent
 
-# 创建 Web 模块 logger
 logger = logging.getLogger('ElainaBot.web')
 
-try:
-    from web.tools import (
-        session_manager,
-        log_handler,
-        system_info,
-        log_query,
-        update_handler,
-        robot_info,
-        sandbox_handler,
-        status_routes
-    )
-except ImportError:
-    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    import session_manager
-    import log_handler
-    import system_info
-    import log_query
-    import update_handler
-    import robot_info
-    import sandbox_handler
-    import status_routes
+_TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+
+from web.tools import session_manager, log_handler, system_info, log_query, update_handler, robot_info, status_routes
 
 PREFIX = '/web'
-web = Blueprint('web', __name__, 
-                     template_folder='templates',
-                     static_folder='static')
+_COOKIE_SECRET = 'elaina_cookie_secret_key_2024_v1'
+_SESSION_DAYS = 7
+_SESSION_MAX_AGE = 604800
+
+_SECURITY_HEADERS = (
+    ('X-Content-Type-Options', 'nosniff'), ('X-Frame-Options', 'DENY'), ('X-XSS-Protection', '1; mode=block'),
+    ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn http://*.qlogo.cn *.nt.qq.com.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"),
+    ('Referrer-Policy', 'strict-origin-when-cross-origin'), ('Permissions-Policy', 'geolocation=(), microphone=(), camera=()'),
+    ('Strict-Transport-Security', 'max-age=0'), ('Cache-Control', 'no-cache, no-store, must-revalidate'), ('Pragma', 'no-cache'), ('Expires', '0')
+)
+
+web = Blueprint('web', __name__, template_folder='templates', static_folder='static')
 socketio = None
-plugins_info = []
 
 valid_sessions = session_manager.valid_sessions
 ip_access_data = session_manager.ip_access_data
-
 message_logs = log_handler.message_logs
 framework_logs = log_handler.framework_logs
 error_logs = log_handler.error_logs
 
-START_TIME = system_info.START_TIME
-
-log_handler.set_log_db_config(LOG_DB_CONFIG, add_log_to_db)
-
-system_info.set_start_time(datetime.now())
-
-def format_datetime(dt_str):
-    try:
-        if isinstance(dt_str, str):
-            dt = datetime.fromisoformat(dt_str)
-        else:
-            dt = dt_str
-        return dt.strftime('%Y-%m-%d %H:%M:%S')
-    except Exception:
-        return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-def cleanup_expired_records(data_dict, time_field, expiry_seconds, cleanup_interval=3600):
-    current_time = datetime.now()
-    cleaned_count = 0
-    
-    for key in list(data_dict.keys()):
-        record = data_dict[key]
-        if time_field in record:
-            try:
-                record_time = datetime.fromisoformat(record[time_field])
-                if (current_time - record_time).total_seconds() >= expiry_seconds:
-                    if isinstance(record.get(time_field.replace('_time', '_times')), list):
-                        record[time_field.replace('_time', '_times')] = []
-                    cleaned_count += 1
-            except Exception:
-                pass
-    
-    return cleaned_count
-
 extract_device_info = session_manager.extract_device_info
 record_ip_access = session_manager.record_ip_access
-is_ip_banned = session_manager.is_ip_banned
-cleanup_expired_ip_bans = session_manager.cleanup_expired_ip_bans
 cleanup_expired_sessions = session_manager.cleanup_expired_sessions
 limit_session_count = session_manager.limit_session_count
 generate_session_token = session_manager.generate_session_token
 sign_cookie_value = session_manager.sign_cookie_value
 verify_cookie_value = session_manager.verify_cookie_value
 save_session_data = session_manager.save_session_data
+get_real_ip = session_manager.get_real_ip
+
+add_display_message = log_handler.add_display_message
+add_plugin_log = log_handler.add_plugin_log
+add_framework_log = log_handler.add_framework_log
+add_error_log = log_handler.add_error_log
+get_system_info = system_info.get_system_info
+get_websocket_status = system_info.get_websocket_status
+
+log_handler.set_log_db_config(LOG_DB_CONFIG, add_log_to_db)
+system_info.set_start_time(datetime.now())
+system_info.set_error_log_func(add_error_log)
+log_query.set_log_queues(message_logs, framework_logs, error_logs)
+log_query.set_config(LOG_DB_CONFIG, add_error_log)
+status_routes.set_log_queues(message_logs, framework_logs)
+robot_info.set_config(ROBOT_QQ, appid, WEBSOCKET_CONFIG, get_websocket_status)
 
 def create_response(success=True, data=None, error=None, status_code=200, response_type='api', **extra):
     if success:
@@ -104,12 +72,10 @@ def create_response(success=True, data=None, error=None, status_code=200, respon
         result.update(extra)
     return jsonify(result), status_code
 
-api_error_response = lambda error_msg, status_code=500, **extra: create_response(False, error=error_msg, status_code=status_code, **extra)
-api_success_response = lambda data=None, **extra: create_response(True, data=data, **extra)
-openapi_error_response = lambda error_msg, status_code=200: create_response(False, error=error_msg, status_code=status_code, response_type='openapi')
-openapi_success_response = lambda data=None, **extra: create_response(True, data=data, response_type='openapi', **extra)
-
-sandbox_handler.set_response_functions(api_success_response, api_error_response)
+api_error_response = lambda msg, code=500, **e: create_response(False, error=msg, status_code=code, **e)
+api_success_response = lambda data=None, **e: create_response(True, data=data, **e)
+openapi_error_response = lambda msg, code=200: create_response(False, error=msg, status_code=code, response_type='openapi')
+openapi_success_response = lambda data=None, **e: create_response(True, data=data, response_type='openapi', **e)
 
 def catch_error(func):
     @functools.wraps(func)
@@ -117,18 +83,12 @@ def catch_error(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            import traceback
-            error_trace = traceback.format_exc()
+            tb = traceback.format_exc()
             try:
-                add_log_to_db('error', {
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 
-                    'content': f"{func.__name__} 错误: {str(e)}",
-                    'traceback': error_trace
-                })
+                add_log_to_db('error', {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'content': f"{func.__name__} 错误: {str(e)}", 'traceback': tb})
             except:
                 pass
-            # 打印到控制台以便调试
-            logger.error(f"catch_error捕获异常 in {func.__name__}: {str(e)}\n{error_trace}")
+            logger.error(f"catch_error捕获异常 in {func.__name__}: {str(e)}\n{tb}")
             return api_error_response(str(e))
     return wrapper
 
@@ -171,19 +131,25 @@ def token_auth(func):
         return func(*args, **kwargs)
     return wrapper
 
-add_display_message = log_handler.add_display_message
-add_plugin_log = log_handler.add_plugin_log
-add_framework_log = log_handler.add_framework_log
-add_error_log = log_handler.add_error_log
+from web.tools.bot_restart import execute_bot_restart
+from web.tools.openapi_handler import (openapi_user_data, handle_start_login, handle_check_login, handle_get_botlist,
+    handle_get_botdata, handle_get_notifications, handle_logout, handle_get_login_status, handle_import_templates,
+    handle_verify_saved_login, handle_get_templates, handle_get_template_detail, handle_render_button_template,
+    handle_get_whitelist, handle_update_whitelist, handle_get_delete_qr, handle_check_delete_auth, handle_execute_delete_ip,
+    handle_batch_add_whitelist, handle_create_template_qr, handle_check_template_qr, handle_preview_template,
+    handle_submit_template, handle_audit_templates, handle_delete_templates)
+from web.tools.message_handler import (handle_get_chats, handle_get_chat_history, handle_send_message,
+    handle_get_nickname, handle_get_nicknames_batch, handle_get_markdown_templates)
+from web.tools.statistics_handler import (handle_get_statistics, handle_get_statistics_task_status,
+    handle_get_all_statistics_tasks, handle_complete_dau, handle_get_user_nickname, handle_get_available_dates)
+from web.tools.config_handler import (handle_get_config, handle_parse_config, handle_update_config_items,
+    handle_save_config, handle_check_pending_config, handle_cancel_pending_config)
+from web.tools.plugin_manager import (handle_toggle_plugin, handle_read_plugin, handle_save_plugin,
+    handle_create_plugin, handle_create_plugin_folder, handle_get_plugin_folders, handle_upload_plugin, scan_plugins_internal)
 
-system_info.set_error_log_func(add_error_log)
-
-log_query.set_log_queues(message_logs, framework_logs, error_logs)
-log_query.set_config(LOG_DB_CONFIG, add_error_log)
-
-status_routes.set_log_queues(message_logs, framework_logs)
-
-sandbox_handler.set_message_event_class(MessageEvent)
+status_routes.set_restart_function(execute_bot_restart)
+check_openapi_login = lambda uid: openapi_user_data.get(uid)
+scan_plugins = scan_plugins_internal
 
 @web.route('/login', methods=['POST'])
 @check_ip_ban
@@ -194,54 +160,25 @@ def login():
     if password == WEB_CONFIG['admin_password']:
         cleanup_expired_sessions()
         limit_session_count()
-        
-        # 获取真实 IP（支持反向代理）
-        from web.tools.session_manager import get_real_ip
         current_ip = get_real_ip(request)
-        
         record_ip_access(current_ip, 'password_success', extract_device_info(request))
-        
         current_ua = request.headers.get('User-Agent', '')[:200]
-        existing_session_token = None
+        now = datetime.now()
+        expires = now + timedelta(days=_SESSION_DAYS)
         
-        for session_token, session_info in valid_sessions.items():
-            if (session_info.get('ip') == current_ip and 
-                datetime.now() < session_info['expires']):
-                existing_session_token = session_token
-                break
-        
-        if existing_session_token:
-            session_token = existing_session_token
-            expires = datetime.now() + timedelta(days=7)
-            valid_sessions[session_token]['expires'] = expires
-            valid_sessions[session_token]['user_agent'] = current_ua
+        existing = next((t for t, info in valid_sessions.items() if info.get('ip') == current_ip and now < info['expires']), None)
+        if existing:
+            valid_sessions[existing].update({'expires': expires, 'user_agent': current_ua})
+            session_token = existing
         else:
             session_token = generate_session_token()
-            expires = datetime.now() + timedelta(days=7)
-            valid_sessions[session_token] = {
-                'created': datetime.now(), 
-                'expires': expires, 
-                'ip': current_ip, 
-                'user_agent': current_ua
-            }
-        
+            valid_sessions[session_token] = {'created': now, 'expires': expires, 'ip': current_ip, 'user_agent': current_ua}
         save_session_data()
         
         response = make_response(f'<script>window.location.href = "/web/?token={token}";</script>')
-        cookie_expires = datetime.now() + timedelta(days=7)
-        # 检测是否为 HTTPS 环境
         is_https = request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https'
-        
-        response.set_cookie(
-            'elaina_admin_session', 
-            sign_cookie_value(session_token, 'elaina_cookie_secret_key_2024_v1'), 
-            max_age=604800,
-            expires=cookie_expires,
-            httponly=True, 
-            secure=is_https,  # HTTPS 环境下自动启用 secure
-            samesite='None' if is_https else 'Lax',  # HTTPS 环境下使用 None
-            path='/'
-        )
+        response.set_cookie('elaina_admin_session', sign_cookie_value(session_token), max_age=_SESSION_MAX_AGE,
+            expires=expires, httponly=True, secure=is_https, samesite='None' if is_https else 'Lax', path='/')
         return response
     record_ip_access(request.remote_addr, 'password_fail')
     return render_template('login.html', token=token, error='密码错误，请重试', web_interface=WEB_CONFIG)
@@ -250,129 +187,73 @@ def login():
 @full_auth
 def index():
     from core.plugin.PluginManager import PluginManager
-    plugin_routes = PluginManager.get_web_routes()
-    
-    response = make_response(render_template('index.html', prefix=PREFIX, ROBOT_QQ=ROBOT_QQ, appid=appid, WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_CONFIG, plugin_routes=plugin_routes))
-    for header, value in [('X-Content-Type-Options', 'nosniff'), ('X-Frame-Options', 'DENY'), ('X-XSS-Protection', '1; mode=block'),
-        ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn http://*.qlogo.cn *.nt.qq.com.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"),
-        ('Referrer-Policy', 'strict-origin-when-cross-origin'), ('Permissions-Policy', 'geolocation=(), microphone=(), camera=()'),
-        ('Strict-Transport-Security', 'max-age=0'), ('Cache-Control', 'no-cache, no-store, must-revalidate'), ('Pragma', 'no-cache'), ('Expires', '0')]:
-        response.headers[header] = value
+    response = make_response(render_template('index.html', prefix=PREFIX, ROBOT_QQ=ROBOT_QQ, appid=appid,
+        WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_CONFIG, plugin_routes=PluginManager.get_web_routes()))
+    for h, v in _SECURITY_HEADERS:
+        response.headers[h] = v
     return response
 
 @web.route('/plugin/<plugin_path>')
 @full_auth
 def plugin_page(plugin_path):
     from core.plugin.PluginManager import PluginManager
-    
-    plugin_routes = PluginManager.get_web_routes()
-    
-    if plugin_path not in plugin_routes:
+    routes = PluginManager.get_web_routes()
+    if plugin_path not in routes:
         return jsonify({'error': '插件页面不存在'}), 404
-    
-    route_info = plugin_routes[plugin_path]
-    plugin_class = route_info['class']
-    handler_name = route_info['handler']
-    
+    info = routes[plugin_path]
     try:
-        if hasattr(plugin_class, handler_name):
-            handler = getattr(plugin_class, handler_name)
-            result = handler()
-            
-            if isinstance(result, dict):
-                html_content = result.get('html', '')
-                script_content = result.get('script', '')
-                css_content = result.get('css', '')
-                
-                return jsonify({
-                    'success': True,
-                    'html': html_content,
-                    'script': script_content,
-                    'css': css_content,
-                    'title': route_info['menu_name']
-                })
-            elif isinstance(result, str):
-                return jsonify({
-                    'success': True,
-                    'html': result,
-                    'script': '',
-                    'css': '',
-                    'title': route_info['menu_name']
-                })
-            else:
-                return jsonify({'error': '插件返回格式错误'}), 500
-        else:
-            return jsonify({'error': f'插件处理函数 {handler_name} 不存在'}), 500
-            
+        handler = getattr(info['class'], info['handler'], None)
+        if not handler:
+            return jsonify({'error': f"插件处理函数 {info['handler']} 不存在"}), 500
+        result = handler()
+        if isinstance(result, dict):
+            return jsonify({'success': True, 'html': result.get('html', ''), 'script': result.get('script', ''),
+                'css': result.get('css', ''), 'title': info['menu_name']})
+        elif isinstance(result, str):
+            return jsonify({'success': True, 'html': result, 'script': '', 'css': '', 'title': info['menu_name']})
+        return jsonify({'error': '插件返回格式错误'}), 500
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        add_error_log(f"插件页面加载失败: {plugin_path}", error_trace)
+        add_error_log(f"插件页面加载失败: {plugin_path}", traceback.format_exc())
         return jsonify({'error': f'插件页面加载失败: {str(e)}'}), 500
 
 @web.route('/api/plugin/<path:api_path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 @check_ip_ban
 def handle_plugin_api(api_path):
     from core.plugin.PluginManager import PluginManager
-    
-    full_api_path = f'/api/{api_path}'
-    api_routes = PluginManager.get_api_routes()
-    
-    if full_api_path not in api_routes:
+    full_path = f'/api/{api_path}'
+    routes = PluginManager.get_api_routes()
+    if full_path not in routes:
         return jsonify({'success': False, 'message': 'API路由不存在'}), 404
-    
-    route_info = api_routes[full_api_path]
-    
-    if request.method not in route_info.get('methods', ['GET']):
+    info = routes[full_path]
+    if request.method not in info.get('methods', ['GET']):
         return jsonify({'success': False, 'message': f'不支持的请求方法: {request.method}'}), 405
-    
-    if route_info.get('require_token', True):
+    if info.get('require_token', True):
         token = request.args.get('token') or request.form.get('token')
         if not token or token != WEB_CONFIG['access_token']:
             return jsonify({'success': False, 'message': '无效的token'}), 403
-    
-    if route_info.get('require_auth', True):
+    if info.get('require_auth', True):
         cleanup_expired_sessions()
-        cookie_value = request.cookies.get('elaina_admin_session')
-        if not cookie_value:
+        cookie = request.cookies.get('elaina_admin_session')
+        if not cookie:
             return jsonify({'success': False, 'message': '未登录'}), 401
-        
-        is_valid, session_token = verify_cookie_value(cookie_value, 'elaina_cookie_secret_key_2024_v1')
-        if not is_valid or session_token not in valid_sessions:
+        is_valid, st = verify_cookie_value(cookie)
+        if not is_valid or st not in valid_sessions:
             return jsonify({'success': False, 'message': '会话无效'}), 401
-        
-        session_info = valid_sessions[session_token]
-        if datetime.now() >= session_info['expires']:
-            del valid_sessions[session_token]
+        if datetime.now() >= valid_sessions[st]['expires']:
+            del valid_sessions[st]
             save_session_data()
             return jsonify({'success': False, 'message': '会话已过期'}), 401
-    
-    plugin_class = route_info['class']
-    handler_name = route_info['handler']
-    
     try:
-        if hasattr(plugin_class, handler_name):
-            handler = getattr(plugin_class, handler_name)
-            
-            if request.method == 'GET':
-                request_data = request.args.to_dict()
-            else:
-                request_data = request.get_json() or {}
-            
-            result = handler(request_data)
-            
-            if isinstance(result, dict):
-                return jsonify(result)
-            else:
-                return jsonify({'success': True, 'data': result})
-        else:
-            return jsonify({'success': False, 'message': f'处理函数 {handler_name} 不存在'}), 500
-    
+        handler = getattr(info['class'], info['handler'], None)
+        if not handler:
+            return jsonify({'success': False, 'message': f"处理函数 {info['handler']} 不存在"}), 500
+        data = request.args.to_dict() if request.method == 'GET' else (request.get_json() or {})
+        result = handler(data)
+        return jsonify(result) if isinstance(result, dict) else jsonify({'success': True, 'data': result})
     except Exception as e:
-        error_trace = traceback.format_exc()
-        add_error_log(f"插件API处理失败: {full_api_path}", error_trace)
-        logger.error(f"插件API错误: {str(e)}\n{error_trace}")
+        add_error_log(f"插件API处理失败: {full_path}", traceback.format_exc())
         return jsonify({'success': False, 'message': f'处理请求失败: {str(e)}'}), 500
+
 
 @web.route('/api/logs/<log_type>')
 @full_auth
@@ -458,6 +339,16 @@ def get_update_status():
 def get_update_progress():
     return update_handler.handle_get_update_progress()
 
+@web.route('/api/config/check_diff')
+@token_auth
+def check_config_diff():
+    return update_handler.handle_check_config_diff()
+
+@web.route('/api/config/auto_fill', methods=['POST'])
+@token_auth
+def auto_fill_config():
+    return update_handler.handle_auto_fill_config()
+
 @web.route('/api/config/get')
 @token_auth
 def get_config():
@@ -522,251 +413,6 @@ def get_plugin_folders():
 @full_auth
 def upload_plugin():
     return handle_upload_plugin(add_framework_log)
-
-get_system_info = system_info.get_system_info
-get_websocket_status = system_info.get_websocket_status
-
-robot_info.set_config(ROBOT_QQ, appid, WEBSOCKET_CONFIG, get_websocket_status)
-
-try:
-    from web.tools.bot_restart import execute_bot_restart
-except ImportError:
-    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    from bot_restart import execute_bot_restart
-
-status_routes.set_restart_function(execute_bot_restart)
-
-def scan_plugins():
-    return scan_plugins_internal()
-
-@catch_error
-def register_socketio_handlers(sio):
-    @sio.on('connect', namespace=PREFIX)
-    @require_socketio_token
-    def handle_connect():
-        sid = request.sid
-        
-        def async_load_initial_data():
-            system_info = get_system_info()
-            
-            try:
-                sio.emit('system_info', system_info, room=sid, namespace=PREFIX)
-            except Exception:
-                pass
-                
-            plugins = scan_plugins()
-            
-            try:
-                sio.emit('plugins_update', plugins, room=sid, namespace=PREFIX)
-                
-                logs_data = {
-                    'received': {
-                        'logs': list(log_handler.received_handler.logs)[-30:],
-                        'total': len(log_handler.received_handler.logs),
-                        'page': 1,
-                        'page_size': 30
-                    },
-                    'plugin': {
-                        'logs': list(log_handler.plugin_handler.logs)[-30:],
-                        'total': len(log_handler.plugin_handler.logs),
-                        'page': 1,
-                        'page_size': 30
-                    },
-                    'framework': {
-                        'logs': list(log_handler.framework_handler.logs)[-30:],
-                        'total': len(log_handler.framework_handler.logs),
-                        'page': 1,
-                        'page_size': 30
-                    },
-                    'error': {
-                        'logs': list(log_handler.error_handler.logs)[-30:],
-                        'total': len(log_handler.error_handler.logs),
-                        'page': 1,
-                        'page_size': 30
-                    }
-                }
-                
-                for log_type in logs_data:
-                    if 'logs' in logs_data[log_type]:
-                        logs_data[log_type]['logs'].reverse()
-                
-                sio.emit('logs_batch', logs_data, room=sid, namespace=PREFIX)
-            except Exception:
-                pass
-        
-        threading.Thread(target=async_load_initial_data, daemon=True).start()
-
-    @sio.on('disconnect', namespace=PREFIX)
-    def handle_disconnect():
-        pass
-
-    @sio.on('get_system_info', namespace=PREFIX)
-    @require_socketio_token
-    def handle_get_system_info():
-        system_info = get_system_info()
-        
-        sio.emit('system_info', system_info, room=request.sid, namespace=PREFIX)
-
-    @sio.on('get_plugins_info', namespace=PREFIX)
-    @require_socketio_token
-    def handle_get_plugins_info():
-        plugins = scan_plugins()
-        sio.emit('plugins_update', plugins, room=request.sid, namespace=PREFIX)
-
-    @sio.on('request_logs', namespace=PREFIX)
-    @require_socketio_token  
-    def handle_request_logs(data):
-        log_type = data.get('type', 'received')
-        page = data.get('page', 1)
-        page_size = data.get('page_size', 50)
-        
-        logs_map = {
-            'received': log_handler.received_handler.logs,
-            'plugin': log_handler.plugin_handler.logs,
-            'framework': log_handler.framework_handler.logs,
-            'error': log_handler.error_handler.logs
-        }
-        
-        logs = list(logs_map.get(log_type, []))
-        logs.reverse()
-        
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_logs = logs[start:end] if start < len(logs) else []
-        
-        sio.emit('logs_update', {
-            'type': log_type,
-            'logs': page_logs,
-            'total': len(logs),
-            'page': page,
-            'page_size': page_size
-        }, room=request.sid, namespace=PREFIX)
-
-def start_web(main_app=None, is_subprocess=False):
-    global socketio
-    if main_app is None:
-        app = Flask(__name__)
-        app.register_blueprint(web, url_prefix=PREFIX)
-        CORS(app, resources={r"/*": {"origins": "*"}})
-        try:
-            socketio = SocketIO(app, 
-                            cors_allowed_origins="*",
-                            path="/socket.io",
-                            async_mode='eventlet',
-                            logger=False,
-                            engineio_logger=False)
-            log_handler.set_socketio(socketio)
-            register_socketio_handlers(socketio)
-        except Exception as e:
-            error_tb = traceback.format_exc()
-            add_log_to_db('error', {
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'content': f"Socket.IO初始化错误: {str(e)}",
-                'traceback': error_tb
-            })
-
-        return app, socketio
-    else:
-        if not any(bp.name == 'web' for bp in main_app.blueprints.values()):
-            main_app.register_blueprint(web, url_prefix=PREFIX)
-        else:
-            pass
-        
-        try:
-            CORS(main_app, resources={r"/*": {"origins": "*"}})
-        except Exception:
-            pass
-        try:
-            if hasattr(main_app, 'socketio'):
-                socketio = main_app.socketio
-            else:
-                socketio = SocketIO(main_app, 
-                                cors_allowed_origins="*",
-                                path="/socket.io",
-                                async_mode='eventlet',
-                                logger=False,
-                                engineio_logger=False)
-                main_app.socketio = socketio
-            log_handler.set_socketio(socketio)
-            register_socketio_handlers(socketio)
-        except Exception as e:
-            error_tb = traceback.format_exc()
-            add_log_to_db('error', {
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'content': f"Socket.IO初始化错误: {str(e)}",
-                'traceback': error_tb
-            })
-
-        return None
-
-@web.route('/api/sandbox/test', methods=['POST'])
-@simple_auth
-def sandbox_test():
-    return sandbox_handler.handle_sandbox_test()
-
-try:
-    from web.tools.openapi_handler import (
-        openapi_user_data,
-        handle_start_login,
-        handle_check_login,
-        handle_get_botlist,
-        handle_get_botdata,
-        handle_get_notifications,
-        handle_logout,
-        handle_get_login_status,
-        handle_import_templates,
-        handle_verify_saved_login,
-        handle_get_templates,
-        handle_get_template_detail,
-        handle_render_button_template,
-        handle_get_whitelist,
-        handle_update_whitelist,
-        handle_get_delete_qr,
-        handle_check_delete_auth,
-        handle_execute_delete_ip,
-        handle_batch_add_whitelist,
-        handle_create_template_qr,
-        handle_check_template_qr,
-        handle_preview_template,
-        handle_submit_template,
-        handle_audit_templates,
-        handle_delete_templates
-    )
-except ImportError:
-    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    from openapi_handler import (
-        openapi_user_data,
-        handle_start_login,
-        handle_check_login,
-        handle_get_botlist,
-        handle_get_botdata,
-        handle_get_notifications,
-        handle_logout,
-        handle_get_login_status,
-        handle_import_templates,
-        handle_verify_saved_login,
-        handle_get_templates,
-        handle_get_template_detail,
-        handle_render_button_template,
-        handle_get_whitelist,
-        handle_update_whitelist,
-        handle_get_delete_qr,
-        handle_check_delete_auth,
-        handle_execute_delete_ip,
-        handle_batch_add_whitelist,
-        handle_create_template_qr,
-        handle_check_template_qr,
-        handle_preview_template,
-        handle_submit_template,
-        handle_audit_templates,
-        handle_delete_templates
-    )
-
-check_openapi_login = lambda user_id: openapi_user_data.get(user_id)
 
 @web.route('/openapi/start_login', methods=['POST'])
 @simple_auth
@@ -901,98 +547,6 @@ def restart_bot():
 def get_simple_status():
     return status_routes.handle_get_simple_status()
 
-try:
-    from web.tools.message_handler import (
-        handle_get_chats,
-        handle_get_chat_history,
-        handle_send_message,
-        handle_get_nickname,
-        handle_get_nicknames_batch,
-        handle_get_markdown_templates
-    )
-except ImportError:
-    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    from message_handler import (
-        handle_get_chats,
-        handle_get_chat_history,
-        handle_send_message,
-        handle_get_nickname,
-        handle_get_nicknames_batch,
-        handle_get_markdown_templates
-    )
-
-try:
-    from web.tools.statistics_handler import (
-        handle_get_statistics,
-        handle_get_statistics_task_status,
-        handle_get_all_statistics_tasks,
-        handle_complete_dau,
-        handle_get_user_nickname,
-        handle_get_available_dates
-    )
-except ImportError:
-    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    from statistics_handler import (
-        handle_get_statistics,
-        handle_get_statistics_task_status,
-        handle_get_all_statistics_tasks,
-        handle_complete_dau,
-        handle_get_user_nickname,
-        handle_get_available_dates
-    )
-
-try:
-    from web.tools.config_handler import (
-        handle_get_config,
-        handle_parse_config,
-        handle_update_config_items,
-        handle_save_config,
-        handle_check_pending_config,
-        handle_cancel_pending_config
-    )
-except ImportError:
-    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    from config_handler import (
-        handle_get_config,
-        handle_parse_config,
-        handle_update_config_items,
-        handle_save_config,
-        handle_check_pending_config,
-        handle_cancel_pending_config
-    )
-
-try:
-    from web.tools.plugin_manager import (
-        handle_toggle_plugin,
-        handle_read_plugin,
-        handle_save_plugin,
-        handle_create_plugin,
-        handle_create_plugin_folder,
-        handle_get_plugin_folders,
-        handle_upload_plugin,
-        scan_plugins_internal
-    )
-except ImportError:
-    tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools')
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    from plugin_manager import (
-        handle_toggle_plugin,
-        handle_read_plugin,
-        handle_save_plugin,
-        handle_create_plugin,
-        handle_create_plugin_folder,
-        handle_get_plugin_folders,
-        handle_upload_plugin,
-        scan_plugins_internal
-    )
-
 @web.route('/api/message/get_chats', methods=['POST'])
 @simple_auth
 def get_chats():
@@ -1022,3 +576,96 @@ def get_nicknames_batch():
 @simple_auth
 def get_markdown_templates():
     return handle_get_markdown_templates()
+
+_LOGS_MAP = {
+    'received': lambda: log_handler.received_handler.logs,
+    'plugin': lambda: log_handler.plugin_handler.logs,
+    'framework': lambda: log_handler.framework_handler.logs,
+    'error': lambda: log_handler.error_handler.logs
+}
+
+@catch_error
+def register_socketio_handlers(sio):
+    @sio.on('connect', namespace=PREFIX)
+    @require_socketio_token
+    def handle_connect():
+        sid = request.sid
+        def load_data():
+            try:
+                sio.emit('system_info', get_system_info(), room=sid, namespace=PREFIX)
+            except:
+                pass
+            try:
+                sio.emit('plugins_update', scan_plugins(), room=sid, namespace=PREFIX)
+                logs_data = {}
+                for t, getter in _LOGS_MAP.items():
+                    logs = list(getter())[-30:]
+                    logs.reverse()
+                    logs_data[t] = {'logs': logs, 'total': len(getter()), 'page': 1, 'page_size': 30}
+                sio.emit('logs_batch', logs_data, room=sid, namespace=PREFIX)
+            except:
+                pass
+        threading.Thread(target=load_data, daemon=True).start()
+
+    @sio.on('disconnect', namespace=PREFIX)
+    def handle_disconnect():
+        pass
+
+    @sio.on('get_system_info', namespace=PREFIX)
+    @require_socketio_token
+    def handle_get_system_info():
+        sio.emit('system_info', get_system_info(), room=request.sid, namespace=PREFIX)
+
+    @sio.on('get_plugins_info', namespace=PREFIX)
+    @require_socketio_token
+    def handle_get_plugins_info():
+        sio.emit('plugins_update', scan_plugins(), room=request.sid, namespace=PREFIX)
+
+    @sio.on('request_logs', namespace=PREFIX)
+    @require_socketio_token
+    def handle_request_logs(data):
+        log_type = data.get('type', 'received')
+        page = data.get('page', 1)
+        page_size = data.get('page_size', 50)
+        getter = _LOGS_MAP.get(log_type)
+        if not getter:
+            return
+        logs = list(getter())
+        logs.reverse()
+        start = (page - 1) * page_size
+        sio.emit('logs_update', {'type': log_type, 'logs': logs[start:start+page_size] if start < len(logs) else [],
+            'total': len(logs), 'page': page, 'page_size': page_size}, room=request.sid, namespace=PREFIX)
+
+def start_web(main_app=None, is_subprocess=False):
+    global socketio
+    def init_socketio(app):
+        global socketio
+        try:
+            socketio = SocketIO(app, cors_allowed_origins="*", path="/socket.io", async_mode='eventlet', logger=False, engineio_logger=False)
+            log_handler.set_socketio(socketio)
+            register_socketio_handlers(socketio)
+        except Exception as e:
+            add_log_to_db('error', {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'content': f"Socket.IO初始化错误: {str(e)}", 'traceback': traceback.format_exc()})
+    
+    if main_app is None:
+        app = Flask(__name__)
+        app.register_blueprint(web, url_prefix=PREFIX)
+        CORS(app, resources={r"/*": {"origins": "*"}})
+        init_socketio(app)
+        return app, socketio
+    else:
+        if 'web' not in [bp.name for bp in main_app.blueprints.values()]:
+            main_app.register_blueprint(web, url_prefix=PREFIX)
+        try:
+            CORS(main_app, resources={r"/*": {"origins": "*"}})
+        except:
+            pass
+        if hasattr(main_app, 'socketio'):
+            socketio = main_app.socketio
+            log_handler.set_socketio(socketio)
+            register_socketio_handlers(socketio)
+        else:
+            init_socketio(main_app)
+            main_app.socketio = socketio
+        return None

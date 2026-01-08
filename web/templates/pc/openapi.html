@@ -1,350 +1,904 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
-<style>
-/* 模态框禁用动画 */
-.modal, .modal.fade, .modal-backdrop, .modal-backdrop.fade { transition: none !important; animation: none !important; transform: none !important; }
-.modal.fade { opacity: 1 !important; }
-.modal-backdrop.fade { opacity: 0.5 !important; }
-.modal.show .modal-dialog { transform: none !important; transition: none !important; }
-.modal.show { display: block !important; position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; z-index: 1050 !important; overflow: auto !important; }
-.modal-dialog { position: relative !important; margin: 50px auto !important; max-width: 500px !important; transform: none !important; }
-#deleteIpQrModal, #deleteIpQrModal * { -webkit-transform: none !important; -moz-transform: none !important; -ms-transform: none !important; -o-transform: none !important; transition: none !important; animation: none !important; }
-.modal-backdrop { position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; background-color: rgba(0, 0, 0, 0.5) !important; z-index: 1040 !important; }
-</style>
-
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h5 class="mb-0">开放平台管理</h5>
-    <small class="text-muted">管理QQ开发者平台的机器人数据</small>
-</div>
-
-<!-- 登录状态卡片 -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card" id="openapi-login-card">
-            <div class="card-body">
-                <div id="openapi-not-logged-in" class="text-center">
-                    <h6 class="card-title"><i class="bi bi-shield-lock"></i> 开放平台登录</h6>
-                    <p class="text-muted mb-3">请先登录QQ开发者平台以查看和管理机器人数据</p>
-                    <button class="btn btn-primary" id="openapi-start-login"><i class="bi bi-qr-code"></i> 开始登录</button>
-                    <div id="openapi-login-progress" class="mt-3" style="display: none;">
-                        <div class="d-flex flex-column align-items-center">
-                            <div id="openapi-login-loading" class="mb-3">
-                                <div class="spinner-border text-primary mb-2" role="status"><span class="visually-hidden">生成二维码中...</span></div>
-                                <p class="text-muted mb-2">正在生成登录二维码...</p>
-        </div>
-                            <div id="openapi-qr-container" style="display: none;">
-                                <div class="card" style="max-width: 300px;">
-                                    <div class="card-header text-center"><h6 class="mb-0"><i class="bi bi-qr-code"></i> 扫描二维码登录</h6></div>
-            <div class="card-body text-center">
-                                        <img id="openapi-qr-image" src="" alt="登录二维码" class="img-fluid mb-3" style="max-width: 200px; border: 1px solid #ddd; border-radius: 8px;">
-                                        <p class="text-muted small mb-2">请使用手机QQ扫描上方二维码</p>
-                                        <button class="btn btn-outline-secondary btn-sm" id="openapi-login-url" target="_blank"><i class="bi bi-box-arrow-up-right"></i> 或点击打开登录页面</button>
+<!-- 页面标题区域 -->
+<div class="openapi-header" id="openapi-header">
+    <div class="openapi-header-content">
+        <div class="openapi-title-wrapper">
+            <div class="openapi-icon"><i class="bi bi-cloud-check"></i></div>
+            <div>
+                <h4 class="openapi-title">开放平台管理</h4>
+                <p class="openapi-subtitle">管理QQ开发者平台的机器人数据</p>
             </div>
-                    </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div id="openapi-logged-in" style="display: none;">
-                    <div class="row align-items-center">
-                        <div class="col">
-                            <h6 class="card-title mb-1"><i class="bi bi-person-check text-success"></i> 已登录开放平台</h6>
-                            <div class="d-flex flex-wrap gap-3"><span class="badge bg-primary"><i class="bi bi-hash"></i> UIN: <span id="openapi-uin">-</span></span></div>
-                            </div>
-                        <div class="col-auto">
-                            <div class="d-flex gap-2">
-                                <button class="btn btn-outline-info btn-sm" id="openapi-get-notifications"><i class="bi bi-bell"></i> 查看通知</button>
-                                <button class="btn btn-outline-primary btn-sm" id="openapi-refresh-botlist"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
-                                <button class="btn btn-outline-danger btn-sm" id="openapi-logout"><i class="bi bi-box-arrow-right"></i> 重新登录</button>
-                            </div>
-                        </div>
-                        </div>
-                    </div>
-                </div>
+        </div>
+        <div class="openapi-status-wrapper">
+            <div class="openapi-login-status" id="openapi-login-status">
+                <i class="bi bi-x-circle"></i>
+                <span>未登录</span>
+            </div>
+            <div class="openapi-actions" id="openapi-header-actions" style="display: none;">
+                <button class="openapi-btn header-btn" id="openapi-get-notifications">
+                    <i class="bi bi-bell"></i> 通知
+                </button>
+                <button class="openapi-btn header-btn" id="openapi-refresh-botlist">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                </button>
+                <button class="openapi-btn header-btn" id="openapi-logout">
+                    <i class="bi bi-box-arrow-right"></i> 退出
+                </button>
             </div>
         </div>
     </div>
-    
-<!-- 机器人列表 -->
-<div class="row" id="openapi-main-content" style="display: none;">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body">
-                <div id="openapi-botlist-loading" class="text-center">
-                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">加载中...</span></div>
-                    <p class="text-muted mt-2">正在获取机器人列表...</p>
-                </div>
-                <div id="openapi-botlist-container" style="display: none;">
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead><tr><th style="width: 35%;">机器人名称</th><th style="width: 30%;">AppID</th><th style="width: 35%;">操作</th></tr></thead>
-                            <tbody id="openapi-botlist-table"></tbody>
-                        </table>
-                    </div>
-                </div>
+</div>
+
+<!-- 登录状态卡片 -->
+<div class="login-card" id="openapi-login-card">
+    <div id="openapi-not-logged-in" class="login-content">
+        <div class="login-icon"><i class="bi bi-shield-lock"></i></div>
+        <h5>开放平台登录</h5>
+        <p class="text-muted">请先登录QQ开发者平台以查看和管理机器人数据</p>
+        <button class="openapi-btn primary large" id="openapi-start-login">
+            <i class="bi bi-qr-code"></i> 开始登录
+        </button>
+        <div id="openapi-login-progress" class="login-progress" style="display: none;">
+            <div id="openapi-login-loading" class="login-loading">
+                <div class="spinner"></div>
+                <p>正在生成登录二维码...</p>
             </div>
+            <div id="openapi-qr-container" class="qr-container" style="display: none;">
+                <img id="openapi-qr-image" src="" alt="登录二维码" class="qr-image">
+                <p class="text-muted">请使用手机QQ扫描上方二维码</p>
+                <button class="openapi-btn outline" id="openapi-login-url">
+                    <i class="bi bi-box-arrow-up-right"></i> 或点击打开登录页面
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 机器人列表 -->
+<div class="bot-list-card" id="openapi-main-content" style="display: none;">
+    <div class="bot-list-header">
+        <i class="bi bi-robot"></i>
+        <span>机器人列表</span>
+    </div>
+    <div class="bot-list-body">
+        <div id="openapi-botlist-loading" class="loading-state">
+            <div class="spinner"></div>
+            <p>正在获取机器人列表...</p>
+        </div>
+        <div id="openapi-botlist-container" style="display: none;">
+            <div class="bot-grid" id="openapi-botlist-table"></div>
         </div>
     </div>
 </div>
 
 <!-- 数据展示区域 -->
-<div class="row mt-4" id="openapi-data-section" style="display: none;">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="mb-0" id="openapi-data-title"><i class="bi bi-table"></i> 数据详情</h6>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-outline-secondary btn-sm" id="openapi-close-data"><i class="bi bi-x-lg"></i> 关闭</button>
-                </div>
+<div class="data-section" id="openapi-data-section" style="display: none;">
+    <div class="data-section-header">
+        <h6 id="openapi-data-title"><i class="bi bi-table"></i> 数据详情</h6>
+        <button class="openapi-btn outline small" id="openapi-close-data">
+            <i class="bi bi-x-lg"></i> 关闭
+        </button>
+    </div>
+    <div class="data-section-body">
+        <div id="openapi-data-loading" class="loading-state">
+            <div class="spinner"></div>
+            <p>正在获取数据...</p>
+        </div>
+        
+        <span id="openapi-data-appid" style="display: none;">-</span>
+        <span id="openapi-data-avg-dau" style="display: none;">-</span>
+        
+        <!-- 数据表格 -->
+        <div id="openapi-data-table-container" style="display: none;">
+            <div class="avg-dau-badge">
+                <i class="bi bi-graph-up"></i> 平均DAU: <strong id="openapi-avg-dau-display">-</strong>
             </div>
-            <div class="card-body">
-                <div id="openapi-data-loading" class="text-center">
-                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">加载中...</span></div>
-                    <p class="text-muted mt-2">正在获取数据...</p>
-                </div>
-                
-                <div id="openapi-data-summary" style="display: none;">
-                    <span id="openapi-data-appid" style="display: none;">-</span>
-                    <span id="openapi-data-avg-dau" style="display: none;">-</span>
-                </div>
-                
-                <!-- 数据表格 -->
-                <div id="openapi-data-table-container" style="display: none;">
-                        <div class="table-responsive">
-                        <table class="table table-striped table-hover">
-                            <thead class="table-dark">
-                                <tr><th>日期</th><th>上行消息</th><th>活跃用户</th><th>下行消息</th><th>总消息</th><th>群组(新增/现有)</th><th>好友(新增/现有)</th></tr>
-                                <tr class="table-info"><td colspan="7" class="text-center"><strong>平均DAU: <span id="openapi-avg-dau-display">-</span></strong></td></tr>
-                                </thead>
-                            <tbody id="openapi-data-table"></tbody>
-                        </table>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>上行消息</th>
+                            <th>活跃用户</th>
+                            <th>下行消息</th>
+                            <th>总消息</th>
+                            <th>群组</th>
+                            <th>好友</th>
+                        </tr>
+                    </thead>
+                    <tbody id="openapi-data-table"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- 通知消息 -->
+        <div id="openapi-notifications-container" style="display: none;">
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">时间</th>
+                            <th style="width: 20%;">标题</th>
+                            <th>内容</th>
+                        </tr>
+                    </thead>
+                    <tbody id="openapi-notifications-table"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- 白名单 -->
+        <div id="openapi-whitelist-container" style="display: none;">
+            <div class="whitelist-actions">
+                <button class="openapi-btn success small" onclick="addNewIpInput()">
+                    <i class="bi bi-plus-lg"></i> 添加IP
+                </button>
+                <button class="openapi-btn primary small" id="batch-add-ips-btn" onclick="batchAddIps()" style="display: none;">
+                    <i class="bi bi-shield-check"></i> 批量添加
+                </button>
+                <button class="openapi-btn outline small" onclick="clearAllInputs()">
+                    <i class="bi bi-x-lg"></i> 清空
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>IP地址</th>
+                            <th style="width: 100px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="openapi-whitelist-table"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- 模板列表 -->
+        <div id="openapi-templates-container" style="display: none;">
+            <div class="templates-grid">
+                <div class="templates-list-section">
+                    <div class="templates-list-header">
+                        <span id="template-list-title"><i class="bi bi-layout-text-sidebar-reverse"></i> 模板列表</span>
+                        <div class="templates-list-actions">
+                            <button class="openapi-btn danger small" onclick="deleteSelectedTemplates()" id="delete-templates-btn" style="display: none;">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                            <button class="openapi-btn primary small" onclick="submitSelectedTemplates()" id="submit-templates-btn" style="display: none;">
+                                <i class="bi bi-send-check"></i> 提审
+                            </button>
+                        </div>
                     </div>
-                </div>
-                
-                <!-- 通知消息表格 -->
-                <div id="openapi-notifications-container" style="display: none;">
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover">
-                            <thead class="table-dark"><tr><th style="width: 15%;">时间</th><th style="width: 20%;">标题</th><th style="width: 65%;">内容</th></tr></thead>
-                            <tbody id="openapi-notifications-table"></tbody>
+                        <table class="data-table compact">
+                            <thead>
+                                <tr>
+                                    <th style="width: 30px;"><input type="checkbox" id="select-all-templates" onchange="toggleAllTemplates(this)"></th>
+                                    <th>模板名称</th>
+                                    <th>类型</th>
+                                    <th>状态</th>
+                                    <th style="width: 60px;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="openapi-templates-table"></tbody>
                         </table>
                     </div>
                 </div>
-                
-                <!-- 白名单表格 -->
-                <div id="openapi-whitelist-container" style="display: none;">
-                    <div class="mb-3 d-flex gap-2">
-                        <button class="btn btn-outline-success btn-sm" onclick="addNewIpInput()"><i class="bi bi-plus-lg"></i> 添加IP输入框</button>
-                        <button class="btn btn-success btn-sm" id="batch-add-ips-btn" onclick="batchAddIps()" style="display: none;"><i class="bi bi-shield-check"></i> 批量添加IP (需要授权)</button>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="clearAllInputs()"><i class="bi bi-x-lg"></i> 清空输入</button>
+                <div class="template-detail-section" id="openapi-template-detail" style="display: none;">
+                    <div class="template-detail-header">
+                        <span><i class="bi bi-info-circle"></i> 模板详情</span>
+                        <span class="template-index-badge" id="template-detail-index">1/1</span>
                     </div>
-                    <div class="table-responsive">
-                        <table class="table table-striped table-hover">
-                            <thead class="table-dark"><tr><th style="width: 70%;">IP地址</th><th style="width: 30%;">操作</th></tr></thead>
-                            <tbody id="openapi-whitelist-table"></tbody>
-                        </table>
-                    </div>
-                </div>
-                
-                <!-- 模板列表 -->
-                <div id="openapi-templates-container" style="display: none;">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h6 class="mb-0" id="template-list-title"><i class="bi bi-layout-text-sidebar-reverse"></i> 模板列表</h6>
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-danger btn-sm" onclick="deleteSelectedTemplates()" id="delete-templates-btn" style="display: none;">
-                                        <i class="bi bi-trash"></i> 删除选中模板
-                                    </button>
-                                    <button class="btn btn-primary btn-sm" onclick="submitSelectedTemplates()" id="submit-templates-btn" style="display: none;">
-                                        <i class="bi bi-send-check"></i> 提审选中模板
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="table-responsive">
-                                <table class="table table-striped table-hover">
-                                    <thead class="table-dark">
-                                        <tr>
-                                            <th style="width: 5%;"><input type="checkbox" id="select-all-templates" onchange="toggleAllTemplates(this)"></th>
-                                            <th style="width: 35%;">模板名称</th>
-                                            <th style="width: 25%;">类型</th>
-                                            <th style="width: 20%;">状态</th>
-                                            <th style="width: 15%;">操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="openapi-templates-table"></tbody>
-                            </table>
-                            </div>
+                    <div class="template-detail-body">
+                        <div class="detail-row"><span class="label">模板ID:</span><span id="template-detail-id">-</span></div>
+                        <div class="detail-row"><span class="label">名称:</span><span id="template-detail-name">-</span></div>
+                        <div class="detail-row"><span class="label">类型:</span><span id="template-detail-type">-</span></div>
+                        <div class="detail-row"><span class="label">状态:</span><span id="template-detail-status">-</span></div>
+                        <div class="detail-row"><span class="label">创建时间:</span><span id="template-detail-create-time">-</span></div>
+                        <div class="detail-content">
+                            <span class="label">模板内容:</span>
+                            <pre id="template-detail-content">-</pre>
                         </div>
-                        <div class="col-md-6">
-                            <div id="openapi-template-detail" style="display: none;">
-                                <h6 class="mb-3"><i class="bi bi-info-circle"></i> 模板详情 <span class="badge bg-primary ms-2" id="template-detail-index">1/1</span></h6>
-                                <div class="card">
-                                    <div class="card-body">
-                                        <div class="mb-3"><div class="row"><div class="col-sm-3"><strong>模板ID:</strong></div><div class="col-sm-9" id="template-detail-id">-</div></div></div>
-                                        <div class="mb-3"><div class="row"><div class="col-sm-3"><strong>名称:</strong></div><div class="col-sm-9" id="template-detail-name">-</div></div></div>
-                                        <div class="mb-3"><div class="row"><div class="col-sm-3"><strong>类型:</strong></div><div class="col-sm-9" id="template-detail-type">-</div></div></div>
-                                        <div class="mb-3"><div class="row"><div class="col-sm-3"><strong>状态:</strong></div><div class="col-sm-9" id="template-detail-status">-</div></div></div>
-                                        <div class="mb-3"><div class="row"><div class="col-sm-3"><strong>创建时间:</strong></div><div class="col-sm-9" id="template-detail-create-time">-</div></div></div>
-                                        <div class="mb-3"><strong>模板内容:</strong><div class="mt-2"><pre class="bg-light p-3 rounded" style="max-height: 200px; overflow-y: auto; font-size: 12px;" id="template-detail-content">-</pre></div></div>
-                                        <div id="template-button-preview" style="display: none;">
-                                            <strong>按钮预览:</strong>
-                                            <div class="mt-2 p-3 bg-light rounded">
-                                                <div id="template-button-rows"></div>
-                                                <small class="text-muted mt-2 d-block"><i class="bi bi-info-circle"></i> 按钮仅供参考，实际效果以实际为准<br>类型: 0=跳转链接, 1=回调, 2=回车命令</small>
-                                            </div>
-                    </div>
-                                        <div class="mt-3 d-flex justify-content-between">
-                                            <button class="btn btn-outline-secondary btn-sm" id="template-prev-btn" style="display: none;"><i class="bi bi-chevron-left"></i> 上一个</button>
-                                            <button class="btn btn-outline-secondary btn-sm" id="template-next-btn" style="display: none;">下一个 <i class="bi bi-chevron-right"></i></button>
+                        <div id="template-button-preview" style="display: none;">
+                            <span class="label">按钮预览:</span>
+                            <div id="template-button-rows" class="button-preview"></div>
                         </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 模板提交 -->
-                <div id="openapi-submit-template-container" style="display: none;">
-                    <div class="mb-3">
-                        <button class="btn btn-outline-secondary btn-sm" onclick="backToTemplateList()"><i class="bi bi-arrow-left"></i> 返回模板列表</button>
-                    </div>
-                    <div class="row">
-                        <div class="col-12">
-                            <div class="card">
-                                <div class="card-header"><h6 class="mb-0"><i class="bi bi-plus-circle"></i> 提交新模板</h6></div>
-                                <div class="card-body">
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>模板类型</strong></label>
-                                        <select class="form-select" id="template-type-select" onchange="onTemplateTypeChange()">
-                                            <option value="2">Markdown模板</option>
-                                            <option value="1">按钮模板</option>
-                                        </select>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>模板名称</strong></label>
-                                        <input type="text" class="form-control" id="template-name-input" placeholder="请输入模板名称">
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>使用场景</strong></label>
-                                        <input type="text" class="form-control" id="template-scene-input" placeholder="请输入使用场景">
-                                    </div>
-                                    
-                                    <!-- Markdown模板输入 -->
-                                    <div id="markdown-template-inputs">
-                                        <div class="mb-3">
-                                            <label class="form-label"><strong>模板内容</strong></label>
-                                            <textarea class="form-control" id="template-content-input" rows="5" placeholder="例如: {{ '{{' }}.text{{ '}}' }}" oninput="extractTemplateParams()"></textarea>
-                                            <small class="text-muted">使用 {{ '{{' }}.变量名{{ '}}' }} 格式定义变量</small>
-                                        </div>
-                                        <div id="template-params-container" style="display: none;">
-                                            <label class="form-label"><strong>测试参数值</strong></label>
-                                            <div id="template-params-inputs"></div>
-                                            <small class="text-muted">填写测试值用于提交模板</small>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- 按钮模板输入 -->
-                                    <div id="button-template-inputs" style="display: none;">
-                                        <div class="mb-3">
-                                            <label class="form-label"><strong>按钮配置 (JSON格式)</strong></label>
-                                            <textarea class="form-control" id="button-config-input" rows="10" placeholder='例如: {"rows":[{"buttons":[{"render_data":{"label":"按钮1","style":0},"action":{"type":2,"data":"命令1"}}]}]}'></textarea>
-                                            <small class="text-muted">配置按钮的行、列和样式</small>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="d-flex gap-2">
-                                        <button class="btn btn-success" onclick="startTemplateSubmit()"><i class="bi bi-upload"></i> 提交模板</button>
-                                    </div>
-                                </div>
-                            </div>
+                        <div class="template-nav">
+                            <button class="openapi-btn outline small" id="template-prev-btn" style="display: none;"><i class="bi bi-chevron-left"></i> 上一个</button>
+                            <button class="openapi-btn outline small" id="template-next-btn" style="display: none;">下一个 <i class="bi bi-chevron-right"></i></button>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+        
+        <!-- 模板提交 -->
+        <div id="openapi-submit-template-container" style="display: none;">
+            <button class="openapi-btn outline small mb-3" onclick="backToTemplateList()">
+                <i class="bi bi-arrow-left"></i> 返回模板列表
+            </button>
+            <div class="submit-template-form">
+                <div class="form-group">
+                    <label>模板类型</label>
+                    <select class="form-select" id="template-type-select" onchange="onTemplateTypeChange()">
+                        <option value="2">Markdown模板</option>
+                        <option value="1">按钮模板</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>模板名称</label>
+                    <input type="text" class="form-control" id="template-name-input" placeholder="请输入模板名称">
+                </div>
+                <div class="form-group">
+                    <label>使用场景</label>
+                    <input type="text" class="form-control" id="template-scene-input" placeholder="请输入使用场景">
+                </div>
+                <div id="markdown-template-inputs">
+                    <div class="form-group">
+                        <label>模板内容</label>
+                        <textarea class="form-control" id="template-content-input" rows="4" placeholder="例如: {{ '{{' }}.text{{ '}}' }}" oninput="extractTemplateParams()"></textarea>
+                    </div>
+                    <div id="template-params-container" style="display: none;">
+                        <label>测试参数值</label>
+                        <div id="template-params-inputs"></div>
+                    </div>
+                </div>
+                <div id="button-template-inputs" style="display: none;">
+                    <div class="form-group">
+                        <label>按钮配置 (JSON)</label>
+                        <textarea class="form-control" id="button-config-input" rows="6" placeholder='{"rows":[{"buttons":[...]}]}'></textarea>
+                    </div>
+                </div>
+                <button class="openapi-btn success" onclick="startTemplateSubmit()">
+                    <i class="bi bi-upload"></i> 提交模板
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 
-<!-- 模板提交二维码模态框 -->
+<!-- 模态框 -->
 <div class="modal fade" id="templateSubmitQrModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-qr-code"></i> 扫码授权提交</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
+            <div class="modal-header"><h5 class="modal-title"><i class="bi bi-qr-code"></i> 扫码授权提交</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body text-center">
-                <div id="template-qr-loading">
-                    <div class="spinner-border text-primary mb-2" role="status"></div>
-                    <p class="text-muted">正在生成授权二维码...</p>
-                </div>
-                <div id="template-qr-display" style="display: none;">
-                    <img id="template-qr-image" src="" alt="授权二维码" class="img-fluid mb-3" style="max-width: 200px;">
-                    <p class="text-muted">请使用手机QQ扫描二维码授权</p>
-                    <div id="template-submit-status" class="alert alert-info">
-                        <i class="bi bi-hourglass-split"></i> 等待授权中...
-                    </div>
-                </div>
+                <div id="template-qr-loading"><div class="spinner-border text-primary mb-2"></div><p class="text-muted">正在生成授权二维码...</p></div>
+                <div id="template-qr-display" style="display: none;"><img id="template-qr-image" src="" alt="授权二维码" class="qr-image"><p class="text-muted">请使用手机QQ扫描二维码授权</p><div id="template-submit-status" class="alert alert-info"><i class="bi bi-hourglass-split"></i> 等待授权中...</div></div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 提审模板二维码模态框 -->
 <div class="modal fade" id="auditTemplateQrModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-qr-code"></i> 扫码授权提审</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
+            <div class="modal-header"><h5 class="modal-title"><i class="bi bi-qr-code"></i> 扫码授权提审</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body text-center">
-                <div id="audit-qr-loading">
-                    <div class="spinner-border text-primary mb-2" role="status"></div>
-                    <p class="text-muted">正在生成授权二维码...</p>
-                </div>
-                <div id="audit-qr-display" style="display: none;">
-                    <img id="audit-qr-image" src="" alt="授权二维码" class="img-fluid mb-3" style="max-width: 200px;">
-                    <p class="text-muted">请使用手机QQ扫描二维码授权</p>
-                    <div id="audit-status" class="alert alert-info">
-                        <i class="bi bi-hourglass-split"></i> 等待授权中...
-                    </div>
-                </div>
+                <div id="audit-qr-loading"><div class="spinner-border text-primary mb-2"></div><p class="text-muted">正在生成授权二维码...</p></div>
+                <div id="audit-qr-display" style="display: none;"><img id="audit-qr-image" src="" alt="授权二维码" class="qr-image"><p class="text-muted">请使用手机QQ扫描二维码授权</p><div id="audit-status" class="alert alert-info"><i class="bi bi-hourglass-split"></i> 等待授权中...</div></div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 删除模板二维码模态框 -->
 <div class="modal fade" id="deleteTemplateQrModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-qr-code"></i> 扫码授权删除</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
+            <div class="modal-header"><h5 class="modal-title"><i class="bi bi-qr-code"></i> 扫码授权删除</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body text-center">
-                <div id="delete-qr-loading">
-                    <div class="spinner-border text-danger mb-2" role="status"></div>
-                    <p class="text-muted">正在生成授权二维码...</p>
-                </div>
-                <div id="delete-qr-display" style="display: none;">
-                    <img id="delete-qr-image" src="" alt="授权二维码" class="img-fluid mb-3" style="max-width: 200px;">
-                    <p class="text-muted">请使用手机QQ扫描二维码授权</p>
-                    <div id="delete-status" class="alert alert-warning">
-                        <i class="bi bi-hourglass-split"></i> 等待授权中...
-                    </div>
-                </div>
+                <div id="delete-qr-loading"><div class="spinner-border text-danger mb-2"></div><p class="text-muted">正在生成授权二维码...</p></div>
+                <div id="delete-qr-display" style="display: none;"><img id="delete-qr-image" src="" alt="授权二维码" class="qr-image"><p class="text-muted">请使用手机QQ扫描二维码授权</p><div id="delete-status" class="alert alert-warning"><i class="bi bi-hourglass-split"></i> 等待授权中...</div></div>
             </div>
         </div>
     </div>
 </div>
-
 {% endblock %}
+
+
+{% block extra_styles %}
+<style>
+/* 页面标题区域 */
+.openapi-header {
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+    transition: background 0.3s;
+}
+
+.openapi-header.logged-out {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.openapi-header.logged-in {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.openapi-header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.openapi-title-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: #fff;
+}
+
+.openapi-icon {
+    width: 56px;
+    height: 56px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.openapi-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.openapi-subtitle {
+    margin: 4px 0 0;
+    font-size: 0.85rem;
+    opacity: 0.85;
+}
+
+.openapi-status-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.openapi-login-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.2);
+    padding: 8px 16px;
+    border-radius: 20px;
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.openapi-login-status i {
+    font-size: 1rem;
+}
+
+.openapi-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* 顶部按钮样式 */
+.openapi-btn.header-btn {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+    padding: 8px 14px;
+    font-size: 0.8rem;
+}
+
+.openapi-btn.header-btn:hover {
+    background: rgba(255,255,255,0.3);
+}
+
+/* 按钮样式 */
+.openapi-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.openapi-btn.small {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
+.openapi-btn.large {
+    padding: 12px 24px;
+    font-size: 0.9rem;
+}
+
+.openapi-btn.primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+}
+
+.openapi-btn.primary:hover {
+    background: linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%);
+    box-shadow: 0 4px 12px rgba(102,126,234,0.3);
+}
+
+.openapi-btn.success {
+    background: #10b981;
+    color: #fff;
+}
+
+.openapi-btn.success:hover {
+    background: #059669;
+}
+
+.openapi-btn.danger {
+    background: rgba(239,68,68,0.9);
+    color: #fff;
+}
+
+.openapi-btn.danger:hover {
+    background: #ef4444;
+}
+
+.openapi-btn.info {
+    background: rgba(6,182,212,0.9);
+    color: #fff;
+}
+
+.openapi-btn.info:hover {
+    background: #06b6d4;
+}
+
+.openapi-btn.outline {
+    background: transparent;
+    border: 1px solid #e2e8f0;
+    color: #64748b;
+}
+
+.openapi-btn.outline:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+/* 登录卡片 */
+.login-card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    border: 1px solid #e2e8f0;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.login-content {
+    padding: 40px;
+    text-align: center;
+}
+
+.login-icon {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    color: #fff;
+    margin: 0 auto 20px;
+}
+
+.login-content h5 {
+    margin: 0 0 8px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.login-content p {
+    margin: 0 0 20px;
+}
+
+.login-progress {
+    margin-top: 24px;
+}
+
+.login-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e2e8f0;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.qr-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.qr-image {
+    width: 200px;
+    height: 200px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+}
+
+.logged-in-content {
+    padding: 16px 24px;
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+}
+
+.logged-in-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #059669;
+    font-weight: 500;
+}
+
+.logged-in-info i {
+    font-size: 1.25rem;
+}
+
+.uin-badge {
+    background: #10b981;
+    color: #fff;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    margin-left: auto;
+}
+
+/* 机器人列表 */
+.bot-list-card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    border: 1px solid #e2e8f0;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.bot-list-header {
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.bot-list-body {
+    padding: 20px;
+}
+
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 40px;
+    color: #64748b;
+}
+
+/* 机器人网格 */
+.bot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.bot-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.2s;
+}
+
+.bot-card:hover {
+    border-color: #667eea;
+    box-shadow: 0 4px 12px rgba(102,126,234,0.15);
+}
+
+.bot-card-header {
+    margin-bottom: 12px;
+}
+
+.bot-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.bot-card-header h6 {
+    margin: 0;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.bot-card-header small {
+    color: #94a3b8;
+}
+
+.openapi-btn.tiny {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+}
+
+.bot-card-appid {
+    display: inline-block;
+    background: #e2e8f0;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.8rem;
+    color: #475569;
+    margin-bottom: 12px;
+}
+
+.bot-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.bot-card-actions .openapi-btn {
+    flex: 1;
+    min-width: 70px;
+    justify-content: center;
+    padding: 6px 8px;
+    font-size: 0.75rem;
+}
+
+/* 数据区域 */
+.data-section {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    border: 1px solid #e2e8f0;
+    margin-top: 20px;
+    overflow: hidden;
+}
+
+.data-section-header {
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.data-section-header h6 {
+    margin: 0;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.data-section-body {
+    padding: 20px;
+}
+
+.avg-dau-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    margin-bottom: 16px;
+}
+
+/* 数据表格 */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th {
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    background: #f8fafc;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.data-table td {
+    padding: 10px 12px;
+    font-size: 0.85rem;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.data-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.data-table.compact th,
+.data-table.compact td {
+    padding: 8px 10px;
+    font-size: 0.8rem;
+}
+
+/* 白名单 */
+.whitelist-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+/* 模板区域 */
+.templates-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.templates-list-section,
+.template-detail-section {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.templates-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.templates-list-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.template-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.template-index-badge {
+    background: #667eea;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+}
+
+.template-detail-body {
+    font-size: 0.85rem;
+}
+
+.detail-row {
+    display: flex;
+    margin-bottom: 8px;
+}
+
+.detail-row .label {
+    width: 80px;
+    color: #64748b;
+    flex-shrink: 0;
+}
+
+.detail-content {
+    margin-top: 12px;
+}
+
+.detail-content .label {
+    display: block;
+    color: #64748b;
+    margin-bottom: 8px;
+}
+
+.detail-content pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    max-height: 150px;
+    overflow-y: auto;
+    margin: 0;
+}
+
+.button-preview {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.template-nav {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 16px;
+}
+
+/* 提交表单 */
+.submit-template-form {
+    max-width: 600px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 500;
+    color: #475569;
+    margin-bottom: 6px;
+    font-size: 0.85rem;
+}
+
+/* 响应式 */
+@media (max-width: 992px) {
+    .templates-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .openapi-header-content {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+    }
+    
+    .openapi-title-wrapper {
+        flex-direction: column;
+    }
+    
+    .openapi-actions {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .bot-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .login-content {
+        padding: 24px;
+    }
+}
+</style>
+{% endblock %}
+
 
 {% block scripts %}
 <script>
@@ -359,27 +913,13 @@ const $ = {
 
 const API = {
     async request(endpoint, data = {}) {
-        try {
-            const response = await fetch(`/web/openapi${endpoint}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: 'web_user', ...data })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const contentType = response.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-                throw new Error('服务器返回了非JSON响应');
-            }
-            
-            return await response.json();
-        } catch (error) {
-            console.error('API请求失败:', error);
-            throw error;
-        }
+        const response = await fetch(`/web/openapi${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: 'web_user', ...data })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
     },
     handleError(data, defaultMsg = '操作失败') {
         if (data.message && data.message.includes('登录状态失效')) showNotLoggedInState();
@@ -416,10 +956,15 @@ const IPValidator = {
 
 let openApiLoginCheckInterval = null, currentTemplates = [], currentTemplateIndex = 0;
 let currentWhitelistAppId = '', currentWhitelistAppName = '', existingIpList = [], newIpInputCount = 0;
+let currentTemplateAppId = '', currentTemplateAppName = '';
 let deleteIpData = { ip: '', qrcode: '', authCheckInterval: null, batchIpList: [] };
 let customModal = { element: null, isVisible: false };
 
 function initOpenAPI() {
+    // 初始化顶栏为未登录状态
+    const header = $.get('openapi-header');
+    if (header) header.classList.add('logged-out');
+    
     checkOpenAPILoginStatus();
     $.get('openapi-start-login').addEventListener('click', startOpenAPILogin);
     $.get('openapi-logout').addEventListener('click', logoutOpenAPI);
@@ -434,18 +979,56 @@ async function checkOpenAPILoginStatus() {
         if (data.success && data.logged_in) { showLoggedInState(data); loadBotList(); }
         else showNotLoggedInState();
     } catch (error) {
-        console.error('检查登录状态失败:', error);
         showNotLoggedInState();
     }
 }
 
 function showLoggedInState(data) {
-    $.toggleVisibility(['openapi-logged-in', 'openapi-main-content'], ['openapi-not-logged-in']);
-    if (data.uin) $.setText('openapi-uin', data.uin);
+    const loginCard = $.get('openapi-login-card');
+    const mainContent = $.get('openapi-main-content');
+    const headerActions = $.get('openapi-header-actions');
+    const header = $.get('openapi-header');
+    const loginStatus = $.get('openapi-login-status');
+    
+    if (loginCard) loginCard.style.display = 'none';
+    if (mainContent) mainContent.style.display = 'block';
+    if (headerActions) headerActions.style.display = 'flex';
+    
+    // 更新顶栏颜色和状态
+    if (header) {
+        header.classList.remove('logged-out');
+        header.classList.add('logged-in');
+    }
+    if (loginStatus) {
+        loginStatus.innerHTML = `<i class="bi bi-check-circle"></i><span>已登录 UIN: ${data.uin || '-'}</span>`;
+    }
 }
 
 function showNotLoggedInState() {
-    $.toggleVisibility(['openapi-not-logged-in'], ['openapi-logged-in', 'openapi-main-content', 'openapi-data-section']);
+    const loginCard = $.get('openapi-login-card');
+    const notLoggedIn = $.get('openapi-not-logged-in');
+    const mainContent = $.get('openapi-main-content');
+    const dataSection = $.get('openapi-data-section');
+    const headerActions = $.get('openapi-header-actions');
+    const loginProgress = $.get('openapi-login-progress');
+    const header = $.get('openapi-header');
+    const loginStatus = $.get('openapi-login-status');
+    
+    if (loginCard) loginCard.style.display = 'block';
+    if (notLoggedIn) notLoggedIn.style.display = 'block';
+    if (mainContent) mainContent.style.display = 'none';
+    if (dataSection) dataSection.style.display = 'none';
+    if (headerActions) headerActions.style.display = 'none';
+    if (loginProgress) loginProgress.style.display = 'none';
+    
+    // 更新顶栏颜色和状态
+    if (header) {
+        header.classList.remove('logged-in');
+        header.classList.add('logged-out');
+    }
+    if (loginStatus) {
+        loginStatus.innerHTML = `<i class="bi bi-x-circle"></i><span>未登录</span>`;
+    }
 }
 
 async function startOpenAPILogin() {
@@ -460,21 +1043,20 @@ async function startOpenAPILogin() {
             alert('获取登录二维码失败：' + data.message);
             $.hide('openapi-login-progress');
         }
-        } catch (error) {
-            alert('开始登录失败');
-            $.hide('openapi-login-progress');
-        }
+    } catch (error) {
+        alert('开始登录失败');
+        $.hide('openapi-login-progress');
+    }
 }
 
 function generateQRCode(loginUrl) {
     const qrImage = $.get('openapi-qr-image');
-    const qrApiUrl = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(loginUrl)}`;
     qrImage.onload = () => $.toggleVisibility(['openapi-qr-container'], ['openapi-login-loading']);
     qrImage.onerror = () => {
-        $.setHtml('openapi-login-loading', '<div class="alert alert-warning text-center"><i class="bi bi-exclamation-triangle"></i> 二维码生成失败<br><small class="text-muted">请使用下方按钮打开登录页面</small></div>');
+        $.setHtml('openapi-login-loading', '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> 二维码生成失败，请使用下方按钮</div>');
         $.show('openapi-qr-container');
     };
-    qrImage.src = qrApiUrl;
+    qrImage.src = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(loginUrl)}`;
 }
 
 function startLoginStatusCheck() {
@@ -500,7 +1082,7 @@ function logoutOpenAPI() {
         API.request('/logout').then(() => {
             showNotLoggedInState();
             if (openApiLoginCheckInterval) clearInterval(openApiLoginCheckInterval);
-        }).catch(error => console.error('退出登录失败:', error));
+        });
     }
 }
 
@@ -510,37 +1092,52 @@ async function loadBotList() {
         const data = await API.request('/get_botlist');
         $.hide('openapi-botlist-loading');
         if (data.success) { displayBotList(data.data); $.show('openapi-botlist-container'); }
-        else alert('获取机器人列表失败: ' + API.handleError(data));
+        else {
+            if (data.message && data.message.includes('登录状态失效')) {
+                showNotLoggedInState();
+            } else {
+                $.setHtml('openapi-botlist-table', '<div class="text-center text-muted py-4">获取失败，请刷新重试</div>');
+                $.show('openapi-botlist-container');
+            }
+        }
     } catch (error) {
         $.hide('openapi-botlist-loading');
-        alert('获取机器人列表失败');
+        $.setHtml('openapi-botlist-table', '<div class="text-center text-muted py-4">获取失败，请刷新重试</div>');
+        $.show('openapi-botlist-container');
     }
 }
 
 function displayBotList(data) {
-    const tbody = $.get('openapi-botlist-table');
+    const container = $.get('openapi-botlist-table');
     if (!data || !data.apps || !data.apps.length) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">暂无机器人</td></tr>';
+        container.innerHTML = '<div class="text-center text-muted py-4">暂无机器人</div>';
         return;
     }
-    tbody.innerHTML = data.apps.map(app => `
-        <tr>
-            <td><strong>${app.app_name || '未命名'}</strong><br><small class="text-muted">${app.app_desc || '无描述'}</small></td>
-            <td><code>${app.app_id}</code></td>
-            <td>
-                <div class="d-flex gap-1 flex-wrap">
-                    <button class="btn btn-outline-primary btn-sm" onclick="getBotData('${app.app_id}')"><i class="bi bi-graph-up"></i> 数据</button>
-                    <button class="btn btn-outline-success btn-sm" onclick="getBotTemplates('${app.app_id}', '${app.app_name}')"><i class="bi bi-layout-text-sidebar-reverse"></i> 模板</button>
-                    <button class="btn btn-outline-warning btn-sm" onclick="getBotWhitelist('${app.app_id}', '${app.app_name}')"><i class="bi bi-shield-check"></i> 白名单</button>
-                    <button class="btn btn-outline-info btn-sm" onclick="importBotTemplates('${app.app_id}', '${app.app_name}')"><i class="bi bi-download"></i> 导入</button>
-                    <button class="btn btn-outline-danger btn-sm" onclick="showSubmitTemplate('${app.app_id}', '${app.app_name}')"><i class="bi bi-plus-circle"></i> 提交</button>
+    container.innerHTML = data.apps.map(app => {
+        const desc = app.app_desc || '无描述';
+        const shortDesc = desc.length > 10 ? desc.substring(0, 10) + '...' : desc;
+        return `
+        <div class="bot-card">
+            <div class="bot-card-header">
+                <div class="bot-name-row">
+                    <h6>${app.app_name || '未命名'}</h6>
+                    <button class="openapi-btn outline tiny" onclick="importBotTemplates('${app.app_id}', '${app.app_name}')" title="导入Markdown模板"><i class="bi bi-download"></i> 导入MD模板</button>
                 </div>
-            </td>
-        </tr>
-    `).join('');
+                <small title="${desc}">${shortDesc}</small>
+            </div>
+            <div class="bot-card-appid">${app.app_id}</div>
+            <div class="bot-card-actions">
+                <button class="openapi-btn primary small" onclick="getBotData('${app.app_id}')"><i class="bi bi-graph-up"></i> 数据</button>
+                <button class="openapi-btn success small" onclick="getBotTemplates('${app.app_id}', '${app.app_name}')"><i class="bi bi-layout-text-sidebar-reverse"></i> 模板</button>
+                <button class="openapi-btn info small" onclick="getBotWhitelist('${app.app_id}', '${app.app_name}')"><i class="bi bi-shield-check"></i> 白名单</button>
+                <button class="openapi-btn danger small" onclick="showSubmitTemplate('${app.app_id}', '${app.app_name}')"><i class="bi bi-plus-circle"></i> 提交</button>
+            </div>
+        </div>
+    `}).join('');
 }
 
 function refreshBotList() { loadBotList(); }
+function closeDataSection() { $.hide('openapi-data-section'); }
 
 async function getBotData(appid) {
     DataArea.show(`<i class="bi bi-table"></i> 机器人数据 - ${appid}`);
@@ -549,7 +1146,7 @@ async function getBotData(appid) {
         if (data.success) displayBotData(data);
         else alert('获取机器人数据失败: ' + API.handleError(data));
     } catch (error) {
-        alert('获取机器人数据失败，请重试');
+        alert('获取机器人数据失败');
     } finally {
         $.hide('openapi-data-loading');
     }
@@ -559,8 +1156,8 @@ function displayBotData(data) {
     $.setText('openapi-data-appid', data.appid);
     $.setText('openapi-data-avg-dau', data.avg_dau);
     $.setText('openapi-avg-dau-display', Number(data.avg_dau).toLocaleString('zh-CN'));
-   
-   const tbody = $.get('openapi-data-table');
+    
+    const tbody = $.get('openapi-data-table');
     tbody.innerHTML = data.days_data.map(d => `
         <tr>
             <td><strong>${d.date}</strong></td>
@@ -568,29 +1165,51 @@ function displayBotData(data) {
             <td><span class="badge bg-primary">${Number(d.up_users).toLocaleString('zh-CN')}</span></td>
             <td>${Number(d.down_messages).toLocaleString('zh-CN')}</td>
             <td><strong>${Number(d.total_messages).toLocaleString('zh-CN')}</strong></td>
-            <td><span class="text-success">+${Number(d.new_groups).toLocaleString('zh-CN')}</span> / <span class="text-info">${Number(d.current_groups).toLocaleString('zh-CN')}</span></td>
-            <td><span class="text-success">+${Number(d.new_friends).toLocaleString('zh-CN')}</span> / <span class="text-info">${Number(d.current_friends).toLocaleString('zh-CN')}</span></td>
+            <td><span class="text-success">+${d.new_groups}</span> / ${d.current_groups}</td>
+            <td><span class="text-success">+${d.new_friends}</span> / ${d.current_friends}</td>
         </tr>
     `).join('');
-   DataArea.showContainer('data-table');
+    DataArea.showContainer('data-table');
 }
+
+async function getNotifications() {
+    DataArea.show(`<i class="bi bi-bell"></i> 通知消息`);
+    try {
+        const data = await API.request('/get_notifications');
+        if (data.success) {
+            displayNotifications(data.messages || data.notifications || []);
+            DataArea.showContainer('notifications');
+        } else alert('获取通知消息失败：' + API.handleError(data));
+    } catch (error) {
+        $.hide('openapi-data-loading');
+        alert('获取通知消息失败');
+    }
+}
+
+function displayNotifications(notifications) {
+    const table = $.get('openapi-notifications-table');
+    if (!notifications || !notifications.length) {
+        table.innerHTML = '<tr><td colspan="3" class="text-center text-muted">暂无通知消息</td></tr>';
+        return;
+    }
+    table.innerHTML = notifications.map(n => `<tr><td>${n.send_time || n.time || '-'}</td><td>${n.title || '-'}</td><td>${n.content || '-'}</td></tr>`).join('');
+}
+
 
 function getBotTemplates(appid, appName) { getTemplates(appid, appName); }
 
 async function getTemplates(appid = null, appName = null) {
-    // 设置当前模板页面信息
     currentTemplateAppId = appid;
     currentTemplateAppName = appName;
-
     DataArea.show('<i class="bi bi-layout-text-sidebar-reverse"></i> 模板管理');
     try {
         const data = await API.request('/get_templates', appid ? { appid } : {});
         $.hide('openapi-data-loading');
         if (data.success) { currentTemplates = data.data.templates; displayTemplates(data.data.templates, appName); }
-        else alert('获取模板列表失败: ' + API.handleError(data, '请检查网络连接或重新登录'));
+        else alert('获取模板列表失败: ' + API.handleError(data));
     } catch (error) {
         $.hide('openapi-data-loading');
-        alert('获取模板列表失败: ' + (error.message || '网络错误，请重试'));
+        alert('获取模板列表失败');
     }
 }
 
@@ -605,10 +1224,10 @@ function displayTemplates(templates, appName = null) {
         tbody.innerHTML = templates.map((t, i) => `
             <tr>
                 <td><input type="checkbox" class="template-checkbox" data-tpl-id="${t.id}" data-status="${t.status}" onchange="updateActionButtons()"></td>
-                <td style="max-width: 180px; word-break: break-word;"><strong>${t.name}</strong><br><small class="text-muted">ID: ${t.id}</small></td>
+                <td><strong>${t.name}</strong><br><small class="text-muted">ID: ${t.id}</small></td>
                 <td><span class="badge ${t.type === '按钮模板' ? 'bg-info' : 'bg-secondary'}">${t.type}</span></td>
                 <td><span class="badge ${getStatusBadgeClass(t.status)}">${t.status}</span></td>
-                <td><button class="btn btn-outline-primary btn-sm" onclick="viewTemplateDetail(${i})"><i class="bi bi-eye"></i> 查看</button></td>
+                <td><button class="openapi-btn outline small" onclick="viewTemplateDetail(${i})"><i class="bi bi-eye"></i></button></td>
             </tr>
         `).join('');
         updateActionButtons();
@@ -635,45 +1254,13 @@ function viewTemplateDetail(index) {
     $.setText('template-detail-content', t.content);
     
     const prevBtn = $.get('template-prev-btn'), nextBtn = $.get('template-next-btn');
-    if (prevBtn) {
-        prevBtn.style.display = index > 0 ? 'inline-block' : 'none';
-        prevBtn.onclick = () => viewTemplateDetail(index - 1);
-    }
-    if (nextBtn) {
-        nextBtn.style.display = index < currentTemplates.length - 1 ? 'inline-block' : 'none';
-        nextBtn.onclick = () => viewTemplateDetail(index + 1);
-    }
+    if (prevBtn) { prevBtn.style.display = index > 0 ? 'inline-flex' : 'none'; prevBtn.onclick = () => viewTemplateDetail(index - 1); }
+    if (nextBtn) { nextBtn.style.display = index < currentTemplates.length - 1 ? 'inline-flex' : 'none'; nextBtn.onclick = () => viewTemplateDetail(index + 1); }
     
     if (t.type === '按钮模板') renderButtonPreview(t);
     else { const bp = $.get('template-button-preview'); if (bp) bp.style.display = 'none'; }
     
     $.show('openapi-template-detail');
-}
-
-function importBotTemplates(appid, appName) {
-    if (!confirm(`确定要将机器人 "${appName}" 的模板导入到markdown_templates.py文件中吗？\n\nAppID: ${appid}\n\n注意：\n- 模板将从1开始命名\n- 按钮ID将以注释形式添加`)) return;
-    
-    const button = event.target.closest('button');
-    const originalText = button.innerHTML;
-    button.innerHTML = '<i class="bi bi-hourglass-split"></i> 导入中...';
-    button.disabled = true;
-    
-    API.request('/import_templates', { appid }).then(data => {
-        if (data.success) {
-            const r = data.data;
-            alert(`✅ 模板导入完成！\n\n🤖 机器人: ${appName}\n📱 AppID: ${appid}\n\n📊 统计信息：\n• 新导入模板：${r.imported_count} 个\n• 跳过重复模板：${r.skipped_count} 个${r.button_count > 0 ? `\n• 按钮模板注释：${r.button_count} 个` : ''}\n\n💡 ${r.message}\n\n⚠️ 重要提示：你需要重启框架来重载模板文件！`);
-            button.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> 导入成功';
-            setTimeout(() => { button.innerHTML = originalText; button.disabled = false; }, 3000);
-        } else {
-            alert('❌ 导入模板失败: ' + data.message);
-            if (data.message && data.message.includes('登录状态失效')) showNotLoggedInState();
-            }
-    }).catch(error => {
-        console.error('导入模板失败:', error);
-        alert('❌ 导入模板失败，请重试\n\n错误信息: ' + error.message);
-    }).finally(() => {
-        if (button.innerHTML.includes('导入中')) { button.innerHTML = originalText; button.disabled = false; }
-    });
 }
 
 function renderButtonPreview(template) {
@@ -689,9 +1276,9 @@ function renderButtonPreview(template) {
             const btnHtml = buttons.slice(0, 5).map(btn => {
                 const rd = btn.render_data || {}, action = btn.action || {}, actionType = action.type || 2;
                 const icon = actionType === 0 ? '<i class="bi bi-box-arrow-up-right"></i> ' : actionType === 1 ? '<i class="bi bi-arrow-clockwise"></i> ' : '';
-                return `<button class="btn btn-sm ${getButtonStyleClass(rd.style || 0)}" disabled style="min-width: 80px;">${icon}${rd.label || 'Button'}</button>`;
-            }).join('');
-            return `<div class="mb-2 d-flex gap-2 flex-wrap">${btnHtml}</div>`;
+                return `<button class="btn btn-sm ${getButtonStyleClass(rd.style || 0)}" disabled>${icon}${rd.label || 'Button'}</button>`;
+            }).join(' ');
+            return `<div class="mb-2">${btnHtml}</div>`;
         }).join('');
         
         const bp = $.get('template-button-preview'); if (bp) bp.style.display = 'block';
@@ -705,18 +1292,18 @@ function getButtonStyleClass(style) {
     return classes[style] || 'btn-outline-dark';
 }
 
-async function getNotifications() {
-    DataArea.show(`<i class="bi bi-bell"></i> 通知消息`);
-    try {
-        const data = await API.request('/get_notifications');
-        if (data.success) {
-            displayNotifications(data.messages || data.notifications || []);
-            DataArea.showContainer('notifications');
-        } else alert('获取通知消息失败：' + API.handleError(data, '未知错误'));
-    } catch (error) {
-        $.hide('openapi-data-loading');
-        alert('获取通知消息失败');
-    }
+function updateActionButtons() {
+    const checkboxes = document.querySelectorAll('.template-checkbox:checked');
+    const hasChecked = checkboxes.length > 0;
+    const hasUnsubmitted = Array.from(checkboxes).some(cb => cb.dataset.status === '未提审');
+    
+    $.get('delete-templates-btn').style.display = hasChecked ? 'inline-flex' : 'none';
+    $.get('submit-templates-btn').style.display = hasUnsubmitted ? 'inline-flex' : 'none';
+}
+
+function toggleAllTemplates(checkbox) {
+    document.querySelectorAll('.template-checkbox').forEach(cb => cb.checked = checkbox.checked);
+    updateActionButtons();
 }
 
 async function getBotWhitelist(appid, appName) {
@@ -726,20 +1313,11 @@ async function getBotWhitelist(appid, appName) {
     try {
         const data = await API.request('/get_whitelist', { appid });
         if (data.success) { displayWhitelist(data.data.ip_list || []); DataArea.showContainer('whitelist'); }
-        else alert('获取白名单失败：' + API.handleError(data, '获取白名单失败'));
+        else alert('获取白名单失败：' + API.handleError(data));
     } catch (error) {
         $.hide('openapi-data-loading');
-        alert('获取白名单失败：' + (error.message || '网络错误，请重试'));
+        alert('获取白名单失败');
     }
-}
-
-function displayNotifications(notifications) {
-    const table = $.get('openapi-notifications-table');
-    if (!notifications || !notifications.length) {
-        table.innerHTML = '<tr><td colspan="3" class="text-center text-muted">暂无通知消息</td></tr>';
-        return;
-    }
-    table.innerHTML = notifications.map(n => `<tr><td>${n.send_time || n.time || '-'}</td><td>${n.title || '-'}</td><td style="max-width: 300px; word-break: break-word;">${n.content || '-'}</td></tr>`).join('');
 }
 
 function displayWhitelist(ipList) {
@@ -748,12 +1326,12 @@ function displayWhitelist(ipList) {
     clearAllInputs();
     
     if (!ipList || !ipList.length) {
-        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted"><i class="bi bi-inbox"></i> 暂无IP白名单，点击上方"添加IP输入框"开始添加</td></tr>';
+        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无IP白名单</td></tr>';
         return;
     }
     table.innerHTML = ipList.map((ip, i) => {
         const ipAddress = typeof ip === 'string' ? ip : (ip.ip || ip);
-        return `<tr class="existing-ip-row"><td><span class="badge bg-primary me-2">已有</span><code>${ipAddress}</code></td><td><button class="btn btn-danger btn-sm" onclick="deleteWhitelistIp('${ipAddress}', ${i}, this)"><i class="bi bi-trash"></i> 删除</button></td></tr>`;
+        return `<tr><td><span class="badge bg-primary me-2">已有</span><code>${ipAddress}</code></td><td><button class="openapi-btn danger small" onclick="deleteWhitelistIp('${ipAddress}', ${i}, this)"><i class="bi bi-trash"></i></button></td></tr>`;
     }).join('');
 }
 
@@ -764,8 +1342,8 @@ function addNewIpInput() {
     row.className = 'new-ip-input-row';
     row.id = `new-ip-row-${newIpInputCount}`;
     row.innerHTML = `
-        <td><div class="input-group"><input type="text" class="form-control new-ip-input" placeholder="请输入IP地址，如：192.168.1.100" id="new-ip-${newIpInputCount}" onkeypress="handleIpInputKeypress(event, ${newIpInputCount})"><span class="input-group-text bg-success text-white"><i class="bi bi-plus-lg"></i></span></div></td>
-        <td><button class="btn btn-outline-danger btn-sm" onclick="removeIpInput(${newIpInputCount})"><i class="bi bi-x-lg"></i> 移除</button></td>
+        <td><input type="text" class="form-control new-ip-input" placeholder="请输入IP地址" id="new-ip-${newIpInputCount}" onkeypress="handleIpInputKeypress(event)"></td>
+        <td><button class="openapi-btn outline small" onclick="removeIpInput(${newIpInputCount})"><i class="bi bi-x-lg"></i></button></td>
     `;
     table.insertBefore(row, table.firstChild);
     setTimeout(() => $.get(`new-ip-${newIpInputCount}`).focus(), 100);
@@ -778,13 +1356,12 @@ function removeIpInput(inputId) {
     updateBatchAddButtonVisibility();
 }
 
-function handleIpInputKeypress(event, inputId) {
+function handleIpInputKeypress(event) {
     if (event.key === 'Enter') addNewIpInput();
 }
 
 function updateBatchAddButtonVisibility() {
-    const batchButton = $.get('batch-add-ips-btn');
-    batchButton.style.display = document.querySelectorAll('.new-ip-input-row').length > 0 ? 'inline-block' : 'none';
+    $.get('batch-add-ips-btn').style.display = document.querySelectorAll('.new-ip-input-row').length > 0 ? 'inline-flex' : 'none';
 }
 
 function clearAllInputs() {
@@ -796,35 +1373,26 @@ function clearAllInputs() {
 function batchAddIps() {
     const { validIps: newIps, invalidIps } = IPValidator.getValidIps();
     if (!newIps.length) return alert('请至少输入一个有效的IP地址');
-    if (invalidIps.length) return alert(`以下IP地址格式无效：\n${invalidIps.join('\n')}\n\n请修正后重试。`);
-    
-    const duplicateIps = newIps.filter(ip => existingIpList.includes(ip));
-    if (duplicateIps.length) alert(`以下IP地址已存在：\n${duplicateIps.join('\n')}\n\n将跳过这些IP地址。`);
+    if (invalidIps.length) return alert(`以下IP地址格式无效：\n${invalidIps.join('\n')}`);
     
     const finalIpList = newIps.filter(ip => !existingIpList.includes(ip));
     if (!finalIpList.length) return alert('没有新的IP地址需要添加');
-    if (!confirm(`确认批量添加以下 ${finalIpList.length} 个IP地址吗？\n\n${finalIpList.join('\n')}\n\n注意：此操作需要二维码授权。`)) return;
+    if (!confirm(`确认批量添加 ${finalIpList.length} 个IP地址吗？`)) return;
     
-    const batchButton = $.get('batch-add-ips-btn');
-    batchButton.disabled = true;
-    batchButton.innerHTML = '<i class="bi bi-hourglass"></i> 获取授权中...';
     startBatchAddProcess(finalIpList);
 }
 
 function startBatchAddProcess(newIpList) {
     deleteIpData.batchIpList = newIpList;
-    showCustomModal('<i class="bi bi-shield-check"></i> 批量添加IP授权', `<div class="mb-3"><strong>批量添加 ${newIpList.length} 个IP地址：</strong><br><small class="text-muted">${newIpList.join(', ')}</small></div><div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">正在获取授权二维码...</span></div><div class="mt-2">正在获取授权二维码...</div></div>`);
+    alert('批量添加功能需要二维码授权，请稍后...');
     getBatchAddQrCode();
 }
 
 async function getBatchAddQrCode() {
     try {
         const data = await API.request('/get_delete_qr', { appid: currentWhitelistAppId });
-        if (data.success) { deleteIpData.qrcode = data.qrcode; showDeleteQrCode(data.url); startBatchAddAuthCheck(); }
-        else showDeleteQrError(API.handleError(data, '获取授权二维码失败'));
-    } catch (error) {
-        showDeleteQrError('网络错误，请重试');
-    }
+        if (data.success) { deleteIpData.qrcode = data.qrcode; startBatchAddAuthCheck(); }
+    } catch (error) {}
 }
 
 function startBatchAddAuthCheck() {
@@ -838,13 +1406,7 @@ async function checkBatchAddAuthStatus() {
         const data = await API.request('/check_delete_auth', { appid: currentWhitelistAppId, qrcode: deleteIpData.qrcode });
         if (data.success && data.authorized) {
             clearInterval(deleteIpData.authCheckInterval);
-            deleteIpData.authCheckInterval = null;
-            showAuthSuccess('授权成功，正在批量添加IP...');
             executeBatchAddIp();
-        } else if (data.error) {
-            clearInterval(deleteIpData.authCheckInterval);
-            deleteIpData.authCheckInterval = null;
-            showDeleteQrError(API.handleError(data, '授权失败，请重试'));
         }
     } catch (error) {}
 }
@@ -854,737 +1416,284 @@ async function executeBatchAddIp() {
     try {
         const data = await API.request('/batch_add_whitelist', { appid: currentWhitelistAppId, ip_list: allIpList, qrcode: deleteIpData.qrcode });
         if (data.success) {
-            showAuthSuccess(`成功添加 ${deleteIpData.batchIpList.length} 个IP地址！`);
-            setTimeout(() => {
-                destroyCustomModal();
-                clearAllInputs();
-                const batchButton = $.get('batch-add-ips-btn');
-                batchButton.disabled = false;
-                batchButton.innerHTML = '<i class="bi bi-shield-check"></i> 批量添加IP (需要授权)';
-                getBotWhitelist(currentWhitelistAppId, currentWhitelistAppName);
-            }, 1500);
-        } else showDeleteQrError(API.handleError(data, '批量添加IP失败'));
-    } catch (error) {
-        showDeleteQrError('批量添加IP时发生网络错误');
-    }
+            alert(`成功添加 ${deleteIpData.batchIpList.length} 个IP地址！`);
+            clearAllInputs();
+            getBotWhitelist(currentWhitelistAppId, currentWhitelistAppName);
+        }
+    } catch (error) {}
 }
 
 function deleteWhitelistIp(ipAddress, index, buttonElement) {
-    if (!confirm(`确定要删除IP "${ipAddress}" 吗？\n\n需要扫描二维码进行授权确认。`)) return;
+    if (!confirm(`确定要删除IP "${ipAddress}" 吗？`)) return;
     deleteIpData.ip = ipAddress;
-    deleteIpData.qrcode = '';
-    showCustomModal('<i class="bi bi-trash"></i> 删除IP授权', `<div class="mb-3"><strong>确认删除IP地址：<span class="text-danger">${ipAddress}</span></strong></div><div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">正在获取授权二维码...</span></div><div class="mt-2">正在获取授权二维码...</div></div>`);
     getDeleteQrCode();
 }
 
 async function getDeleteQrCode() {
     try {
         const data = await API.request('/get_delete_qr', { appid: currentWhitelistAppId });
-        if (data.success) { deleteIpData.qrcode = data.qrcode; showDeleteQrCode(data.url); startDeleteAuthCheck(); }
-        else showDeleteQrError(API.handleError(data, '获取授权二维码失败'));
-    } catch (error) {
-        showDeleteQrError('网络错误，请重试');
-    }
-}
-
-function generateQRCodeToElement(url, targetElement, options = {}) {
-    const { size = 200, failureText = '二维码生成失败', linkButtonText = '打开授权链接' } = options;
-    targetElement.innerHTML = '';
-    const qrImg = document.createElement('img');
-    qrImg.src = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(url)}`;
-    qrImg.alt = '二维码';
-    Object.assign(qrImg.style, { width: size + 'px', height: size + 'px', border: '1px solid #ddd', borderRadius: '8px', display: 'block', margin: '0 auto' });
-    qrImg.onload = () => targetElement.appendChild(qrImg);
-    qrImg.onerror = () => {
-        targetElement.innerHTML = `<div class="border p-3" style="width: ${size}px; height: ${size}px; background: #f8f9fa; margin: 0 auto;"><div class="text-center h-100 d-flex align-items-center justify-content-center"><div><i class="bi bi-qr-code text-muted" style="font-size: 3rem;"></i><div class="mt-2 text-muted">${failureText}</div><div class="mt-2"><a href="${url}" target="_blank" class="btn btn-primary btn-sm"><i class="bi bi-box-arrow-up-right"></i> ${linkButtonText}</a></div></div></div></div>`;
-    };
-}
-
-function showDeleteQrCode(qrUrl) {
-    if (!customModal.element) return;
-    updateModalContent(`<div class="mb-3"><div class="d-flex justify-content-center mb-3"><div id="qrCodeContainer"></div></div><div class="alert alert-info"><i class="bi bi-info-circle"></i> 请使用QQ扫描二维码进行授权</div><div class="text-muted"><i class="bi bi-hourglass"></i> 等待授权中...</div></div>`);
-    hideRetryButton();
-    const qrCodeDiv = customModal.element.querySelector('#qrCodeContainer');
-    generateQRCodeToElement(qrUrl, qrCodeDiv, { size: 200, failureText: '授权二维码生成失败', linkButtonText: '打开授权链接' });
-}
-
-function showDeleteQrError(message) {
-    if (!customModal.element) return;
-    updateModalContent(`<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> ${message}</div>`);
-    showRetryButton();
+        if (data.success) { deleteIpData.qrcode = data.qrcode; startDeleteAuthCheck(); }
+    } catch (error) {}
 }
 
 function startDeleteAuthCheck() {
     if (deleteIpData.authCheckInterval) clearInterval(deleteIpData.authCheckInterval);
     deleteIpData.authCheckInterval = setInterval(checkDeleteAuthStatus, 3000);
-    }
-    
+}
+
 async function checkDeleteAuthStatus() {
     if (!deleteIpData.qrcode) return;
     try {
         const data = await API.request('/check_delete_auth', { appid: currentWhitelistAppId, qrcode: deleteIpData.qrcode });
         if (data.success && data.authorized) {
             clearInterval(deleteIpData.authCheckInterval);
-            deleteIpData.authCheckInterval = null;
-            showAuthSuccess('授权成功，正在删除IP...');
             executeDeleteIp();
-        } else if (data.error) {
-            clearInterval(deleteIpData.authCheckInterval);
-            deleteIpData.authCheckInterval = null;
-            showDeleteQrError(API.handleError(data, '授权失败，请重试'));
         }
     } catch (error) {}
 }
 
 async function executeDeleteIp() {
+    const newIpList = existingIpList.filter(ip => ip !== deleteIpData.ip);
     try {
-        const data = await API.request('/execute_delete_ip', { appid: currentWhitelistAppId, ip: deleteIpData.ip, qrcode: deleteIpData.qrcode });
+        const data = await API.request('/batch_add_whitelist', { appid: currentWhitelistAppId, ip_list: newIpList, qrcode: deleteIpData.qrcode });
         if (data.success) {
-            showAuthSuccess('IP删除成功！');
-            setTimeout(() => { destroyCustomModal(); getBotWhitelist(currentWhitelistAppId, currentWhitelistAppName); }, 1000);
-        } else showDeleteQrError(API.handleError(data, '删除IP失败'));
-    } catch (error) {
-        showDeleteQrError('删除IP时发生网络错误');
-    }
+            alert('IP删除成功！');
+            getBotWhitelist(currentWhitelistAppId, currentWhitelistAppName);
+        }
+    } catch (error) {}
 }
-
-function createCustomModal() {
-    destroyCustomModal();
-    const modalHTML = `<div id="customAuthModal" style="position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; background-color: rgba(0, 0, 0, 0.6) !important; z-index: 9999 !important; display: flex !important; align-items: center !important; justify-content: center !important;"><div id="customModalDialog" style="background: white; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; position: relative; margin: 20px;"><div id="customModalHeader" style="padding: 15px 20px; border-bottom: 1px solid #dee2e6; display: flex; justify-content: space-between; align-items: center;"><h5 id="customModalTitle" style="margin: 0; font-size: 1.1rem;"><i class="bi bi-shield-check"></i> IP授权</h5><button id="customModalClose" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #6c757d; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;" title="关闭">×</button></div><div id="customModalBody" style="padding: 20px; text-align: center;"><div id="modalContent"></div></div><div id="customModalFooter" style="padding: 15px 20px; border-top: 1px solid #dee2e6; text-align: right;"><button id="customModalCancel" class="btn btn-secondary" style="margin-right: 10px;">取消</button><button id="customModalRetry" class="btn btn-primary" style="display: none;"><i class="bi bi-arrow-clockwise"></i> 重试</button></div></div></div>`;
-    const modalContainer = document.createElement('div');
-    modalContainer.innerHTML = modalHTML;
-    const modalElement = modalContainer.firstElementChild;
-    modalElement.querySelector('#customModalClose').addEventListener('click', destroyCustomModal);
-    modalElement.querySelector('#customModalCancel').addEventListener('click', destroyCustomModal);
-    modalElement.querySelector('#customModalRetry').addEventListener('click', retryCurrentOperation);
-    modalElement.addEventListener('click', e => { if (e.target === modalElement) destroyCustomModal(); });
-    modalElement.querySelector('#customModalDialog').addEventListener('click', e => e.stopPropagation());
-    document.body.appendChild(modalElement);
-    document.body.style.overflow = 'hidden';
-    customModal.element = modalElement;
-    customModal.isVisible = true;
-    return modalElement;
-}
-
-function destroyCustomModal() {
-    if (customModal.element) {
-        if (deleteIpData.authCheckInterval) { clearInterval(deleteIpData.authCheckInterval); deleteIpData.authCheckInterval = null; }
-        customModal.element.remove();
-        customModal.element = null;
-        customModal.isVisible = false;
-        document.body.style.overflow = '';
-    }
-}
-
-function showCustomModal(title, content) {
-    const modal = createCustomModal();
-    modal.querySelector('#customModalTitle').innerHTML = title;
-    modal.querySelector('#modalContent').innerHTML = content;
-    return modal;
-}
-
-function updateModalContent(content) {
-    if (customModal.element) customModal.element.querySelector('#modalContent').innerHTML = content;
-}
-
-function showRetryButton() {
-    if (customModal.element) customModal.element.querySelector('#customModalRetry').style.display = 'inline-block';
-}
-
-function hideRetryButton() {
-    if (customModal.element) customModal.element.querySelector('#customModalRetry').style.display = 'none';
-}
-
-function retryCurrentOperation() {
-    if (deleteIpData.ip) { showAuthLoading('正在重新获取删除授权二维码...'); getDeleteQrCode(); }
-    else if (deleteIpData.batchIpList && deleteIpData.batchIpList.length > 0) { showAuthLoading('正在重新获取批量添加授权二维码...'); getBatchAddQrCode(); }
-}
-
-function showAuthLoading(message = '正在获取授权二维码...') {
-    if (!customModal.element) return;
-    updateModalContent(`<div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">${message}</span></div><div class="mt-2">${message}</div></div>`);
-    hideRetryButton();
-}
-
-function showAuthSuccess(message) {
-    if (!customModal.element) return;
-    updateModalContent(`<div class="text-center"><div class="alert alert-success"><i class="bi bi-check-circle text-success"></i> ${message}</div></div>`);
-    hideRetryButton();
-}
-
-function closeDataSection() { $.hide('openapi-data-section'); }
-
-// ===== 模板管理相关变量 =====
-let currentTemplateAppId = '';
-let currentTemplateAppName = '';
-
-// ===== 模板提交相关函数 =====
-let currentSubmitAppId = '';
-let currentSubmitAppName = '';
-let templateQrCheckInterval = null;
-let currentTemplateQrCode = '';
 
 function showSubmitTemplate(appid, appName) {
-    currentSubmitAppId = appid;
-    currentSubmitAppName = appName;
-    DataArea.show(`<i class="bi bi-plus-circle"></i> ${appName} - 提交模板`);
+    currentTemplateAppId = appid;
+    currentTemplateAppName = appName;
+    DataArea.show(`<i class="bi bi-plus-circle"></i> 提交模板 - ${appName}`);
     DataArea.showContainer('submit-template');
-    
-    // 重置表单
-    $.get('template-name-input').value = '';
-    $.get('template-scene-input').value = '';
-    $.get('template-content-input').value = '';
-    $.get('button-config-input').value = '';
-    $.get('template-type-select').value = '2';
-    onTemplateTypeChange();
-    
-    $.hide('template-preview-result');
 }
 
 function backToTemplateList() {
-    if (currentSubmitAppId) {
-        getBotTemplates(currentSubmitAppId, currentSubmitAppName);
-    }
+    getTemplates(currentTemplateAppId, currentTemplateAppName);
 }
 
 function onTemplateTypeChange() {
-    const templateType = $.get('template-type-select').value;
-    if (templateType === '2') {
-        // Markdown模板
-        $.show('markdown-template-inputs');
-        $.hide('button-template-inputs');
-        extractTemplateParams(); // 提取参数
-    } else {
-        // 按钮模板
-        $.hide('markdown-template-inputs');
-        $.show('button-template-inputs');
-    }
+    const type = $.get('template-type-select').value;
+    $.get('markdown-template-inputs').style.display = type === '2' ? 'block' : 'none';
+    $.get('button-template-inputs').style.display = type === '1' ? 'block' : 'none';
 }
 
-// 提取模板中的参数
 function extractTemplateParams() {
-    const templateContent = $.get('template-content-input').value;
-    const regex = /\{\{\.(\w+)\}\}/g;
+    const content = $.get('template-content-input').value;
+    const paramRegex = /\{\{\s*\.(\w+)\s*\}\}/g;
     const params = [];
     let match;
-    
-    while ((match = regex.exec(templateContent)) !== null) {
-        if (!params.includes(match[1])) {
-            params.push(match[1]);
-        }
+    while ((match = paramRegex.exec(content)) !== null) {
+        if (!params.includes(match[1])) params.push(match[1]);
     }
-    
     const container = $.get('template-params-container');
-    const inputsContainer = $.get('template-params-inputs');
-    
+    const inputsDiv = $.get('template-params-inputs');
     if (params.length > 0) {
-        $.show('template-params-container');
-        
-        // 生成输入框
-        inputsContainer.innerHTML = params.map(param => `
-            <div class="mb-2">
-                <label class="form-label small">${param}:</label>
-                <input type="text" class="form-control form-control-sm" id="param-${param}" placeholder="输入 ${param} 的测试值">
+        inputsDiv.innerHTML = params.map(p => `
+            <div class="form-group">
+                <label>${p}</label>
+                <input type="text" class="form-control template-param-input" data-param="${p}" placeholder="请输入 ${p} 的测试值">
             </div>
         `).join('');
+        container.style.display = 'block';
     } else {
-        $.hide('template-params-container');
-        inputsContainer.innerHTML = '';
-    }
-}
-
-// 获取参数值并生成tpl_fields
-function getTemplateParams() {
-    const templateContent = $.get('template-content-input').value;
-    const regex = /\{\{\.(\w+)\}\}/g;
-    const params = [];
-    let match;
-    
-    while ((match = regex.exec(templateContent)) !== null) {
-        if (!params.includes(match[1])) {
-            params.push(match[1]);
-        }
-    }
-    
-    return params.map(param => {
-        const input = $.get(`param-${param}`);
-        const value = input ? input.value.trim() : '';
-        return {
-            key: param,
-            values: [value || '测试值']
-        };
-    });
-}
-
-async function previewTemplate() {
-    const templateType = $.get('template-type-select').value;
-    const templateName = $.get('template-name-input').value.trim();
-    const templateContent = $.get('template-content-input').value.trim();
-    const buttonConfig = $.get('button-config-input').value.trim();
-    
-    if (!templateName) {
-        alert('请输入模板名称');
-        return;
-    }
-    
-    let templateData = {
-        tpl_name: templateName,
-        tpl_type: parseInt(templateType)
-    };
-    
-    if (templateType === '2') {
-        // Markdown模板
-        if (!templateContent) {
-            alert('请输入模板内容');
-            return;
-        }
-        
-        templateData.text = templateContent;
-        templateData.tpl_fields = getTemplateParams(); // 自动获取参数
-    } else {
-        // 按钮模板
-        if (!buttonConfig) {
-            alert('请输入按钮配置');
-            return;
-        }
-        
-        try {
-            const config = JSON.parse(buttonConfig);
-            templateData.text = '@' + JSON.stringify(config);
-        } catch (e) {
-            alert('按钮配置JSON格式错误: ' + e.message);
-            return;
-        }
-    }
-    
-    try {
-        const data = await API.request('/preview_template', {
-            appid: currentSubmitAppId,
-            template_data: templateData
-        });
-        
-        if (data.success) {
-            $.show('template-preview-result');
-            $.setHtml('template-preview-content', data.data.preview_text || '预览成功');
-        } else {
-            alert('预览失败: ' + data.message);
-        }
-    } catch (error) {
-        alert('预览模板失败: ' + error.message);
+        container.style.display = 'none';
+        inputsDiv.innerHTML = '';
     }
 }
 
 async function startTemplateSubmit() {
-    const templateType = $.get('template-type-select').value;
-    const templateName = $.get('template-name-input').value.trim();
-    const templateScene = $.get('template-scene-input').value.trim();
-    const templateContent = $.get('template-content-input').value.trim();
-    const buttonConfig = $.get('button-config-input').value.trim();
+    const type = $.get('template-type-select').value;
+    const name = $.get('template-name-input').value.trim();
+    const scene = $.get('template-scene-input').value.trim();
+    if (!name) return alert('请输入模板名称');
+    if (!scene) return alert('请输入使用场景');
     
-    if (!templateName) {
-        alert('请输入模板名称');
-        return;
-    }
-    
-    if (!templateScene) {
-        alert('请输入使用场景');
-        return;
-    }
-    
-    let templateData = {
-        tpl_name: templateName,
-        scene: templateScene,
-        tpl_type: parseInt(templateType)
-    };
-    
-    if (templateType === '2') {
-        // Markdown模板
-        if (!templateContent) {
-            alert('请输入模板内容');
-            return;
-        }
-        
-        templateData.text = templateContent;
-        templateData.tpl_fields = getTemplateParams(); // 自动获取参数
+    let content, params = {};
+    if (type === '2') {
+        content = $.get('template-content-input').value.trim();
+        if (!content) return alert('请输入模板内容');
+        document.querySelectorAll('.template-param-input').forEach(input => {
+            params[input.dataset.param] = input.value.trim();
+        });
     } else {
-        // 按钮模板
-        if (!buttonConfig) {
-            alert('请输入按钮配置');
-            return;
-        }
-        
-        try {
-            const config = JSON.parse(buttonConfig);
-            // 按钮模板的text是JSON字符串，tpl_fields为空数组
-            templateData.text = JSON.stringify(config);
-            templateData.tpl_fields = [];
-        } catch (e) {
-            alert('按钮配置JSON格式错误: ' + e.message);
-            return;
-        }
+        content = $.get('button-config-input').value.trim();
+        if (!content) return alert('请输入按钮配置');
+        try { JSON.parse(content); } catch (e) { return alert('按钮配置JSON格式错误'); }
     }
     
-    // 显示二维码模态框
-    const modalEl = $.get('templateSubmitQrModal');
-    if (!modalEl) {
-        alert('模态框元素未找到');
-        return;
-    }
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = new bootstrap.Modal($.get('templateSubmitQrModal'));
     modal.show();
-    
     $.show('template-qr-loading');
     $.hide('template-qr-display');
     
     try {
-        // 创建二维码
-        const qrData = await API.request('/create_template_qr');
-        
-        if (!qrData.success) {
-            alert('创建授权二维码失败: ' + qrData.message);
+        const data = await API.request('/submit_template', {
+            appid: currentTemplateAppId,
+            type: parseInt(type),
+            name, scene, content, params
+        });
+        if (data.success && data.qrcode_url) {
+            $.get('template-qr-image').src = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(data.qrcode_url)}`;
+            $.hide('template-qr-loading');
+            $.show('template-qr-display');
+            $.setHtml('template-submit-status', '<i class="bi bi-hourglass-split"></i> 等待扫码授权...');
+            startTemplateSubmitCheck(data.task_id || data.qrcode);
+        } else {
             modal.hide();
-            return;
+            alert('获取授权二维码失败: ' + (data.message || '未知错误'));
         }
-        
-        currentTemplateQrCode = qrData.qrcode;
-        
-        // 显示二维码
-        $.get('template-qr-image').src = qrData.url;
-        $.hide('template-qr-loading');
-        $.show('template-qr-display');
-        
-        // 开始检查授权状态
-        startTemplateQrCheck(templateData, modal);
-        
     } catch (error) {
-        alert('创建授权二维码失败: ' + error.message);
         modal.hide();
+        alert('提交模板失败');
     }
 }
 
-function startTemplateQrCheck(templateData, modal) {
-    if (templateQrCheckInterval) {
-        clearInterval(templateQrCheckInterval);
-    }
-    
-    templateQrCheckInterval = setInterval(async () => {
+let templateSubmitCheckInterval = null;
+function startTemplateSubmitCheck(taskId) {
+    if (templateSubmitCheckInterval) clearInterval(templateSubmitCheckInterval);
+    templateSubmitCheckInterval = setInterval(async () => {
         try {
-            const authData = await API.request('/check_template_qr', {
-                qrcode: currentTemplateQrCode
-            });
-            
-            if (authData.success && authData.authorized) {
-                // 授权成功，提交模板
-                clearInterval(templateQrCheckInterval);
-                
-                $.setHtml('template-submit-status', '<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 正在提交模板...</div>');
-                
-                try {
-                    const submitData = await API.request('/submit_template', {
-                        appid: currentSubmitAppId,
-                        template_data: templateData,
-                        qrcode: currentTemplateQrCode
-                    });
-                    
-                    if (submitData.success) {
-                        $.setHtml('template-submit-status', '<div class="alert alert-success"><i class="bi bi-check-circle-fill"></i> 模板提交成功！<br>模板ID: ' + submitData.data.template_id + '</div>');
-                        
-                        setTimeout(() => {
-                            modal.hide();
-                            backToTemplateList();
-                        }, 2000);
-                    } else {
-                        $.setHtml('template-submit-status', '<div class="alert alert-danger"><i class="bi bi-x-circle-fill"></i> 提交失败: ' + submitData.message + '</div>');
-                    }
-                } catch (error) {
-                    $.setHtml('template-submit-status', '<div class="alert alert-danger"><i class="bi bi-x-circle-fill"></i> 提交失败: ' + error.message + '</div>');
+            const data = await API.request('/check_template_submit', { task_id: taskId, appid: currentTemplateAppId });
+            if (data.success) {
+                if (data.status === 'completed') {
+                    clearInterval(templateSubmitCheckInterval);
+                    $.setHtml('template-submit-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 模板提交成功！</div>');
+                    setTimeout(() => {
+                        bootstrap.Modal.getInstance($.get('templateSubmitQrModal')).hide();
+                        getTemplates(currentTemplateAppId, currentTemplateAppName);
+                    }, 1500);
+                } else if (data.status === 'failed') {
+                    clearInterval(templateSubmitCheckInterval);
+                    $.setHtml('template-submit-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 提交失败: ${data.message || '未知错误'}</div>`);
                 }
             }
         } catch (error) {}
     }, 2000);
-    
-    // 5分钟后超时
-    setTimeout(() => {
-        if (templateQrCheckInterval) {
-            clearInterval(templateQrCheckInterval);
-            $.setHtml('template-submit-status', '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle-fill"></i> 授权超时，请重试</div>');
-        }
-    }, 300000);
 }
 
-// 提审模板相关函数
-let currentAuditQrCode = null;
-let auditQrCheckInterval = null;
-let currentDeleteQrCode = null;
-let deleteQrCheckInterval = null;
-
-function toggleAllTemplates(checkbox) {
-    const checkboxes = document.querySelectorAll('.template-checkbox');
-    checkboxes.forEach(cb => cb.checked = checkbox.checked);
-    updateActionButtons();
-}
-
-function updateActionButtons() {
-    const checkedBoxes = document.querySelectorAll('.template-checkbox:checked');
-    const submitBtn = $.get('submit-templates-btn');
-    const deleteBtn = $.get('delete-templates-btn');
-    
-    if (checkedBoxes.length > 0) {
-        // 检查是否有未提审的模板
-        const unsubmittedCount = Array.from(checkedBoxes).filter(cb => cb.dataset.status === '未提审').length;
-        
-        if (unsubmittedCount > 0 && submitBtn) {
-            $.show('submit-templates-btn');
-            submitBtn.innerHTML = `<i class="bi bi-send-check"></i> 提审选中模板 (${unsubmittedCount})`;
-        } else if (submitBtn) {
-            $.hide('submit-templates-btn');
-        }
-        
-        if (deleteBtn) {
-            $.show('delete-templates-btn');
-            deleteBtn.innerHTML = `<i class="bi bi-trash"></i> 删除选中模板 (${checkedBoxes.length})`;
-        }
-    } else {
-        if (submitBtn) $.hide('submit-templates-btn');
-        if (deleteBtn) $.hide('delete-templates-btn');
-    }
-}
-
-function updateSubmitButton() {
-    updateActionButtons();
-}
-
-async function submitSelectedTemplates() {
-    const checkedBoxes = document.querySelectorAll('.template-checkbox:checked');
-    if (checkedBoxes.length === 0) {
-        alert('请选择要提审的模板');
-        return;
-    }
-    
-    const tplIds = Array.from(checkedBoxes).map(cb => cb.dataset.tplId);
-    
-    // 显示二维码模态框
-    const modalEl = $.get('auditTemplateQrModal');
-    if (!modalEl) {
-        alert('模态框元素未找到');
-        return;
-    }
-    const modal = new bootstrap.Modal(modalEl);
-    modal.show();
-    
-    $.show('audit-qr-loading');
-    $.hide('audit-qr-display');
-    
-    try {
-        // 创建二维码
-        const qrData = await API.request('/create_template_qr');
-        
-        if (!qrData.success) {
-            alert('创建授权二维码失败: ' + qrData.message);
-            modal.hide();
-            return;
-        }
-        
-        currentAuditQrCode = qrData.qrcode;
-        
-        // 显示二维码
-        $.get('audit-qr-image').src = qrData.url;
-        $.hide('audit-qr-loading');
-        $.show('audit-qr-display');
-        
-        // 开始检查授权状态
-        startAuditQrCheck(tplIds, modal);
-        
-    } catch (error) {
-        alert('创建授权二维码失败: ' + error.message);
-        modal.hide();
-    }
-}
-
-function startAuditQrCheck(tplIds, modal) {
-    if (auditQrCheckInterval) {
-        clearInterval(auditQrCheckInterval);
-    }
-    
-    auditQrCheckInterval = setInterval(async () => {
-        try {
-            const authData = await API.request('/check_template_qr', {
-                qrcode: currentAuditQrCode
-            });
-            
-            if (authData.success && authData.authorized) {
-                // 授权成功，提交提审
-                clearInterval(auditQrCheckInterval);
-                auditQrCheckInterval = null;
-                
-                $.setHtml('audit-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 授权成功，正在提审...</div>');
-                
-                const submitData = await API.request('/audit_templates', {
-                    appid: currentTemplateAppId,
-                    tpl_ids: tplIds,
-                    qrcode: currentAuditQrCode
-                });
-                
-                if (submitData.success) {
-                    $.setHtml('audit-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + submitData.message + '</div>');
-                    setTimeout(() => {
-                        modal.hide();
-                        // 刷新模板列表
-                        loadBotTemplates(currentTemplateAppId);
-                    }, 2000);
-                } else {
-                    $.setHtml('audit-status', '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 提审失败: ' + submitData.message + '</div>');
-                }
-            }
-        } catch (error) {
-            clearInterval(auditQrCheckInterval);
-            auditQrCheckInterval = null;
-            $.setHtml('audit-status', '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 检查授权失败</div>');
-        }
-    }, 2000);
-}
-
-// 删除模板相关函数
 async function deleteSelectedTemplates() {
-    const checkedBoxes = document.querySelectorAll('.template-checkbox:checked');
-    if (checkedBoxes.length === 0) {
-        alert('请选择要删除的模板');
-        return;
-    }
+    const checkboxes = document.querySelectorAll('.template-checkbox:checked');
+    if (!checkboxes.length) return alert('请选择要删除的模板');
+    const templateIds = Array.from(checkboxes).map(cb => cb.dataset.tplId);
+    if (!confirm(`确定要删除 ${templateIds.length} 个模板吗？`)) return;
     
-    if (!confirm(`确定要删除选中的 ${checkedBoxes.length} 个模板吗？此操作不可恢复！`)) {
-        return;
-    }
-    
-    const tplIds = Array.from(checkedBoxes).map(cb => cb.dataset.tplId);
-    
-    // 显示二维码模态框
-    const modalEl = $.get('deleteTemplateQrModal');
-    if (!modalEl) {
-        alert('模态框元素未找到');
-        return;
-    }
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = new bootstrap.Modal($.get('deleteTemplateQrModal'));
     modal.show();
-    
     $.show('delete-qr-loading');
     $.hide('delete-qr-display');
     
     try {
-        // 创建二维码
-        const qrData = await API.request('/create_template_qr');
-        
-        if (!qrData.success) {
-            alert('创建授权二维码失败: ' + qrData.message);
+        const data = await API.request('/delete_templates', { appid: currentTemplateAppId, template_ids: templateIds });
+        if (data.success && data.qrcode_url) {
+            $.get('delete-qr-image').src = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(data.qrcode_url)}`;
+            $.hide('delete-qr-loading');
+            $.show('delete-qr-display');
+            $.setHtml('delete-status', '<i class="bi bi-hourglass-split"></i> 等待扫码授权...');
+            startDeleteTemplateCheck(data.task_id || data.qrcode, templateIds);
+        } else {
             modal.hide();
-            return;
+            alert('获取授权二维码失败: ' + (data.message || '未知错误'));
         }
-        
-        currentDeleteQrCode = qrData.qrcode;
-        
-        // 显示二维码
-        $.get('delete-qr-image').src = qrData.url;
-        $.hide('delete-qr-loading');
-        $.show('delete-qr-display');
-        
-        // 开始检查授权状态
-        startDeleteQrCheck(tplIds, modal);
-        
     } catch (error) {
-        alert('创建授权二维码失败: ' + error.message);
         modal.hide();
+        alert('删除模板失败');
     }
 }
 
-function startDeleteQrCheck(tplIds, modal) {
-    if (deleteQrCheckInterval) {
-        clearInterval(deleteQrCheckInterval);
-    }
-    
-    deleteQrCheckInterval = setInterval(async () => {
+let deleteTemplateCheckInterval = null;
+function startDeleteTemplateCheck(taskId, templateIds) {
+    if (deleteTemplateCheckInterval) clearInterval(deleteTemplateCheckInterval);
+    deleteTemplateCheckInterval = setInterval(async () => {
         try {
-            const authData = await API.request('/check_template_qr', {
-                qrcode: currentDeleteQrCode
-            });
-            
-            if (authData.success && authData.authorized) {
-                // 授权成功，执行删除
-                clearInterval(deleteQrCheckInterval);
-                deleteQrCheckInterval = null;
-                
-                $.setHtml('delete-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 授权成功，正在删除...</div>');
-                
-                const deleteData = await API.request('/delete_templates', {
-                    appid: currentTemplateAppId,
-                    tpl_ids: tplIds,
-                    qrcode: currentDeleteQrCode
-                });
-                
-                if (deleteData.success) {
-                    $.setHtml('delete-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + deleteData.message + '</div>');
+            const data = await API.request('/check_delete_template', { task_id: taskId, appid: currentTemplateAppId, template_ids: templateIds });
+            if (data.success) {
+                if (data.status === 'completed') {
+                    clearInterval(deleteTemplateCheckInterval);
+                    $.setHtml('delete-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 模板删除成功！</div>');
                     setTimeout(() => {
-                        modal.hide();
-                        // 刷新模板列表
-                        loadBotTemplates(currentTemplateAppId);
-                    }, 2000);
-                } else {
-                    $.setHtml('delete-status', '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 删除失败: ' + deleteData.message + '</div>');
+                        bootstrap.Modal.getInstance($.get('deleteTemplateQrModal')).hide();
+                        getTemplates(currentTemplateAppId, currentTemplateAppName);
+                    }, 1500);
+                } else if (data.status === 'failed') {
+                    clearInterval(deleteTemplateCheckInterval);
+                    $.setHtml('delete-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 删除失败: ${data.message || '未知错误'}</div>`);
                 }
             }
-        } catch (error) {
-            console.error('检查授权状态失败:', error);
-            clearInterval(deleteQrCheckInterval);
-            deleteQrCheckInterval = null;
-            $.setHtml('delete-status', '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 检查授权失败</div>');
-        }
+        } catch (error) {}
     }, 2000);
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    initOpenAPI();
+async function submitSelectedTemplates() {
+    const checkboxes = document.querySelectorAll('.template-checkbox:checked');
+    const unsubmitted = Array.from(checkboxes).filter(cb => cb.dataset.status === '未提审');
+    if (!unsubmitted.length) return alert('请选择未提审的模板');
+    const templateIds = unsubmitted.map(cb => cb.dataset.tplId);
+    if (!confirm(`确定要提审 ${templateIds.length} 个模板吗？`)) return;
     
-    // 清理定时器 - 在DOM加载后添加事件监听器
-    const modalEl = $.get('templateSubmitQrModal');
-    if (modalEl) {
-        modalEl.addEventListener('hidden.bs.modal', function () {
-            if (templateQrCheckInterval) {
-                clearInterval(templateQrCheckInterval);
-                templateQrCheckInterval = null;
-            }
-            // 重置状态显示
-            $.show('template-qr-loading');
-            $.hide('template-qr-display');
-            $.setHtml('template-submit-status', '<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 等待授权中...</div>');
-        });
-    }
+    const modal = new bootstrap.Modal($.get('auditTemplateQrModal'));
+    modal.show();
+    $.show('audit-qr-loading');
+    $.hide('audit-qr-display');
     
-    const auditModalEl = $.get('auditTemplateQrModal');
-    if (auditModalEl) {
-        auditModalEl.addEventListener('hidden.bs.modal', function () {
-            if (auditQrCheckInterval) {
-                clearInterval(auditQrCheckInterval);
-                auditQrCheckInterval = null;
-            }
-            // 重置状态显示
-            $.show('audit-qr-loading');
-            $.hide('audit-qr-display');
-            $.setHtml('audit-status', '<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 等待授权中...</div>');
-        });
+    try {
+        const data = await API.request('/audit_templates', { appid: currentTemplateAppId, template_ids: templateIds });
+        if (data.success && data.qrcode_url) {
+            $.get('audit-qr-image').src = `https://api.2dcode.biz/v1/create-qr-code?data=${encodeURIComponent(data.qrcode_url)}`;
+            $.hide('audit-qr-loading');
+            $.show('audit-qr-display');
+            $.setHtml('audit-status', '<i class="bi bi-hourglass-split"></i> 等待扫码授权...');
+            startAuditTemplateCheck(data.task_id || data.qrcode, templateIds);
+        } else {
+            modal.hide();
+            alert('获取授权二维码失败: ' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        modal.hide();
+        alert('提审模板失败');
     }
+}
+
+let auditTemplateCheckInterval = null;
+function startAuditTemplateCheck(taskId, templateIds) {
+    if (auditTemplateCheckInterval) clearInterval(auditTemplateCheckInterval);
+    auditTemplateCheckInterval = setInterval(async () => {
+        try {
+            const data = await API.request('/check_audit_template', { task_id: taskId, appid: currentTemplateAppId, template_ids: templateIds });
+            if (data.success) {
+                if (data.status === 'completed') {
+                    clearInterval(auditTemplateCheckInterval);
+                    $.setHtml('audit-status', '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 模板提审成功！</div>');
+                    setTimeout(() => {
+                        bootstrap.Modal.getInstance($.get('auditTemplateQrModal')).hide();
+                        getTemplates(currentTemplateAppId, currentTemplateAppName);
+                    }, 1500);
+                } else if (data.status === 'failed') {
+                    clearInterval(auditTemplateCheckInterval);
+                    $.setHtml('audit-status', `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 提审失败: ${data.message || '未知错误'}</div>`);
+                }
+            }
+        } catch (error) {}
+    }, 2000);
+}
+
+function importBotTemplates(appid, appName) {
+    if (!confirm(`确定要将机器人 "${appName}" 的模板导入吗？`)) return;
     
-    const deleteModalEl = $.get('deleteTemplateQrModal');
-    if (deleteModalEl) {
-        deleteModalEl.addEventListener('hidden.bs.modal', function () {
-            if (deleteQrCheckInterval) {
-                clearInterval(deleteQrCheckInterval);
-                deleteQrCheckInterval = null;
-            }
-            // 重置状态显示
-            $.show('delete-qr-loading');
-            $.hide('delete-qr-display');
-            $.setHtml('delete-status', '<div class="alert alert-warning"><i class="bi bi-hourglass-split"></i> 等待授权中...</div>');
-        });
-    }
-});
+    API.request('/import_templates', { appid }).then(data => {
+        if (data.success) {
+            const r = data.data;
+            alert(`模板导入完成！\n新导入: ${r.imported_count} 个\n跳过: ${r.skipped_count} 个`);
+        } else {
+            alert('导入模板失败: ' + data.message);
+        }
+    }).catch(error => {
+        alert('导入模板失败');
+    });
+}
+
+document.addEventListener('DOMContentLoaded', initOpenAPI);
 </script>
 {% endblock %}

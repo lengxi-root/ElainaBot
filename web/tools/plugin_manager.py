@@ -1,6 +1,7 @@
 import os, re, logging, traceback, importlib.util
 from datetime import datetime
 from flask import request, jsonify
+from core.plugin.PluginManager import PluginManager
 
 # 创建插件管理器 logger
 logger = logging.getLogger('ElainaBot.plugin_manager')
@@ -195,6 +196,7 @@ def handle_toggle_plugin(add_framework_log):
         if os.path.exists(new_path):
             return jsonify({'success': False, 'message': '禁用文件已存在'}), 409
         
+        PluginManager._unregister_file_plugins(plugin_path)
         os.rename(plugin_path, new_path)
         add_framework_log(f"插件已禁用: {os.path.basename(plugin_path)}")
         return jsonify({'success': True, 'message': '插件已禁用', 'new_path': new_path.replace('\\', '/')})

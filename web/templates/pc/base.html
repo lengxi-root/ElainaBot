@@ -20,30 +20,62 @@
     </script>
     
     <link rel="stylesheet" href="{{ url_for('web.static', filename='css/common.css') }}">
+    
+    <!-- 动态主题色 -->
+    <style>
+        :root {
+            --theme-gradient: {{ web_interface.theme_gradient or 'linear-gradient(135deg, #5865F2, #7289DA)' }};
+        }
+        .page-header {
+            background: var(--theme-gradient) !important;
+        }
+        .robot-card {
+            background: var(--theme-gradient) !important;
+        }
+        .sidebar-item.active {
+            background: var(--theme-gradient) !important;
+        }
+        .nav-tabs .nav-link.active {
+            background: var(--theme-gradient) !important;
+        }
+        .info-card-header {
+            background: var(--theme-gradient) !important;
+        }
+        .directory-title.expanded {
+            background: var(--theme-gradient) !important;
+        }
+        .btn-control:hover {
+            background: var(--theme-gradient) !important;
+        }
+    </style>
     {% block extra_styles %}{% endblock %}
 </head>
 <body>
     <div class="page-header">
         <div class="container-fluid">
-            <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center;">
-                <button class="toggle-sidebar" id="toggle-sidebar" style="position: absolute; left: 15px;" aria-label="切换菜单">
-                    <i class="bi bi-list"></i>
-                </button>
+            <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 20px;">
+                <div style="display: flex; align-items: center; gap: 16px;">
+                    <button class="toggle-sidebar" id="toggle-sidebar" aria-label="切换菜单">
+                        <i class="bi bi-list"></i>
+                    </button>
+                    <h1 class="page-title">
+                        <i class="bi bi-robot"></i>
+                        <span class="title-text">{{ web_interface.framework_name }}</span>
+                    </h1>
+                </div>
                 
-                <h1 class="page-title d-flex align-items-center mb-0" style="position: absolute; left: 10%; transform: translateX(0);">
-                    <i class="bi bi-laptop me-2"></i>
-                    <span class="title-text">{{ web_interface.framework_name }}{{ web_interface.pc_title_suffix }}</span>
-                </h1>
-                
-                <div class="d-flex align-items-center header-actions" style="margin-left: auto;">
-                    <div class="me-3 connection-indicator-wrapper">
+                <div class="header-actions">
+                    <div class="connection-indicator-wrapper">
                         <span class="connection-status disconnected" id="connection-indicator"></span>
-                        <span class="text-light connection-text" id="connection-text">未连接</span>
+                        <span class="connection-text" id="connection-text">未连接</span>
                     </div>
-
-                    <span class="text-light me-3 time-display"><i class="bi bi-clock"></i> <span id="current-time"></span></span>
-                    <button class="btn btn-sm btn-outline-danger restart-btn" onclick="restartBot()" id="restart-btn">
-                        <i class="bi bi-power"></i> <span class="btn-text">重启</span>
+                    <div class="time-display">
+                        <i class="bi bi-clock"></i>
+                        <span id="current-time"></span>
+                    </div>
+                    <button class="restart-btn" onclick="restartBot()" id="restart-btn">
+                        <i class="bi bi-arrow-clockwise"></i>
+                        <span class="btn-text">重启</span>
                     </button>
                 </div>
             </div>
@@ -69,10 +101,6 @@
                 <a class="sidebar-item" href="?token={{ current_token }}&page=statistics" data-page="statistics">
                     <i class="bi bi-graph-up"></i>
                     <span class="item-text">统计</span>
-                </a>
-                <a class="sidebar-item" href="?token={{ current_token }}&page=sandbox" data-page="sandbox">
-                    <i class="bi bi-play-circle"></i>
-                    <span class="item-text">沙盒测试</span>
                 </a>
                 <a class="sidebar-item" href="?token={{ current_token }}&page=openapi" data-page="openapi">
                     <i class="bi bi-cloud-arrow-up"></i>

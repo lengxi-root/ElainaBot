@@ -1,134 +1,158 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
-<!-- 统计页面 -->
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h5 class="mb-0">数据统计</h5>
-    <div class="d-flex gap-2">
-        <button class="btn-control btn-warning" id="complete-dau">
-            <i class="bi bi-plus-circle"></i> 补全DAU
+<!-- 页面标题区域 -->
+<div class="stats-header">
+    <div class="stats-header-content">
+        <div class="stats-title-wrapper">
+            <div class="stats-icon"><i class="bi bi-bar-chart-line"></i></div>
+            <div>
+                <h4 class="stats-title">数据统计</h4>
+                <p class="stats-subtitle">查看机器人运行数据与趋势分析</p>
+            </div>
+        </div>
+        <div class="stats-actions">
+            <button class="stats-btn warning" id="complete-dau">
+                <i class="bi bi-plus-circle"></i> 补全DAU
+            </button>
+            <button class="stats-btn primary" id="refresh-statistics">
+                <i class="bi bi-arrow-clockwise"></i> 刷新数据
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 图表切换标签 -->
+<div class="chart-tabs-wrapper">
+    <div class="chart-tabs">
+        <button class="chart-tab active" data-metric="messages_combined">
+            <i class="bi bi-chat-dots"></i><span>消息数据</span>
         </button>
-        <button class="btn-control" id="refresh-statistics">
-            <i class="bi bi-arrow-clockwise"></i> 刷新数据
+        <button class="chart-tab" data-metric="active_combined">
+            <i class="bi bi-people"></i><span>活跃数据</span>
+        </button>
+        <button class="chart-tab" data-metric="total_combined">
+            <i class="bi bi-person-lines-fill"></i><span>用户数据</span>
+        </button>
+        <button class="chart-tab" data-metric="group_events">
+            <i class="bi bi-box-arrow-in-right"></i><span>群组变化</span>
+        </button>
+        <button class="chart-tab" data-metric="friend_events">
+            <i class="bi bi-person-plus"></i><span>好友变化</span>
         </button>
     </div>
 </div>
 
-<!-- 统计图表 -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body">
-                <h6 class="card-title"><span class="chart-days-text">数据趋势图表 (最近30天)</span></h6>
-                <div class="d-flex flex-wrap gap-2 mb-3">
-                    <button class="btn btn-sm btn-outline-primary chart-toggle active" data-metric="messages_combined">消息数据</button>
-                    <button class="btn btn-sm btn-outline-primary chart-toggle" data-metric="active_combined">活跃数据</button>
-                    <button class="btn btn-sm btn-outline-success chart-toggle" data-metric="total_combined">用户数据</button>
-                    <button class="btn btn-sm btn-outline-info chart-toggle" data-metric="group_events">群组变化</button>
-                    <button class="btn btn-sm btn-outline-warning chart-toggle" data-metric="friend_events">好友变化</button>
-                </div>
-                <div class="chart-container position-relative">
-                    <div id="chart-average-display" class="chart-average-display"></div>
-                    <canvas id="statisticsChart" width="400" height="200"></canvas>
-                </div>
-            </div>
-        </div>
+<!-- 图表卡片 -->
+<div class="chart-card">
+    <div class="chart-card-header">
+        <span class="chart-days-text">数据趋势图表 (最近30天)</span>
+        <div id="chart-average-display" class="chart-average-badge"></div>
+    </div>
+    <div class="chart-wrapper">
+        <canvas id="statisticsChart"></canvas>
     </div>
 </div>
 
 <!-- 日期选择器 -->
-<div class="row mb-3 date-selector-container">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body" style="padding-bottom: 20px; position: relative; z-index: 100;">
-                <div class="d-flex align-items-center justify-content-between">
-                    <div class="d-flex align-items-center gap-3">
-                        <label for="date-selector" class="form-label mb-0">查看日期:</label>
-                        <select class="form-select date-selector-dropdown" id="date-selector" style="width: 200px;">
-                            <option value="today">今日数据</option>
-                        </select>
-                        <small class="text-muted">选择要查看的日期数据</small>
-            </div>
-                    <div id="data-source-info" class="data-source-info">
-                        <span class="badge bg-secondary">
-                            <i class="bi bi-hourglass-split"></i> 加载中...
-                        </span>
+<div class="date-selector-card">
+    <div class="date-selector-content">
+        <div class="date-selector-left">
+            <i class="bi bi-calendar3"></i>
+            <label for="date-selector">查看日期:</label>
+            <select class="date-select" id="date-selector">
+                <option value="today">今日数据</option>
+            </select>
         </div>
-    </div>
-            </div>
+        <div id="data-source-info" class="data-source-badge">
+            <span class="badge loading"><i class="bi bi-hourglass-split"></i> 加载中...</span>
         </div>
     </div>
 </div>
 
-<!-- 详细数据表格 -->
-<div class="row">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-body">
-                <h6 class="card-title" id="stats-table-title">今日数据概览</h6>
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <tbody id="today-stats-table">
-                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <!-- 指令使用排行放在今日数据下面 -->
-                <hr class="my-3">
-                <h6 class="card-title">指令使用排行</h6>
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>指令</th>
-                                <th>使用次数</th>
-                            </tr>
-                        </thead>
-                        <tbody id="command-stats-table">
-                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+<!-- 数据表格区域 -->
+<div class="stats-grid">
+    <!-- 今日数据概览 -->
+    <div class="stats-card">
+        <div class="stats-card-header primary">
+            <i class="bi bi-clipboard-data"></i>
+            <span id="stats-table-title">数据概览</span>
+        </div>
+        <div class="stats-card-body compact">
+            <table class="stats-table">
+                <tbody id="today-stats-table">
+                    <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-body">
-                <!-- 最活跃用户在上方 -->
-                <h6 class="card-title">最活跃用户</h6>
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>用户ID</th>
-                                <th>消息数</th>
-                            </tr>
-                        </thead>
-                        <tbody id="top-users-table">
-                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <!-- 最活跃群组在下方 -->
-                <hr class="my-3">
-                <h6 class="card-title">最活跃群组</h6>
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>群组ID</th>
-                                <th>消息数</th>
-                            </tr>
-                        </thead>
-                        <tbody id="top-groups-table">
-                            <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+    
+    <!-- 事件统计 -->
+    <div class="stats-card">
+        <div class="stats-card-header purple">
+            <i class="bi bi-activity"></i>
+            <span>事件统计</span>
+        </div>
+        <div class="stats-card-body compact">
+            <table class="stats-table">
+                <tbody id="event-stats-table">
+                    <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- 指令排行 -->
+    <div class="stats-card">
+        <div class="stats-card-header warning">
+            <i class="bi bi-terminal"></i>
+            <span>指令排行</span>
+        </div>
+        <div class="stats-card-body compact">
+            <table class="stats-table">
+                <thead>
+                    <tr><th>指令</th><th>次数</th></tr>
+                </thead>
+                <tbody id="command-stats-table">
+                    <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- 活跃用户 -->
+    <div class="stats-card">
+        <div class="stats-card-header success">
+            <i class="bi bi-person-fill"></i>
+            <span>活跃用户</span>
+        </div>
+        <div class="stats-card-body compact">
+            <table class="stats-table">
+                <thead>
+                    <tr><th>用户ID</th><th>消息</th></tr>
+                </thead>
+                <tbody id="top-users-table">
+                    <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- 活跃群组 -->
+    <div class="stats-card">
+        <div class="stats-card-header info">
+            <i class="bi bi-people-fill"></i>
+            <span>活跃群组</span>
+        </div>
+        <div class="stats-card-body compact">
+            <table class="stats-table">
+                <thead>
+                    <tr><th>群组ID</th><th>消息</th></tr>
+                </thead>
+                <tbody id="top-groups-table">
+                    <tr><td colspan="2" class="text-center text-muted">加载中...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -136,44 +160,440 @@
 
 {% block extra_styles %}
 <style>
-.chart-container {
-    height: 400px !important;
-    position: relative;
+/* 页面标题区域 */
+.stats-header {
+    background: var(--theme-gradient);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 10px 15px -3px rgba(102,126,234,0.2);
 }
 
-.chart-average-display {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    z-index: 10;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+.stats-header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
-/* 响应式调整 */
+.stats-title-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: #fff;
+}
+
+.stats-icon {
+    width: 56px;
+    height: 56px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.stats-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.stats-subtitle {
+    margin: 4px 0 0;
+    font-size: 0.85rem;
+    opacity: 0.85;
+}
+
+.stats-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.stats-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.stats-btn.primary {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+}
+
+.stats-btn.primary:hover {
+    background: rgba(255,255,255,0.3);
+}
+
+.stats-btn.warning {
+    background: rgba(251,191,36,0.9);
+    color: #1e293b;
+}
+
+.stats-btn.warning:hover {
+    background: #fbbf24;
+}
+
+/* 图表切换标签 */
+.chart-tabs-wrapper {
+    margin-bottom: 16px;
+}
+
+.chart-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 4px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #e2e8f0;
+}
+
+.chart-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 14px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.chart-tab:hover {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.chart-tab.active {
+    background: var(--theme-gradient);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.chart-tab i {
+    font-size: 1rem;
+}
+
+/* 图表卡片 */
+.chart-card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    border: 1px solid #e2e8f0;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.chart-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.chart-average-badge {
+    padding: 4px 12px;
+    background: rgba(102,126,234,0.1);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--primary-color, #5865F2);
+    display: none;
+}
+
+.chart-wrapper {
+    padding: 20px;
+    min-height: 300px;
+}
+
+.chart-wrapper canvas {
+    max-height: 350px;
+}
+
+/* 日期选择器 */
+.date-selector-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #e2e8f0;
+}
+
+.date-selector-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.date-selector-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.date-selector-left i {
+    font-size: 1.1rem;
+    color: var(--primary-color, #5865F2);
+}
+
+.date-select {
+    padding: 8px 32px 8px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: #1e293b;
+    background: #f8fafc url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23667eea' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e") no-repeat right 10px center/12px;
+    appearance: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.date-select:hover {
+    border-color: var(--primary-color, #5865F2);
+}
+
+.date-select:focus {
+    outline: none;
+    border-color: var(--primary-color, #5865F2);
+    box-shadow: 0 0 0 3px rgba(88,101,242,0.1);
+}
+
+.data-source-badge .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.data-source-badge .badge.loading {
+    background: rgba(251,191,36,0.15);
+    color: #d97706;
+}
+
+.data-source-badge .badge.bg-success {
+    background: rgba(16,185,129,0.15);
+    color: #059669;
+}
+
+.data-source-badge .badge.bg-info {
+    background: rgba(88,101,242,0.15);
+    color: var(--primary-color, #5865F2);
+}
+
+.data-source-badge .badge.bg-warning {
+    background: rgba(251,191,36,0.15);
+    color: #d97706;
+}
+
+/* 数据表格区域 */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+}
+
+.stats-card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+}
+
+.stats-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #fff;
+}
+
+.stats-card-header.primary {
+    background: var(--theme-gradient);
+}
+
+.stats-card-header.success {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.stats-card-header.warning {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.stats-card-header.purple {
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+}
+
+.stats-card-header.info {
+    background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+}
+
+.stats-card-header i {
+    font-size: 1rem;
+}
+
+.stats-card-body {
+    padding: 12px 16px;
+}
+
+.stats-card-body.compact {
+    padding: 10px 12px;
+}
+
+.stats-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #e2e8f0, transparent);
+    margin: 16px 0;
+}
+
+.stats-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 12px;
+}
+
+.stats-section-title i {
+    color: var(--primary-color, #5865F2);
+}
+
+.stats-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.stats-table th {
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    background: #f8fafc;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.stats-table td {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.stats-table tbody tr {
+    transition: background 0.15s;
+}
+
+.stats-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.stats-table td:last-child {
+    font-weight: 600;
+    color: var(--primary-color, #5865F2);
+    text-align: right;
+}
+
+.nickname-loading {
+    opacity: 0.5;
+}
+
+.nickname-display {
+    color: #94a3b8;
+    font-size: 0.8rem;
+}
+
+/* 响应式 */
+@media (max-width: 1400px) {
+    .stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 1200px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
 @media (max-width: 768px) {
-    .chart-container {
-        height: 300px !important;
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .stats-header-content {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
     }
     
-    .d-flex.flex-wrap.gap-2.mb-3 {
-        gap: 0.5rem !important;
+    .stats-title-wrapper {
+        flex-direction: column;
     }
     
-    .btn-sm {
+    .stats-actions {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .chart-tabs {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    
+    .chart-tab {
+        flex: 1 1 calc(50% - 6px);
+        padding: 8px 10px;
         font-size: 0.8rem;
-        padding: 0.25rem 0.5rem;
+    }
+    
+    .chart-tab span {
+        display: none;
+    }
+    
+    .chart-wrapper {
+        height: 280px;
+    }
+    
+    .date-selector-content {
+        flex-direction: column;
+        gap: 12px;
     }
     
     .chart-days-text::after {
         content: ' (最近15天)';
-    }
-    
-    .chart-days-text {
-        font-size: 0.9rem;
     }
 }
 
@@ -185,42 +605,13 @@
 </style>
 {% endblock %}
 
+
 {% block scripts %}
 <script>
 let statisticsChart = null;
 let statisticsData = null;
-
-const averageDisplayPlugin = {
-    id: 'averageDisplay',
-    afterDraw: function(chart) {
-        const options = chart.options.plugins.averageDisplay;
-        if (!options || !options.display) return;
-        
-        const ctx = chart.ctx;
-        const legend = chart.legend;
-        
-        if (!legend || !legend.legendItems || legend.legendItems.length === 0) return;
-        
-        ctx.save();
-        ctx.font = 'normal 12px Arial';
-        ctx.fillStyle = options.color || '#666';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        
-        const text = ` (${options.text})`;
-        
-        const legendItem = legend.legendItems[0];
-        if (legendItem) {
-            const labelWidth = ctx.measureText(legendItem.text).width;
-            const x = legend.left + 35 + labelWidth;
-            const y = legend.top + legend.height / 2;
-            
-            ctx.fillText(text, x, y);
-        }
-        
-        ctx.restore();
-    }
-};
+const EMPTY_TABLE_ROW = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
+const nicknameCache = new Map();
 
 function debounce(func, delay) {
     let timeoutId;
@@ -232,18 +623,12 @@ function debounce(func, delay) {
 
 function formatNumber(num) {
     if (num === null || num === undefined) return '0';
-    if (typeof num === 'object') {
-        num = num.value ?? num.count ?? 0;
-    }
-    const numValue = Number(num);
-    if (isNaN(numValue)) return '0';
-    if (numValue >= 10000) return (numValue / 10000).toFixed(2).replace(/\.?0+$/, '') + 'w';
-    if (numValue >= 1000) return (numValue / 1000).toFixed(2).replace(/\.?0+$/, '') + 'k';
-    return numValue.toString();
-}
-
-function getStatValue(data, path, defaultValue = 0) {
-    return data?.[path.split('.')[0]]?.[path.split('.')[1]] || defaultValue;
+    if (typeof num === 'object') num = num.value ?? num.count ?? 0;
+    const n = Number(num);
+    if (isNaN(n)) return '0';
+    if (n >= 10000) return (n / 10000).toFixed(2).replace(/\.?0+$/, '') + 'w';
+    if (n >= 1000) return (n / 1000).toFixed(2).replace(/\.?0+$/, '') + 'k';
+    return n.toString();
 }
 
 function getStat(item, statType, field) {
@@ -252,50 +637,31 @@ function getStat(item, statType, field) {
 
 function extractDataArrays(data, fields, statType = 'message_stats') {
     const arrays = fields.map(() => []);
-    
-    // 移动端只显示最近15天数据
     const isMobile = window.innerWidth <= 768;
     const maxDays = isMobile ? 15 : 30;
     
     if (data.historical && Array.isArray(data.historical)) {
-        const historicalData = data.historical.slice(-maxDays);
-        
-        historicalData.forEach(item => {
+        data.historical.slice(-maxDays).forEach(item => {
             fields.forEach((field, i) => {
-                const value = typeof field === 'function' ? field(item) : getStat(item, statType, field);
-                arrays[i].push(value);
+                arrays[i].push(typeof field === 'function' ? field(item) : getStat(item, statType, field));
             });
         });
     }
     
     if (data.today) {
         fields.forEach((field, i) => {
-            const value = typeof field === 'function' ? field(data.today) : getStat(data.today, statType, field);
-            arrays[i].push(value);
+            arrays[i].push(typeof field === 'function' ? field(data.today) : getStat(data.today, statType, field));
         });
     }
-    
     return arrays;
 }
 
 function createDataset(label, data, color, bgColor) {
-    return {
-        label,
-        data,
-        borderColor: color,
-        backgroundColor: bgColor,
-        tension: 0.4,
-        fill: false,
-        pointRadius: 4,
-        pointHoverRadius: 6
-    };
+    return { label, data, borderColor: color, backgroundColor: bgColor, tension: 0.4, fill: false, pointRadius: 4, pointHoverRadius: 6 };
 }
 
-const EMPTY_TABLE_ROW = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
-
 function getToken() {
-    const urlParams = new URLSearchParams(window.location.search);
-    return urlParams.get('token');
+    return new URLSearchParams(window.location.search).get('token');
 }
 
 function initStatistics() {
@@ -304,175 +670,74 @@ function initStatistics() {
     
     statisticsChart = new Chart(ctx.getContext('2d'), {
         type: 'line',
-        data: {
-            labels: [],
-            datasets: [{
-                label: '总消息量',
-                data: [],
-                borderColor: '#4361ee',
-                backgroundColor: 'rgba(67, 97, 238, 0.15)',
-                tension: 0.3,
-                fill: false,
-                pointRadius: 4,
-                pointHoverRadius: 6
-            }]
-        },
+        data: { labels: [], datasets: [{ label: '总消息量', data: [], borderColor: '#667eea', backgroundColor: 'rgba(102,126,234,0.15)', tension: 0.3, fill: false, pointRadius: 4, pointHoverRadius: 6 }] },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-                intersect: false,
-                mode: 'index'
+            maintainAspectRatio: true,
+            aspectRatio: 2.5,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+                legend: { display: true, position: 'top', align: 'start' },
+                datalabels: { display: true, align: 'top', anchor: 'end', color: 'rgba(0,0,0,0.6)', font: { size: 10 }, formatter: v => formatNumber(v), padding: { bottom: 4 }, clip: false }
             },
-                    plugins: {
-            legend: {
-                display: true,
-                position: 'top',
-                align: 'start'
-            },
-            datalabels: {
-                display: true,
-                align: 'top',
-                anchor: 'end',
-                color: 'rgba(0, 0, 0, 0.6)',
-                font: {
-                    size: 10,
-                    weight: 'normal'
-                },
-                formatter: function(value, context) {
-                    return formatNumber(value);
-                },
-                padding: {
-                    bottom: 4
-                },
-                clip: false
-            },
-            averageDisplay: {
-                display: false
-            }
-        },
             scales: {
-                x: {
-                    display: true,
-                    title: {
-                        display: true,
-                        text: '日期'
-                    }
-                },
-                y: {
-                    display: true,
-                    title: {
-                        display: true,
-                        text: '数量'
-                    },
-                    beginAtZero: true
-                }
+                x: { display: true, title: { display: false } },
+                y: { display: true, title: { display: false }, beginAtZero: true }
             }
         },
-        plugins: [ChartDataLabels, averageDisplayPlugin]
+        plugins: [ChartDataLabels]
     });
 }
 
 function loadStatistics(forceRefresh = false) {
     const token = getToken();
-    if (!token) {
-        console.error('未找到访问token');
-        return;
-    }
+    if (!token) return;
     
-    updateDataSourceInfo({
-        data_source_info: {
-            source: 'loading',
-            update_time: '加载中...'
-        }
-    });
+    updateDataSourceInfo({ data_source_info: { source: 'loading', update_time: '加载中...' } });
     
     let apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}&async=true`;
-    if (forceRefresh) {
-        apiUrl += '&force_refresh=true';
-    }
+    if (forceRefresh) apiUrl += '&force_refresh=true';
     
     fetch(apiUrl)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
+        .then(r => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
         .then(data => {
             if (data.success) {
-                if (data.task_id && data.status === 'started') {
-                    pollTaskStatus(data.task_id, token);
-                } else {
-                    handleStatisticsData(data);
-                }
+                data.task_id && data.status === 'started' ? pollTaskStatus(data.task_id, token) : handleStatisticsData(data);
             } else {
-                console.error('加载统计数据失败:', data.error);
                 showStatisticsError('加载统计数据失败: ' + (data.error || '未知错误'));
             }
         })
-        .catch(error => {
-            console.error('获取统计数据时出错:', error);
-            showStatisticsError('获取统计数据时出错: ' + error.message);
-        });
+        .catch(e => showStatisticsError('获取统计数据时出错: ' + e));
 }
 
-function pollTaskStatus(taskId, token, maxAttempts = 60) {
-    let attempts = 0;
+function pollTaskStatus(taskId, token, attempts = 0) {
+    if (attempts > 60) { showStatisticsError('统计任务超时'); return; }
     
-    const checkStatus = () => {
-        attempts++;
-        if (attempts > maxAttempts) {
-            showStatisticsError('统计任务超时，请稍后重试');
-            return;
-        }
-        
+    setTimeout(() => {
         fetch(`/web/api/statistics/task/${taskId}?token=${encodeURIComponent(token)}`)
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
-                if (data.success) {
-                    const taskData = data;
-                    
-                    if (taskData.progress !== undefined) {
-                        updateDataSourceInfo({
-                            data_source_info: {
-                                source: 'processing',
-                                update_time: `${taskData.message || '处理中'} (${taskData.progress}%)`
-                            }
-                        });
-                    }
-                    
-                    if (taskData.status === 'completed') {
-                        if (taskData.data) {
-                            handleStatisticsData(taskData.data);
-                        } else {
-                            showStatisticsError('统计任务完成但无数据返回');
-                        }
-                    } else if (taskData.status === 'failed') {
-                        showStatisticsError('统计任务失败: ' + (taskData.error || '未知错误'));
-                    } else {
-                        setTimeout(checkStatus, 1000);
-                    }
+                if (!data.success) { showStatisticsError('查询任务状态失败'); return; }
+                
+                if (data.progress !== undefined) {
+                    updateDataSourceInfo({ data_source_info: { source: 'processing', update_time: `${data.message || '处理中'} (${data.progress}%)` } });
+                }
+                
+                if (data.status === 'completed') {
+                    data.data ? handleStatisticsData(data.data) : showStatisticsError('统计任务完成但无数据');
+                } else if (data.status === 'failed') {
+                    showStatisticsError('统计任务失败: ' + (data.error || '未知错误'));
                 } else {
-                    showStatisticsError('查询任务状态失败: ' + (data.error || '未知错误'));
+                    pollTaskStatus(taskId, token, attempts + 1);
                 }
             })
-            .catch(error => {
-                console.error('查询任务状态出错:', error);
-                showStatisticsError('查询任务状态出错: ' + error.message);
-            });
-    };
-    
-    setTimeout(checkStatus, 1000);
+            .catch(e => showStatisticsError('查询任务状态出错: ' + e));
+    }, 1000);
 }
 
 function handleStatisticsData(data) {
     statisticsData = data;
-    
-    if (data.data_source_info) {
-        updateDataSourceInfo(data);
-    }
-    
+    if (data.data_source_info) updateDataSourceInfo(data);
     if (data.historical && data.today) {
         updateChart('messages_combined');
         updateTables(data.today || {});
@@ -481,428 +746,150 @@ function handleStatisticsData(data) {
     }
 }
 
+
 function updateChart(metric) {
     if (!statisticsChart || !statisticsData) return;
     
     const labels = [];
-    const data = [];
-    let total = 0;
-    let count = 0;
-    
-    // 移动端只显示最近15天数据
     const isMobile = window.innerWidth <= 768;
     const maxDays = isMobile ? 15 : 30;
     
     if (statisticsData.historical && Array.isArray(statisticsData.historical)) {
-        // 取最后N天的数据
-        const historicalData = statisticsData.historical.slice(-maxDays);
-        
-        historicalData.forEach(item => {
-            const displayLabel = item.display_date || item.date || '未知';
-            labels.push(displayLabel);
-            
-            let value = 0;
-            switch(metric) {
-                case 'total_messages':
-                case 'active_users':
-                case 'active_groups':
-                case 'private_messages':
-                    value = item.message_stats ? item.message_stats[metric] || 0 : 0;
-                    break;
-                case 'total_users':
-                case 'total_groups':
-                case 'total_friends':
-                    value = item.user_stats ? item.user_stats[metric] || 0 : 0;
-                    break;
-                default:
-                    value = 0;
-            }
-            
-        data.push(value);
-        total += value;
-        count++;
-    });
+        statisticsData.historical.slice(-maxDays).forEach(item => labels.push(item.display_date || item.date || '未知'));
     }
-    
-    if (statisticsData.today) {
-        labels.push('今日');
-        
-        let todayValue = 0;
-        switch(metric) {
-            case 'total_messages':
-            case 'active_users':
-            case 'active_groups':
-            case 'private_messages':
-                todayValue = statisticsData.today.message_stats ? statisticsData.today.message_stats[metric] || 0 : 0;
-                break;
-            case 'total_users':
-            case 'total_groups':
-            case 'total_friends':
-                todayValue = statisticsData.today.user_stats ? statisticsData.today.user_stats[metric] || 0 : 0;
-                break;
-            default:
-                todayValue = 0;
-        }
-        
-        data.push(todayValue);
-        total += todayValue;
-        count++;
-    }
+    if (statisticsData.today) labels.push('今日');
     
     let datasets = [];
-    
-    if (metric === 'messages_combined') {
-        const [totalMessagesData, privateMessagesData, groupMessagesData] = extractDataArrays(
-            statisticsData,
-            ['total_messages', 'private_messages', item => getStat(item, 'message_stats', 'total_messages') - getStat(item, 'message_stats', 'private_messages')]
-        );
-        
-        datasets = [
-            createDataset('总消息量', totalMessagesData, '#4361ee', 'rgba(67, 97, 238, 0.15)'),
-            createDataset('私聊消息数', privateMessagesData, '#7209b7', 'rgba(114, 9, 183, 0.15)'),
-            createDataset('群聊消息数', groupMessagesData, '#f72585', 'rgba(247, 37, 133, 0.15)')
-        ];
-    } else if (metric === 'active_combined') {
-        const [activeUsersData, activeGroupsData] = extractDataArrays(statisticsData, ['active_users', 'active_groups']);
-        
-        datasets = [
-            createDataset('活跃用户数', activeUsersData, '#f72585', 'rgba(247, 37, 133, 0.15)'),
-            createDataset('活跃群聊数', activeGroupsData, '#4cc9f0', 'rgba(76, 201, 240, 0.15)')
-        ];
-    } else if (metric === 'total_combined') {
-        const [totalUsersData, totalGroupsData, totalFriendsData] = extractDataArrays(
-            statisticsData, 
-            ['total_users', 'total_groups', 'total_friends'], 
-            'user_stats'
-        );
-        
-        datasets = [
-            createDataset('总用户数', totalUsersData, '#f77f00', 'rgba(247, 127, 0, 0.15)'),
-            createDataset('总群组数', totalGroupsData, '#fcbf49', 'rgba(252, 191, 73, 0.15)'),
-            createDataset('总好友数', totalFriendsData, '#606c38', 'rgba(96, 108, 56, 0.15)')
-        ];
-    } else if (metric === 'group_events') {
-        const [joinData, leaveData] = extractDataArrays(
-            statisticsData, 
-            ['group_join_count', 'group_leave_count'], 
-            'event_stats'
-        );
-        
-        datasets = [
-            createDataset('进群数', joinData, '#28a745', 'rgba(40, 167, 69, 0.15)'),
-            createDataset('退群数', leaveData, '#dc3545', 'rgba(220, 53, 69, 0.15)')
-        ];
-    } else if (metric === 'friend_events') {
-        const [addData, removeData] = extractDataArrays(
-            statisticsData, 
-            ['friend_add_count', 'friend_remove_count'], 
-            'event_stats'
-        );
-        
-        datasets = [
-            createDataset('加好友数', addData, '#17a2b8', 'rgba(23, 162, 184, 0.15)'),
-            createDataset('删好友数', removeData, '#ffc107', 'rgba(255, 193, 7, 0.15)')
-        ];
-    } else {
-        const average = count > 0 ? (total / count) : 0;
-        
-        const metricInfo = {
-            'total_messages': { label: '总消息量', color: '#4361ee', bg: 'rgba(67, 97, 238, 0.15)' },
-            'active_users': { label: '活跃用户数', color: '#f72585', bg: 'rgba(247, 37, 133, 0.15)' },
-            'active_groups': { label: '活跃群聊数', color: '#4cc9f0', bg: 'rgba(76, 201, 240, 0.15)' },
-            'private_messages': { label: '私聊消息数', color: '#7209b7', bg: 'rgba(114, 9, 183, 0.15)' },
-            'total_users': { label: '总用户数', color: '#f77f00', bg: 'rgba(247, 127, 0, 0.15)' },
-            'total_groups': { label: '总群组数', color: '#fcbf49', bg: 'rgba(252, 191, 73, 0.15)' },
-            'total_friends': { label: '总好友数', color: '#606c38', bg: 'rgba(96, 108, 56, 0.15)' }
-        };
-        
-        const info = metricInfo[metric] || metricInfo['total_messages'];
-        datasets = [createDataset(info.label, data, info.color, info.bg)];
-        
-        const averageElement = document.getElementById('chart-average-display');
-        if (averageElement && count > 0) {
-            const isMobile = window.innerWidth <= 768;
-            const daysText = isMobile ? '15天' : '30天';
-            averageElement.textContent = `${daysText}平均: ${formatNumber(Math.round(average))}`;
-            averageElement.style.color = info.color;
-            averageElement.style.display = 'block';
+    const metricConfigs = {
+        messages_combined: () => {
+            const [total, priv, group] = extractDataArrays(statisticsData, ['total_messages', 'private_messages', item => getStat(item, 'message_stats', 'total_messages') - getStat(item, 'message_stats', 'private_messages')]);
+            return [createDataset('总消息量', total, '#667eea', 'rgba(102,126,234,0.15)'), createDataset('私聊消息数', priv, '#764ba2', 'rgba(118,75,162,0.15)'), createDataset('群聊消息数', group, '#f72585', 'rgba(247,37,133,0.15)')];
+        },
+        active_combined: () => {
+            const [users, groups] = extractDataArrays(statisticsData, ['active_users', 'active_groups']);
+            return [createDataset('活跃用户数', users, '#f72585', 'rgba(247,37,133,0.15)'), createDataset('活跃群聊数', groups, '#4cc9f0', 'rgba(76,201,240,0.15)')];
+        },
+        total_combined: () => {
+            const [users, groups, friends] = extractDataArrays(statisticsData, ['total_users', 'total_groups', 'total_friends'], 'user_stats');
+            return [createDataset('总用户数', users, '#f77f00', 'rgba(247,127,0,0.15)'), createDataset('总群组数', groups, '#fcbf49', 'rgba(252,191,73,0.15)'), createDataset('总好友数', friends, '#606c38', 'rgba(96,108,56,0.15)')];
+        },
+        group_events: () => {
+            const [join, leave] = extractDataArrays(statisticsData, ['group_join_count', 'group_leave_count'], 'event_stats');
+            return [createDataset('进群数', join, '#10b981', 'rgba(16,185,129,0.15)'), createDataset('退群数', leave, '#ef4444', 'rgba(239,68,68,0.15)')];
+        },
+        friend_events: () => {
+            const [add, remove] = extractDataArrays(statisticsData, ['friend_add_count', 'friend_remove_count'], 'event_stats');
+            return [createDataset('加好友数', add, '#17a2b8', 'rgba(23,162,184,0.15)'), createDataset('删好友数', remove, '#ffc107', 'rgba(255,193,7,0.15)')];
         }
-    }
+    };
+    
+    datasets = metricConfigs[metric] ? metricConfigs[metric]() : [];
     
     statisticsChart.data.labels = labels;
     statisticsChart.data.datasets = datasets;
-    
-    if (metric === 'messages_combined' || metric === 'active_combined' || metric === 'total_combined' || 
-        metric === 'group_events' || metric === 'friend_events') {
-        const averageElement = document.getElementById('chart-average-display');
-        if (averageElement) {
-            averageElement.style.display = 'none';
-        }
-    }
-    
     statisticsChart.update();
-    updateButtonState(metric);
+    
+    document.querySelectorAll('.chart-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.metric === metric);
+    });
+    
+    const avgEl = document.getElementById('chart-average-display');
+    if (avgEl) avgEl.style.display = 'none';
 }
 
 function updateDataSourceInfo(data) {
-    const infoElement = document.getElementById('data-source-info');
-    if (!infoElement || !data.data_source_info) return;
+    const el = document.getElementById('data-source-info');
+    if (!el || !data.data_source_info) return;
     
     const sourceMap = {
-        loading: { badge: 'bg-warning', icon: 'hourglass-split', text: '加载中' },
-        processing: { badge: 'bg-info', icon: 'gear-fill', text: '计算中' },
-        api: { badge: 'bg-success', icon: 'cloud-check', text: '实时数据' },
-        cache: { badge: 'bg-info', icon: 'clock-history', text: '缓存数据' }
+        loading: { cls: 'loading', icon: 'hourglass-split', text: '加载中' },
+        processing: { cls: 'bg-info', icon: 'gear-fill', text: '计算中' },
+        api: { cls: 'bg-success', icon: 'cloud-check', text: '实时数据' },
+        cache: { cls: 'bg-info', icon: 'clock-history', text: '缓存数据' }
     };
     
-    const sourceInfo = data.data_source_info;
-    const { badge = 'bg-secondary', icon = 'hourglass-split', text = '未知' } = sourceMap[sourceInfo.source] || {};
-    
-    infoElement.innerHTML = `
-        <span class="badge ${badge}">
-            <i class="bi bi-${icon}"></i> ${text}
-        </span>
-        <small>${sourceInfo.update_time || ''}</small>
-    `;
-}
-
-function populateDateSelector(dates) {
-    const selector = document.getElementById('date-selector');
-    selector.innerHTML = '';
-    
-    dates.forEach(dateItem => {
-        const option = document.createElement('option');
-        option.value = dateItem.value;
-        option.textContent = dateItem.display;
-        if (dateItem.is_today) {
-            option.selected = true;
-        }
-        selector.appendChild(option);
-    });
-}
-
-function loadAvailableDates() {
-    const token = getToken();
-    if (!token) return;
-    
-    fetch(`/web/api/available_dates?token=${encodeURIComponent(token)}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.dates) {
-                populateDateSelector(data.dates);
-            }
-        })
-        .catch(error => {
-            console.error('Error loading available dates:', error);
-        });
-}
-
-function loadDateData(date) {
-    loadDateSpecificData(date);
-}
-
-function updateTodayStats(data) {
-    const table = document.getElementById('today-stats-table');
-    if (!data) {
-        table.innerHTML = '<tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>';
-        return;
-    }
-    
-    const statsItems = [
-        { label: '总消息量', value: data.total_messages || 0 },
-        { label: '活跃用户数', value: data.active_users || 0 },
-        { label: '活跃群聊数', value: data.active_groups || 0 },
-        { label: '私聊消息数', value: data.private_messages || 0 },
-        { label: '群聊消息数', value: data.group_messages || 0 },
-        { label: '总用户数', value: data.total_users || 0 },
-        { label: '总群组数', value: data.total_groups || 0 },
-        { label: '总好友数', value: data.total_friends || 0 }
-    ];
-    
-    table.innerHTML = statsItems.map(item => 
-        `<tr><td>${item.label}</td><td class="fw-bold">${formatNumber(item.value)}</td></tr>`
-    ).join('');
-}
-
-function updateTable(tableId, items, rowMapper) {
-    const table = document.getElementById(tableId);
-    if (!items || items.length === 0) {
-        table.innerHTML = EMPTY_TABLE_ROW;
-        return;
-    }
-    table.innerHTML = items.map(rowMapper).join('');
-}
-
-function updateTopUsers(users) {
-    updateTable('top-users-table', users, user => 
-        `<tr><td>${user.user_id}</td><td class="fw-bold">${formatNumber(user.message_count)}</td></tr>`
-    );
-}
-
-function updateTopGroups(groups) {
-    updateTable('top-groups-table', groups, group => 
-        `<tr><td>${group.group_id}</td><td class="fw-bold">${formatNumber(group.message_count)}</td></tr>`
-    );
-}
-
-function updateCommandStats(commands) {
-    updateTable('command-stats-table', commands, cmd => 
-        `<tr><td>${cmd.command}</td><td class="fw-bold">${formatNumber(cmd.count)}</td></tr>`
-    );
-}
-
-function completeDau() {
-    const token = getToken();
-    if (!token) return;
-    
-    const button = document.getElementById('complete-dau');
-    const originalText = button.innerHTML;
-    button.innerHTML = '<i class="bi bi-hourglass-split"></i> 处理中...';
-    button.disabled = true;
-    
-    fetch(`/web/api/complete_dau?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({})
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('DAU补全成功！');
-                loadStatistics();
-            } else {
-                alert('DAU补全失败：' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Error completing DAU:', error);
-            alert('DAU补全失败');
-        })
-        .finally(() => {
-            button.innerHTML = originalText;
-            button.disabled = false;
-        });
-}
-
-function showStatisticsError(message) {
-    const container = document.getElementById('statistics-container');
-    if (container) {
-        container.innerHTML = `
-            <div class="alert alert-danger">
-                <i class="bi bi-exclamation-triangle"></i> ${message}
-            </div>
-        `;
-    }
-}
-
-function updateButtonState(metric) {
-    document.querySelectorAll('.chart-toggle').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.metric === metric) {
-            btn.classList.add('active');
-        }
-    });
+    const info = data.data_source_info;
+    const { cls = 'loading', icon = 'hourglass-split', text = '未知' } = sourceMap[info.source] || {};
+    el.innerHTML = `<span class="badge ${cls}"><i class="bi bi-${icon}"></i> ${text}</span>${info.update_time ? `<small class="text-muted ms-2">${info.update_time}</small>` : ''}`;
 }
 
 function updateTables(todayData) {
-    const todayStatsTable = document.getElementById('today-stats-table');
-    const messageStats = todayData.message_stats || {};
+    const msgStats = todayData.message_stats || {};
     const userStats = todayData.user_stats || {};
+    const eventStats = todayData.event_stats || {};
     
-    const dataSourceInfoElement = document.getElementById('data-source-info');
-    if (dataSourceInfoElement) {
-        let sourceHtml = '';
+    const dataSourceEl = document.getElementById('data-source-info');
+    if (dataSourceEl) {
+        let html = '';
         if (todayData.is_historical) {
-            sourceHtml = `<span class="badge bg-info">
-                <i class="bi bi-folder"></i> 本地文件
-            </span>`;
-            if (todayData.generated_at) {
-                try {
-                    const genTime = new Date(todayData.generated_at);
-                    const timeStr = genTime.toLocaleString('zh-CN', { 
-                        month: '2-digit', 
-                        day: '2-digit', 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                    });
-                    sourceHtml += `<br><small class="text-muted">
-                        <i class="bi bi-clock"></i> ${timeStr}
-                    </small>`;
-                } catch (e) {
-                    // 时间解析失败，忽略
-                }
-            }
+            html = `<span class="badge bg-info"><i class="bi bi-folder"></i> 本地文件</span>`;
         } else if (todayData.is_realtime) {
-            sourceHtml = `<span class="badge bg-warning text-dark">
-                <i class="bi bi-database"></i> 实时查询
-            </span>`;
+            html = `<span class="badge bg-warning"><i class="bi bi-database"></i> 实时查询</span>`;
         } else {
-            sourceHtml = `<span class="badge bg-success">
-                <i class="bi bi-folder"></i> 本地文件
-            </span>`;
+            html = `<span class="badge bg-success"><i class="bi bi-folder"></i> 本地文件</span>`;
         }
-        dataSourceInfoElement.innerHTML = sourceHtml;
+        dataSourceEl.innerHTML = html;
     }
-
-    if (todayStatsTable) {
-        const eventStats = todayData.event_stats || {};
-        todayStatsTable.innerHTML = `
-            <tr><td>总消息量</td><td>${messageStats.total_messages || 0}</td></tr>
-            <tr><td>活跃用户数</td><td>${messageStats.active_users || 0}</td></tr>
-            <tr><td>活跃群聊数</td><td>${messageStats.active_groups || 0}</td></tr>
-            <tr><td>私聊消息数</td><td>${messageStats.private_messages || 0}</td></tr>
-            <tr><td>最活跃时段</td><td>${messageStats.peak_hour || 0}点 (${messageStats.peak_hour_count || 0}条)</td></tr>
+    
+    // 数据概览表格
+    const statsTable = document.getElementById('today-stats-table');
+    if (statsTable) {
+        statsTable.innerHTML = `
+            <tr><td>总消息量</td><td>${msgStats.total_messages || 0}</td></tr>
+            <tr><td>活跃用户</td><td>${msgStats.active_users || 0}</td></tr>
+            <tr><td>活跃群聊</td><td>${msgStats.active_groups || 0}</td></tr>
+            <tr><td>私聊消息</td><td>${msgStats.private_messages || 0}</td></tr>
+            <tr><td>最活跃时段</td><td>${msgStats.peak_hour || 0}点</td></tr>
             <tr><td>总用户数</td><td>${userStats.total_users || 0}</td></tr>
             <tr><td>总群组数</td><td>${userStats.total_groups || 0}</td></tr>
             <tr><td>总好友数</td><td>${userStats.total_friends || 0}</td></tr>
-            <tr><td colspan="2" style="font-weight: bold; background-color: #f8f9fa;">事件统计</td></tr>
-            <tr><td>进群数</td><td>${eventStats.group_join_count || 0}</td></tr>
-            <tr><td>退群数</td><td>${eventStats.group_leave_count || 0}</td></tr>
-            <tr><td>群组净增量</td><td>${(eventStats.group_join_count || 0) - (eventStats.group_leave_count || 0)}</td></tr>
-            <tr><td>加好友数</td><td>${eventStats.friend_add_count || 0}</td></tr>
-            <tr><td>删好友数</td><td>${eventStats.friend_remove_count || 0}</td></tr>
-            <tr><td>好友净增量</td><td>${(eventStats.friend_add_count || 0) - (eventStats.friend_remove_count || 0)}</td></tr>
         `;
     }
     
-    const topGroups = messageStats.top_groups || [];
-    updateTable('top-groups-table', topGroups.slice(0, 5), group => 
-        `<tr><td>${maskId(group.group_id)}</td><td>${group.message_count}</td></tr>`
-    );
+    // 事件统计表格
+    const eventTable = document.getElementById('event-stats-table');
+    if (eventTable) {
+        const groupNet = (eventStats.group_join_count || 0) - (eventStats.group_leave_count || 0);
+        const friendNet = (eventStats.friend_add_count || 0) - (eventStats.friend_remove_count || 0);
+        eventTable.innerHTML = `
+            <tr><td>进群数</td><td>${eventStats.group_join_count || 0}</td></tr>
+            <tr><td>退群数</td><td>${eventStats.group_leave_count || 0}</td></tr>
+            <tr><td>群组净增</td><td style="color:${groupNet >= 0 ? '#10b981' : '#ef4444'}">${groupNet >= 0 ? '+' : ''}${groupNet}</td></tr>
+            <tr><td>加好友</td><td>${eventStats.friend_add_count || 0}</td></tr>
+            <tr><td>删好友</td><td>${eventStats.friend_remove_count || 0}</td></tr>
+            <tr><td>好友净增</td><td style="color:${friendNet >= 0 ? '#10b981' : '#ef4444'}">${friendNet >= 0 ? '+' : ''}${friendNet}</td></tr>
+        `;
+    }
     
-    const topUsers = messageStats.top_users || [];
+    const topGroups = msgStats.top_groups || [];
+    updateTable('top-groups-table', topGroups.slice(0, 5), g => `<tr><td>${maskId(g.group_id)}</td><td>${g.message_count}</td></tr>`);
+    
+    const topUsers = msgStats.top_users || [];
     if (topUsers.length > 0) {
-        updateTable('top-users-table', topUsers.slice(0, 5), user => 
-            `<tr><td><span class="user-id-with-nickname" data-user-id="${user.user_id}">${maskId(user.user_id)} <span class="nickname-loading">📝</span></span></td><td>${user.message_count}</td></tr>`
-        );
+        updateTable('top-users-table', topUsers.slice(0, 5), u => `<tr><td><span class="user-id-with-nickname" data-user-id="${u.user_id}">${maskId(u.user_id)} <span class="nickname-loading">📝</span></span></td><td>${u.message_count}</td></tr>`);
         loadNicknamesForUsers(topUsers.slice(0, 5));
     } else {
         document.getElementById('top-users-table').innerHTML = EMPTY_TABLE_ROW;
     }
     
-    const commandStats = todayData.command_stats || [];
-    updateTable('command-stats-table', commandStats.slice(0, 5), cmd => 
-        `<tr><td>${cmd.command}</td><td>${cmd.count}</td></tr>`
-    );
+    const cmdStats = todayData.command_stats || [];
+    updateTable('command-stats-table', cmdStats.slice(0, 5), c => `<tr><td>${c.command}</td><td>${c.count}</td></tr>`);
+}
+
+function updateTable(tableId, items, rowMapper) {
+    const table = document.getElementById(tableId);
+    table.innerHTML = (!items || items.length === 0) ? EMPTY_TABLE_ROW : items.map(rowMapper).join('');
 }
 
 function maskId(id) {
     if (!id || typeof id !== 'string') return '未知';
-    if (id.length <= 6) return id;
-    return id.substring(0, 3) + '***' + id.substring(id.length - 3);
+    return id.length <= 6 ? id : id.substring(0, 3) + '***' + id.substring(id.length - 3);
 }
 
-const nicknameCache = new Map();
-
 function loadNicknamesForUsers(users) {
-    users.forEach(user => {
-        if (user.user_id && !nicknameCache.has(user.user_id)) {
-            fetchUserNickname(user.user_id);
-        } else if (nicknameCache.has(user.user_id)) {
-            updateUserNickname(user.user_id, nicknameCache.get(user.user_id));
-        }
+    users.forEach(u => {
+        if (u.user_id && !nicknameCache.has(u.user_id)) fetchUserNickname(u.user_id);
+        else if (nicknameCache.has(u.user_id)) updateUserNickname(u.user_id, nicknameCache.get(u.user_id));
     });
 }
 
@@ -911,111 +898,117 @@ function fetchUserNickname(userId) {
     if (!token) return;
     
     fetch(`/web/api/get_nickname/${encodeURIComponent(userId)}?token=${encodeURIComponent(token)}`)
-        .then(response => response.json())
+        .then(r => r.json())
         .then(data => {
             if (data.success && data.nickname) {
                 nicknameCache.set(userId, data.nickname);
                 updateUserNickname(userId, data.nickname);
             }
         })
-        .catch(error => {
-            console.error('获取昵称失败:', error);
-        });
+        .catch(() => {});
 }
 
 function updateUserNickname(userId, nickname) {
-    const elements = document.querySelectorAll(`[data-user-id="${userId}"]`);
-    elements.forEach(element => {
-        const loadingEl = element.querySelector('.nickname-loading');
-        if (loadingEl) {
-            loadingEl.textContent = `(${nickname})`;
-            loadingEl.classList.remove('nickname-loading');
-            loadingEl.classList.add('nickname-display');
+    document.querySelectorAll(`[data-user-id="${userId}"]`).forEach(el => {
+        const loading = el.querySelector('.nickname-loading');
+        if (loading) {
+            loading.textContent = `(${nickname})`;
+            loading.className = 'nickname-display';
         }
     });
 }
 
-function loadDateSpecificData(selectedDate) {
-    if (selectedDate === 'today') {
-        loadStatisticsData();
-    } else {
-        loadHistoricalDateData(selectedDate);
-    }
+
+function loadAvailableDates() {
+    const token = getToken();
+    if (!token) return;
+    
+    fetch(`/web/api/available_dates?token=${encodeURIComponent(token)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.dates) {
+                const selector = document.getElementById('date-selector');
+                selector.innerHTML = '';
+                data.dates.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.value;
+                    opt.textContent = d.display;
+                    if (d.is_today) opt.selected = true;
+                    selector.appendChild(opt);
+                });
+            }
+        })
+        .catch(() => {});
 }
 
-function loadStatisticsData(forceRefresh = false) {
-    loadStatistics(forceRefresh);
+function loadDateSpecificData(date) {
+    date === 'today' ? loadStatistics() : loadHistoricalDateData(date);
 }
 
 function loadHistoricalDateData(dateStr) {
     const token = getToken();
-    if (!token) {
-        console.error('未找到访问token');
-        return;
-    }
+    if (!token) return;
     
-    updateDataSourceInfo({
-        data_source_info: {
-            source: 'loading',
-            update_time: '加载历史数据...'
-        }
-    });
+    updateDataSourceInfo({ data_source_info: { source: 'loading', update_time: '加载历史数据...' } });
     
-    const apiUrl = `/web/api/statistics?token=${encodeURIComponent(token)}&date=${dateStr}&async=false`;
-    
-    fetch(apiUrl)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
+    fetch(`/web/api/statistics?token=${encodeURIComponent(token)}&date=${dateStr}&async=false`)
+        .then(r => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
         .then(data => {
-            if (data.success) {
-                if (data.selected_date_data) {
-                    updateTables(data.selected_date_data);
-                } else {
-                    showStatisticsError('该日期没有可用数据');
-                }
+            if (data.success && data.selected_date_data) {
+                updateTables(data.selected_date_data);
             } else {
-                console.error('加载历史数据失败:', data.error);
-                showStatisticsError('加载历史数据失败: ' + (data.error || '未知错误'));
+                showStatisticsError('该日期没有可用数据');
             }
         })
-        .catch(error => {
-            console.error('获取历史数据时出错:', error);
-            showStatisticsError('获取历史数据时出错: ' + error.message);
+        .catch(e => showStatisticsError('获取历史数据时出错: ' + e));
+}
+
+function completeDau() {
+    const token = getToken();
+    if (!token) return;
+    
+    const btn = document.getElementById('complete-dau');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 处理中...';
+    btn.disabled = true;
+    
+    fetch(`/web/api/complete_dau?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+    })
+        .then(r => r.json())
+        .then(data => {
+            alert(data.success ? 'DAU补全成功！' : 'DAU补全失败：' + data.message);
+            if (data.success) loadStatistics();
+        })
+        .catch(() => alert('DAU补全失败'))
+        .finally(() => {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
         });
 }
 
+function showStatisticsError(message) {
+    console.error(message);
+}
+
 document.addEventListener('DOMContentLoaded', function() {
-    const initTasks = [
-        { fn: initStatistics, delay: 50 },
-        { fn: loadStatistics, delay: 100 },
-        { fn: loadAvailableDates, delay: 150 }
-    ];
+    setTimeout(initStatistics, 50);
+    setTimeout(loadStatistics, 100);
+    setTimeout(loadAvailableDates, 150);
     
-    const events = [
-        { selector: '.chart-toggle', event: 'click', handler: (e) => updateChart(e.target.dataset.metric), debounce: 200 },
-        { selector: '#refresh-statistics', event: 'click', handler: () => {
-            loadStatistics();
-            loadDateSpecificData(document.getElementById('date-selector').value);
-        }, debounce: 1000 },
-        { selector: '#complete-dau', event: 'click', handler: completeDau, debounce: 500 },
-        { selector: '#date-selector', event: 'change', handler: (e) => loadDateSpecificData(e.target.value), debounce: 300 }
-    ];
-    
-    events.forEach(({ selector, event, handler, debounce: delay }) => {
-        const debouncedHandler = delay ? debounce(handler, delay) : handler;
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(el => el.addEventListener(event, debouncedHandler));
+    document.querySelectorAll('.chart-tab').forEach(btn => {
+        btn.addEventListener('click', debounce(function() { updateChart(this.dataset.metric); }, 200));
     });
     
-    const initAsync = () => initTasks.forEach(({ fn, delay }) => setTimeout(fn, delay));
+    document.getElementById('refresh-statistics')?.addEventListener('click', debounce(() => {
+        loadStatistics();
+        loadDateSpecificData(document.getElementById('date-selector').value);
+    }, 1000));
     
-    ('requestIdleCallback' in window) 
-        ? requestIdleCallback(initAsync, { timeout: 300 })
-        : setTimeout(initAsync, 100);
+    document.getElementById('complete-dau')?.addEventListener('click', debounce(completeDau, 500));
+    document.getElementById('date-selector')?.addEventListener('change', debounce(e => loadDateSpecificData(e.target.value), 300));
 });
 </script>
 {% endblock %}

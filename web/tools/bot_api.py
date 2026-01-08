@@ -1,316 +1,238 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import json, gzip, logging
+import json, gzip, re, httpx
 from datetime import datetime
-from typing import Dict, Any, Optional
-import httpx
 
-logger = logging.getLogger('ElainaBot.web.tools.bot_api')
+_GZIP_MAGIC = b'\x1f\x8b\x08'
+_BASE_HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (Linux; U; Android 14; zh-cn; 22122RK93C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/109.0.5414.118 Mobile Safari/537.36 XiaoMi/MiuiBrowser/17.8.220115 swan-mibrowser"
+}
+_QQ_HEADERS = {"Host": "q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"}
+_BOT_HEADERS = {"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"}
+
+_STATUS_MAP = {1: "未提审", 2: "审核中", 3: "审核通过"}
+_TYPE_MAP = {1: "按钮模板", 2: "markdown模板"}
+_MSG_FIELDS = {'report_date': '报告日期', 'up_msg_cnt': '上行消息量', 'up_msg_uv': '上行消息人数',
+    'down_msg_cnt': '下行消息量', 'down_passive_msg_cnt': '被动消息数', 'down_initiative_msg_cnt': '主动消息数',
+    'inline_msg_cnt': '内联消息数', 'bot_msg_cnt': '总消息量', 'next_day_retention': '对话用户次日留存', 'scene_name': '场景名称'}
+_GROUP_FIELDS = {'report_date': '报告日期', 'existing_groups': '现有群组', 'used_groups': '已使用群组', 'added_groups': '新增群组', 'removed_groups': '移除群组'}
+_FRIEND_FIELDS = {'report_date': '报告日期', 'stock_added_friends': '现有好友数', 'used_friends': '已使用好友数', 'new_added_friends': '新增好友数', 'new_removed_friends': '移除好友数'}
+_DATA_TYPE_MAP = {1: ('msg_data', _MSG_FIELDS), 2: ('group_data', _GROUP_FIELDS), 3: ('friend_data', _FRIEND_FIELDS)}
+
+_HTML_RE = re.compile(r'<[^>]+>')
+_URL_RE = re.compile(r'https?://[^\s]+')
+_DETAIL_RE = re.compile(r'\[查看详情\]\(')
 
 class QQBotAPI:
-    def __init__(self):
-        self.base_headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Linux; U; Android 14; zh-cn; 22122RK93C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/109.0.5414.118 Mobile Safari/537.36 XiaoMi/MiuiBrowser/17.8.220115 swan-mibrowser"
-        }
+    __slots__ = ()
     
-    def _build_cookie_string(self, uin: str = "", quid: str = "", ticket: str = "") -> str:
-        cookies = []
+    def _build_cookie(self, uin="", quid="", ticket=""):
+        parts = []
         if uin:
-            cookies.append(f"quin={uin}")
+            parts.append(f"quin={uin}")
         if quid:
-            cookies.extend([f"quid={quid}", f"developerId={quid}"])
+            parts.extend([f"quid={quid}", f"developerId={quid}"])
         if ticket:
-            cookies.append(f"qticket={ticket}")
-        return "; ".join(cookies)
+            parts.append(f"qticket={ticket}")
+        return "; ".join(parts)
     
-    def _process_response(self, response_content: bytes) -> str:
+    def _decode_response(self, content):
         try:
-            return gzip.decompress(response_content).decode('utf-8') if response_content[:3] == b'\x1f\x8b\x08' else response_content.decode('utf-8')
+            return gzip.decompress(content).decode('utf-8') if content[:3] == _GZIP_MAGIC else content.decode('utf-8')
         except:
-            return response_content.decode('utf-8', errors='ignore')
+            return content.decode('utf-8', errors='ignore')
     
-    def _make_request(self, method: str, url: str, uin: str = "", quid: str = "", 
-                     ticket: str = "", data: Optional[Dict] = None, 
-                     extra_headers: Optional[Dict] = None) -> Dict[str, Any]:
+    def _request(self, method, url, uin="", quid="", ticket="", data=None, extra_headers=None):
         try:
-            headers = self.base_headers.copy()
-            if any([uin, quid, ticket]):
-                headers["Cookie"] = self._build_cookie_string(uin, quid, ticket)
+            headers = _BASE_HEADERS.copy()
+            if uin or quid or ticket:
+                headers["Cookie"] = self._build_cookie(uin, quid, ticket)
             if extra_headers:
                 headers.update(extra_headers)
-            
             with httpx.Client() as client:
-                response = client.get(url, headers=headers) if method.upper() == 'GET' else client.post(url, json=data, headers=headers)
-            
-            return json.loads(self._process_response(response.content))
+                resp = client.get(url, headers=headers) if method == 'GET' else client.post(url, json=data, headers=headers)
+            return json.loads(self._decode_response(resp.content))
         except Exception as e:
             return {"code": 500, "msg": f"请求失败: {str(e)}"}
     
-    def get_message_templates(self, uin: str = "", quid: str = "", ticket: str = "", 
-                             appid: str = "", start: int = 0, limit: int = 30) -> Dict[str, Any]:
-        response_data = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/list", uin, quid, ticket, 
-                                          {"bot_appid": appid, "start": start, "limit": limit})
-        if response_data.get("code") == 500:
-            return response_data
-        response_data['code'] = 0 if response_data.get('retcode') == 0 else -1
-        if response_data.get('retcode') == 0:
-            if 'data' not in response_data:
-                response_data['data'] = {}
-            if 'list' not in response_data['data']:
-                response_data['data']['list'] = []
-            template_list = response_data['data']['list']
-            if template_list:
-                status_map = {1: "未提审", 2: "审核中", 3: "审核通过"}
-                type_map = {1: "按钮模板", 2: "markdown模板"}
-                for template in template_list:
-                    new_template = {
-                        '模板id': template.get('tpl_id'), '模板名称': template.get('tpl_name'),
-                        '模板状态': status_map.get(template.get('status'), "未通过"),
-                        '模板类型': type_map.get(template.get('tpl_type'), "未知类型"),
-                        '模板内容': template.get('text'), '创建时间': self._format_timestamp(template.get('create_time'))
-                    }
-                    template.clear()
-                    template.update(new_template)
-        return response_data
-    
-    def _format_timestamp(self, timestamp) -> str:
+    def _format_ts(self, ts):
         try:
-            return datetime.fromtimestamp(float(timestamp)).strftime("%Y-%m-%d %H:%M:%S")
+            return datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S")
         except:
             return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    def get_private_messages(self, uin: str = "", quid: str = "", ticket: str = "") -> Dict[str, Any]:
-        response = self._make_request("POST", "https://q.qq.com/pb/AppFetchPrivateMsg", uin, quid, ticket, 
-                                     {"page_num": 0, "page_size": 9999, "receiver": quid, "appType": 2})
-        if response.get("code") == 500:
-            return {"code": -1, "messages": [], "error": response.get("msg")}
-        if response.get('code', 0) != 0:
-            return {"code": -1, "messages": [], "error": f"API Error: {response.get('message', '未知错误')}"}
-        formatted_response = {"code": 0, "messages": []}
-        if response.get('data', {}).get('privateMsgs'):
-            import re
-            for msg in response['data']['privateMsgs']:
-                content = re.sub(r'<[^>]+>', '', msg.get('content', ''))
-                content = re.sub(r'https?://[^\s]+', '', content)
-                content = re.sub(r'\[查看详情\]\(', '', content)
-                formatted_response["messages"].append({
-                    "title": re.sub(r'<[^>]+>', '', msg.get('title', '')),
-                    "content": content,
-                    "send_time": self._format_timestamp(msg.get('send_time'))
-                })
-        formatted_response["total_count"] = response.get('data', {}).get('total_count', 0)
-        formatted_response["unread_count"] = response.get('data', {}).get('unread_count', 0)
-        return formatted_response
+    def get_message_templates(self, uin="", quid="", ticket="", appid="", start=0, limit=30):
+        resp = self._request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/list", uin, quid, ticket, {"bot_appid": appid, "start": start, "limit": limit})
+        if resp.get("code") == 500:
+            return resp
+        resp['code'] = 0 if resp.get('retcode') == 0 else -1
+        if resp.get('retcode') == 0:
+            resp.setdefault('data', {}).setdefault('list', [])
+            for t in resp['data']['list']:
+                new = {'模板id': t.get('tpl_id'), '模板名称': t.get('tpl_name'), '模板状态': _STATUS_MAP.get(t.get('status'), "未通过"),
+                       '模板类型': _TYPE_MAP.get(t.get('tpl_type'), "未知类型"), '模板内容': t.get('text'), '创建时间': self._format_ts(t.get('create_time'))}
+                t.clear()
+                t.update(new)
+        return resp
     
-    def get_bot_data(self, uin: str = "", quid: str = "", ticket: str = "", 
-                    appid: str = "", data_type: int = 1) -> Dict[str, Any]:
-        data = self._make_request("GET", f"https://bot.q.qq.com/cgi-bin/datareport/read?bot_appid={appid}&data_type={data_type}&data_range=2&scene_id=1", uin, quid, ticket)
-        if data.get("code") == 500:
-            return {"retcode": -1, "code": 500, "msg": data.get("msg"), "error": data.get("msg"), "data": {}}
-        translation_maps = {
-            1: ('msg_data', {'report_date': '报告日期', 'up_msg_cnt': '上行消息量', 'up_msg_uv': '上行消息人数',
-                'down_msg_cnt': '下行消息量', 'down_passive_msg_cnt': '被动消息数', 'down_initiative_msg_cnt': '主动消息数', 
-                'inline_msg_cnt': '内联消息数', 'bot_msg_cnt': '总消息量', 'next_day_retention': '对话用户次日留存', 'scene_name': '场景名称'}),
-            2: ('group_data', {'report_date': '报告日期', 'existing_groups': '现有群组', 'used_groups': '已使用群组', 'added_groups': '新增群组', 'removed_groups': '移除群组'}),
-            3: ('friend_data', {'report_date': '报告日期', 'stock_added_friends': '现有好友数', 'used_friends': '已使用好友数', 'new_added_friends': '新增好友数', 'new_removed_friends': '移除好友数'})
-        }
-        self._translate_data(data, translation_maps.get(data_type, (None, {})))
-        return data
+    def get_private_messages(self, uin="", quid="", ticket=""):
+        resp = self._request("POST", "https://q.qq.com/pb/AppFetchPrivateMsg", uin, quid, ticket, {"page_num": 0, "page_size": 9999, "receiver": quid, "appType": 2})
+        if resp.get("code") == 500:
+            return {"code": -1, "messages": [], "error": resp.get("msg")}
+        if resp.get('code', 0) != 0:
+            return {"code": -1, "messages": [], "error": f"API Error: {resp.get('message', '未知错误')}"}
+        result = {"code": 0, "messages": []}
+        for msg in resp.get('data', {}).get('privateMsgs', []):
+            content = _DETAIL_RE.sub('', _URL_RE.sub('', _HTML_RE.sub('', msg.get('content', ''))))
+            result["messages"].append({"title": _HTML_RE.sub('', msg.get('title', '')), "content": content, "send_time": self._format_ts(msg.get('send_time'))})
+        result["total_count"] = resp.get('data', {}).get('total_count', 0)
+        result["unread_count"] = resp.get('data', {}).get('unread_count', 0)
+        return result
     
-    def _translate_data(self, data: Dict[str, Any], translation_config):
-        data_key, field_map = translation_config
-        if data.get('retcode') == 0:
-            data['msg'] = "成功"
-            if data_key and data.get('data', {}).get(data_key):
-                for item in data['data'][data_key]:
-                    translated = {chinese_key: item.get(english_key) for english_key, chinese_key in field_map.items()}
+    def get_bot_data(self, uin="", quid="", ticket="", appid="", data_type=1):
+        resp = self._request("GET", f"https://bot.q.qq.com/cgi-bin/datareport/read?bot_appid={appid}&data_type={data_type}&data_range=2&scene_id=1", uin, quid, ticket)
+        if resp.get("code") == 500:
+            return {"retcode": -1, "code": 500, "msg": resp.get("msg"), "error": resp.get("msg"), "data": {}}
+        config = _DATA_TYPE_MAP.get(data_type)
+        if resp.get('retcode') == 0:
+            resp['msg'] = "成功"
+            if config:
+                key, fields = config
+                for item in resp.get('data', {}).get(key, []):
+                    new = {cn: item.get(en) for en, cn in fields.items()}
                     item.clear()
-                    item.update(translated)
+                    item.update(new)
         else:
-            data['msg'] = f"失败: {data.get('msg', '未知错误')}"
+            resp['msg'] = f"失败: {resp.get('msg', '未知错误')}"
+        return resp
     
-    def get_bot_list(self, uin: str = "", quid: str = "", ticket: str = "") -> Dict[str, Any]:
-        response = self._make_request("POST", "https://q.qq.com/homepagepb/GetAppListForLogin", uin, quid, ticket, 
-                                     {"uin": uin, "developer_id": quid, "ticket": ticket, "app_type": [2]})
-        return {"retcode": -1, "code": 500, "message": response.get("msg"), "error": response.get("msg"), "data": {}} if response.get("code") == 500 else response
+    def get_bot_list(self, uin="", quid="", ticket=""):
+        resp = self._request("POST", "https://q.qq.com/homepagepb/GetAppListForLogin", uin, quid, ticket, {"uin": uin, "developer_id": quid, "ticket": ticket, "app_type": [2]})
+        return {"retcode": -1, "code": 500, "message": resp.get("msg"), "error": resp.get("msg"), "data": {}} if resp.get("code") == 500 else resp
     
-    def get_qr_login_info(self, qrcode: str = "") -> Dict[str, Any]:
-        response = self._make_request("POST", "https://q.qq.com/qrcode/get", data={"qrcode": qrcode}, 
-                                     extra_headers={"Host": "q.qq.com", "Cache-Control": "max-age=0", "Accept": "*/*", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
-        return {"code": 500, "message": response.get("msg")} if response.get("code") == 500 else response
+    def get_qr_login_info(self, qrcode=""):
+        resp = self._request("POST", "https://q.qq.com/qrcode/get", data={"qrcode": qrcode}, extra_headers={**_QQ_HEADERS, "Cache-Control": "max-age=0", "Accept": "*/*"})
+        return {"code": 500, "message": resp.get("msg")} if resp.get("code") == 500 else resp
     
-    def create_login_qr(self) -> Dict[str, Any]:
-        response = self._make_request("POST", "https://q.qq.com/qrcode/create", data={"type": "777"}, 
-                                     extra_headers={"Host": "q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
-        if response.get("code") == 500:
-            return {"status": "error", "message": response.get("msg")}
-        if response.get('data', {}).get('QrCode'):
-            qrcode = response['data']['QrCode']
-            return {"status": "success", "url": f"https://q.qq.com/login/applist?client=qq&code={qrcode}&ticket=null", "qr": qrcode}
-        return {"status": "error", "message": "QrCode parameter not found in response."}
+    def create_login_qr(self):
+        resp = self._request("POST", "https://q.qq.com/qrcode/create", data={"type": "777"}, extra_headers=_QQ_HEADERS)
+        if resp.get("code") == 500:
+            return {"status": "error", "message": resp.get("msg")}
+        qr = resp.get('data', {}).get('QrCode')
+        return {"status": "success", "url": f"https://q.qq.com/login/applist?client=qq&code={qr}&ticket=null", "qr": qr} if qr else {"status": "error", "message": "QrCode not found"}
     
-    def get_white_list(self, appid: str = "", uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+    def get_white_list(self, appid="", uin="", uid="", ticket=""):
         if not all([appid, uin, uid, ticket]):
             return {"code": 400, "msg": "参数不完整"}
-        response = self._make_request("GET", f"https://bot.q.qq.com/cgi-bin/dev_info/white_ip_config?bot_appid={appid}", uin, uid, ticket)
-        if response.get("code") == 500:
-            return {"code": 500, "msg": f"CURL错误：{response.get('msg')}"}
-        if response.get('retcode') != 0:
-            return {"code": -1, "msg": "获取白名单失败", "data": response}
+        resp = self._request("GET", f"https://bot.q.qq.com/cgi-bin/dev_info/white_ip_config?bot_appid={appid}", uin, uid, ticket)
+        if resp.get("code") == 500:
+            return {"code": 500, "msg": f"CURL错误：{resp.get('msg')}"}
+        if resp.get('retcode') != 0:
+            return {"code": -1, "msg": "获取白名单失败", "data": resp}
         try:
-            ip_list = response.get('data', {}).get('ip_white_infos', {}).get('prod', {}).get('ip_list', [])
+            ip_list = resp.get('data', {}).get('ip_white_infos', {}).get('prod', {}).get('ip_list', [])
             return {"code": 0, "msg": "获取成功", "data": ip_list if isinstance(ip_list, list) else []}
         except:
             return {"code": 0, "msg": "获取成功", "data": []}
     
-    def create_white_login_qr(self, appid: str = "", uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+    def create_white_login_qr(self, appid="", uin="", uid="", ticket=""):
         if not all([appid, uin, uid, ticket]):
             return {"code": 400, "msg": "参数不完整", "qrcode": None, "url": None}
-        response = self._make_request("POST", "https://q.qq.com/qrcode/create", uin, uid, ticket, {"type": 51, "miniAppId": appid})
-        if response.get("code") == 500:
-            return {"code": 500, "msg": f"CURL错误：{response.get('msg')}", "qrcode": None, "url": None}
-        if response.get('data', {}).get('QrCode'):
-            qr_code = response['data']['QrCode']
-            return {"code": 0, "msg": "获取成功", "qrcode": qr_code, "url": f"https://q.qq.com/qrcode/check?client=qq&code={qr_code}&ticket={ticket}"}
-        return {"code": -1, "msg": "获取链接失败", "qrcode": None, "url": None}
+        resp = self._request("POST", "https://q.qq.com/qrcode/create", uin, uid, ticket, {"type": 51, "miniAppId": appid})
+        if resp.get("code") == 500:
+            return {"code": 500, "msg": f"CURL错误：{resp.get('msg')}", "qrcode": None, "url": None}
+        qr = resp.get('data', {}).get('QrCode')
+        return {"code": 0, "msg": "获取成功", "qrcode": qr, "url": f"https://q.qq.com/qrcode/check?client=qq&code={qr}&ticket={ticket}"} if qr else {"code": -1, "msg": "获取链接失败", "qrcode": None, "url": None}
     
-    def update_white_list(self, appid: str = "", uin: str = "", uid: str = "", ticket: str = "",
-                         qrcode: str = "", ip: str = "", action: str = "") -> Dict[str, Any]:
+    def update_white_list(self, appid="", uin="", uid="", ticket="", qrcode="", ip="", action=""):
         if not all([appid, uin, uid, ticket, qrcode, ip, action]):
             return {"code": 400, "msg": "参数不完整"}
-        current_list = self.get_white_list(appid, uin, uid, ticket)
-        if current_list.get('code') != 0:
+        current = self.get_white_list(appid, uin, uid, ticket)
+        if current.get('code') != 0:
             return {"code": 500, "msg": "获取白名单失败"}
-        current_ip_list = current_list.get('data', [])
-        ip_addresses = [i.strip() for i in ip.split(',') if i.strip()] if ',' in ip else [ip.strip()]
+        current_list = current.get('data', [])
+        ips = [i.strip() for i in ip.split(',') if i.strip()] if ',' in ip else [ip.strip()]
         if action == 'add':
-            if ',' in ip:
-                final_ip_list = ip_addresses
-            else:
-                if ip in current_ip_list:
-                    return {"code": 409, "msg": "IP 已存在于白名单中"}
-                final_ip_list = current_ip_list + [ip]
+            final = ips if ',' in ip else (current_list + [ip] if ip not in current_list else None)
+            if final is None:
+                return {"code": 409, "msg": "IP 已存在于白名单中"}
         elif action == 'del':
-            final_ip_list = current_ip_list.copy()
-            for ip_addr in ip_addresses:
-                if ip_addr not in final_ip_list:
-                    return {"code": 404, "msg": f"IP {ip_addr} 不在白名单中"}
-                final_ip_list.remove(ip_addr)
+            final = current_list.copy()
+            for addr in ips:
+                if addr not in final:
+                    return {"code": 404, "msg": f"IP {addr} 不在白名单中"}
+                final.remove(addr)
         else:
             return {"code": 400, "msg": "无效的操作"}
-        final_ip_list = list(set(i for i in final_ip_list if i.strip()))
-        result = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/dev_info/update_white_ip_config", uin, uid, ticket, 
-                                   {"bot_appid": appid, "ip_white_infos": {"prod": {"ip_list": final_ip_list, "use": True}}, "qr_code": qrcode})
-        if result.get("code") == 500:
-            return {"code": 500, "msg": f"CURL错误：{result.get('msg')}"}
-        if result.get('retcode') != 0:
-            return {"code": -1, "msg": f"{'新增' if action == 'add' else '删除'}失败: {result.get('msg', '未知错误')}"}
+        final = list(set(i for i in final if i.strip()))
+        resp = self._request("POST", "https://bot.q.qq.com/cgi-bin/dev_info/update_white_ip_config", uin, uid, ticket,
+            {"bot_appid": appid, "ip_white_infos": {"prod": {"ip_list": final, "use": True}}, "qr_code": qrcode})
+        if resp.get("code") == 500:
+            return {"code": 500, "msg": f"CURL错误：{resp.get('msg')}"}
+        if resp.get('retcode') != 0:
+            return {"code": -1, "msg": f"{'新增' if action == 'add' else '删除'}失败: {resp.get('msg', '未知错误')}"}
         return {"code": 0, "msg": "新增成功" if action == 'add' else "删除成功"}
     
-    def verify_qr_auth(self, appid: str = "", uin: str = "", uid: str = "", ticket: str = "", qrcode: str = "") -> Dict[str, Any]:
+    def verify_qr_auth(self, appid="", uin="", uid="", ticket="", qrcode=""):
         if not all([uin, uid, ticket, qrcode]):
             return {"code": 400, "msg": "参数不完整"}
-        response = self._make_request("POST", "https://q.qq.com/qrcode/get", uin, uid, ticket, {"qrcode": qrcode})
-        if response.get("code") == 500:
-            return {"code": 500, "msg": f"CURL错误：{response.get('msg')}"}
-        return {"code": 0, "msg": "授权成功"} if response.get('code') == 0 else {"code": -1, "msg": "未授权"}
+        resp = self._request("POST", "https://q.qq.com/qrcode/get", uin, uid, ticket, {"qrcode": qrcode})
+        if resp.get("code") == 500:
+            return {"code": 500, "msg": f"CURL错误：{resp.get('msg')}"}
+        return {"code": 0, "msg": "授权成功"} if resp.get('code') == 0 else {"code": -1, "msg": "未授权"}
     
-    def create_template_qr(self, uin: str = "", quid: str = "", ticket: str = "") -> Dict[str, Any]:
-        response = self._make_request("POST", "https://q.qq.com/qrcode/create", uin, quid, ticket, data={"type": 40, "miniAppId": ""},
-                                     extra_headers={"Host": "q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/qqbot/"})
-        if response.get("code") == 500:
-            return {"code": 500, "msg": response.get("msg")}
-        return response
+    def create_template_qr(self, uin="", quid="", ticket=""):
+        resp = self._request("POST", "https://q.qq.com/qrcode/create", uin, quid, ticket, {"type": 40, "miniAppId": ""}, {**_QQ_HEADERS, "Referer": "https://q.qq.com/qqbot/"})
+        return {"code": 500, "msg": resp.get("msg")} if resp.get("code") == 500 else resp
     
-    
-    def preview_template(self, bot_appid: str = "", template_data: Dict = None, uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+    def preview_template(self, bot_appid="", template_data=None, uin="", uid="", ticket=""):
         if not bot_appid or not template_data:
             return {"retcode": 400, "msg": "参数不完整"}
-        data = {"bot_appid": bot_appid, "info": template_data}
-        response = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/preview", uin, uid, ticket, data=data,
-                                     extra_headers={"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
-        if response.get("code") == 500:
-            return {"retcode": 500, "msg": response.get("msg")}
-        return response
+        resp = self._request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/preview", uin, uid, ticket, {"bot_appid": bot_appid, "info": template_data}, _BOT_HEADERS)
+        return {"retcode": 500, "msg": resp.get("msg")} if resp.get("code") == 500 else resp
     
-    def submit_template(self, bot_appid: str = "", template_data: Dict = None, qrcode: str = "", uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+    def submit_template(self, bot_appid="", template_data=None, qrcode="", uin="", uid="", ticket=""):
         if not all([bot_appid, template_data, qrcode]):
             return {"retcode": 400, "msg": "参数不完整"}
-        data = {"bot_appid": bot_appid, "info": template_data, "qrcode": qrcode}
-        response = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/create", uin, uid, ticket, data=data,
-                                     extra_headers={"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
-        if response.get("code") == 500:
-            return {"retcode": 500, "msg": response.get("msg")}
-        return response
+        resp = self._request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/create", uin, uid, ticket, {"bot_appid": bot_appid, "info": template_data, "qrcode": qrcode}, _BOT_HEADERS)
+        return {"retcode": 500, "msg": resp.get("msg")} if resp.get("code") == 500 else resp
     
-    def audit_templates(self, bot_appid: str = "", tpl_ids: list = None, qrcode: str = "", uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+    def audit_templates(self, bot_appid="", tpl_ids=None, qrcode="", uin="", uid="", ticket=""):
         if not all([bot_appid, tpl_ids, qrcode]):
             return {"retcode": 400, "msg": "参数不完整"}
-        data = {"bot_appid": int(bot_appid) if isinstance(bot_appid, str) else bot_appid, "tpl_id": tpl_ids, "qrcode": qrcode}
-        response = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/audit", uin, uid, ticket, data=data,
-                                     extra_headers={"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
-        if response.get("code") == 500:
-            return {"retcode": 500, "msg": response.get("msg")}
-        return response
+        resp = self._request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/audit", uin, uid, ticket,
+            {"bot_appid": int(bot_appid) if isinstance(bot_appid, str) else bot_appid, "tpl_id": tpl_ids, "qrcode": qrcode}, _BOT_HEADERS)
+        return {"retcode": 500, "msg": resp.get("msg")} if resp.get("code") == 500 else resp
     
-    def delete_templates(self, bot_appid: str = "", tpl_ids: list = None, qrcode: str = "", uin: str = "", uid: str = "", ticket: str = "") -> Dict[str, Any]:
+    def delete_templates(self, bot_appid="", tpl_ids=None, qrcode="", uin="", uid="", ticket=""):
         if not all([bot_appid, tpl_ids, qrcode]):
             return {"retcode": 400, "msg": "参数不完整"}
-        data = {"bot_appid": int(bot_appid) if isinstance(bot_appid, str) else bot_appid, "tpl_id": tpl_ids, "qrcode": qrcode}
-        response = self._make_request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/delete", uin, uid, ticket, data=data,
-                                     extra_headers={"Host": "bot.q.qq.com", "Origin": "https://q.qq.com", "Referer": "https://q.qq.com/"})
-        if response.get("code") == 500:
-            return {"retcode": 500, "msg": response.get("msg")}
-        return response
+        resp = self._request("POST", "https://bot.q.qq.com/cgi-bin/msg_tpl/delete", uin, uid, ticket,
+            {"bot_appid": int(bot_appid) if isinstance(bot_appid, str) else bot_appid, "tpl_id": tpl_ids, "qrcode": qrcode}, _BOT_HEADERS)
+        return {"retcode": 500, "msg": resp.get("msg")} if resp.get("code") == 500 else resp
 
-_bot_api_instance = None
+_api = None
 
-def get_bot_api() -> QQBotAPI:
-    global _bot_api_instance
-    if _bot_api_instance is None:
-        _bot_api_instance = QQBotAPI()
-    return _bot_api_instance
+def get_bot_api():
+    global _api
+    if _api is None:
+        _api = QQBotAPI()
+    return _api
 
-def get_message_templates(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().get_message_templates(**kwargs)
-
-def get_private_messages(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().get_private_messages(**kwargs)
-
-def get_bot_data(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().get_bot_data(**kwargs)
-
-def get_bot_list(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().get_bot_list(**kwargs)
-
-def create_login_qr(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().create_login_qr(**kwargs)
-
-def get_qr_login_info(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().get_qr_login_info(**kwargs)
-
-def get_white_list(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().get_white_list(**kwargs)
-
-def create_white_login_qr(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().create_white_login_qr(**kwargs)
-
-def update_white_list(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().update_white_list(**kwargs)
-
-def verify_qr_auth(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().verify_qr_auth(**kwargs)
-
-def create_template_qr(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().create_template_qr(**kwargs)
-
-def check_qr_auth(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().check_qr_auth(**kwargs)
-
-def preview_template(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().preview_template(**kwargs)
-
-def submit_template(**kwargs) -> Dict[str, Any]:
-    return get_bot_api().submit_template(**kwargs)
+get_message_templates = lambda **kw: get_bot_api().get_message_templates(**kw)
+get_private_messages = lambda **kw: get_bot_api().get_private_messages(**kw)
+get_bot_data = lambda **kw: get_bot_api().get_bot_data(**kw)
+get_bot_list = lambda **kw: get_bot_api().get_bot_list(**kw)
+create_login_qr = lambda **kw: get_bot_api().create_login_qr(**kw)
+get_qr_login_info = lambda **kw: get_bot_api().get_qr_login_info(**kw)
+get_white_list = lambda **kw: get_bot_api().get_white_list(**kw)
+create_white_login_qr = lambda **kw: get_bot_api().create_white_login_qr(**kw)
+update_white_list = lambda **kw: get_bot_api().update_white_list(**kw)
+verify_qr_auth = lambda **kw: get_bot_api().verify_qr_auth(**kw)
+create_template_qr = lambda **kw: get_bot_api().create_template_qr(**kw)
+preview_template = lambda **kw: get_bot_api().preview_template(**kw)
+submit_template = lambda **kw: get_bot_api().submit_template(**kw)
+audit_templates = lambda **kw: get_bot_api().audit_templates(**kw)
+delete_templates = lambda **kw: get_bot_api().delete_templates(**kw)

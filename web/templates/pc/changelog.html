@@ -1,144 +1,83 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
-<!-- 版本信息卡片 -->
-<div class="row mb-3">
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted mb-1">当前版本</h6>
-                        <h4 class="mb-0" id="current-version">
-                            <span class="spinner-border spinner-border-sm" role="status"></span>
-                            加载中...
-                        </h4>
-                        <small class="text-muted" id="version-update-time"></small>
-                    </div>
-                    <div class="text-end">
-                        <button class="btn btn-outline-primary btn-sm me-2" onclick="checkUpdate()">
-                            <i class="bi bi-search"></i> 检查更新
-                        </button>
-                        <button class="btn btn-success btn-sm" id="update-btn" onclick="startUpdate()" style="display: none;">
-                            <i class="bi bi-download"></i> 更新到最新版
-                        </button>
-                    </div>
+<div class="changelog-page">
+    <div class="changelog-header">
+        <div class="header-content">
+            <div class="header-title">
+                <div class="header-icon"><i class="bi bi-clock-history"></i></div>
+                <div>
+                    <h4>系统更新</h4>
+                    <p>版本管理与更新日志</p>
                 </div>
-                
-                <!-- 更新信息 -->
-                <div id="update-info" class="mt-3" style="display: none;">
-                    <div class="alert alert-info mb-0">
-                        <i class="bi bi-info-circle"></i>
-                        <span id="update-message"></span>
-                    </div>
-                </div>
-                
-                <!-- 更新进度 -->
-                <div id="update-progress" class="mt-3" style="display: none;">
-                    <div class="progress" style="height: 25px;">
-                        <div id="update-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
-                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                            0%
-                        </div>
-                    </div>
-                    <small class="text-muted mt-2 d-block" id="update-status">正在准备更新...</small>
-                </div>
+            </div>
+            <div class="header-actions">
+                <button class="action-btn" onclick="checkConfigDiff()"><i class="bi bi-gear-fill"></i> 检查配置</button>
+                <button class="action-btn" onclick="checkUpdate()"><i class="bi bi-search"></i> 检查更新</button>
+                <button class="action-btn primary" id="update-btn" onclick="startUpdate()" style="display: none;"><i class="bi bi-download"></i> 立即更新</button>
             </div>
         </div>
     </div>
-</div>
 
-<!-- 更新日志列表 -->
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">
-                        <i class="bi bi-list-ul"></i> 更新日志
-                    </h5>
-                    <button class="btn btn-primary btn-sm" onclick="refreshChangelog()">
-                        <i class="bi bi-arrow-clockwise"></i> 刷新
-                    </button>
+    <div id="config-diff-alert" class="config-alert" style="display: none;">
+        <div class="alert-content">
+            <div class="alert-info">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <div>
+                    <strong>发现配置项缺失</strong>
+                    <span id="config-diff-count"></span>
+                    <small>新版本新增了配置项，建议自动补全以避免启动失败</small>
                 </div>
             </div>
-            <div class="card-body">
-                <!-- 加载状态 -->
-                <div id="loading-container" class="text-center py-5">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">加载中...</span>
-                    </div>
-                    <p class="mt-3 text-muted">正在获取更新日志...</p>
-                </div>
+            <button class="fill-btn" onclick="autoFillConfig()"><i class="bi bi-magic"></i> 自动补全</button>
+        </div>
+    </div>
 
-                <!-- 错误提示 -->
-                <div id="error-container" class="alert alert-danger" style="display: none;">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    <span id="error-message">加载失败</span>
-                    <button class="btn btn-sm btn-outline-danger ms-2" onclick="refreshChangelog()">重试</button>
-                </div>
-
-                <!-- 更新日志内容 -->
-                <div id="changelog-container" style="display: none;">
-                    <div id="changelog-list" class="changelog-list">
-                        <!-- 动态内容将在这里生成 -->
-                    </div>
-                </div>
+    <div class="info-grid">
+        <div class="info-card version-card">
+            <div class="card-icon"><i class="bi bi-tag-fill"></i></div>
+            <div class="card-content">
+                <div class="card-label">当前版本</div>
+                <div class="card-value" id="current-version"><div class="spinner-sm"></div></div>
+                <div class="card-sub" id="version-update-time"></div>
+            </div>
+        </div>
+        <div class="info-card status-card" id="update-status-card">
+            <div class="card-icon"><i class="bi bi-check-circle-fill"></i></div>
+            <div class="card-content">
+                <div class="card-label">更新状态</div>
+                <div class="card-value" id="update-status-text">点击检查更新</div>
+                <div class="card-sub" id="latest-version-text"></div>
             </div>
         </div>
     </div>
+
+    <div id="update-progress-section" class="progress-section" style="display: none;">
+        <div class="progress-header">
+            <i class="bi bi-arrow-repeat spin"></i>
+            <span id="progress-stage">正在更新...</span>
+        </div>
+        <div class="progress-bar-wrapper">
+            <div class="progress-bar" id="update-progress-bar" style="width: 0%"></div>
+        </div>
+        <div class="progress-text" id="progress-message">准备中...</div>
+    </div>
+
+    <div class="changelog-section">
+        <div class="section-header">
+            <div class="section-title"><i class="bi bi-list-ul"></i> 更新日志</div>
+            <button class="refresh-btn" onclick="refreshChangelog()"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+        </div>
+        <div class="changelog-content">
+            <div id="loading-container" class="loading-state"><div class="spinner"></div><span>正在获取更新日志...</span></div>
+            <div id="error-container" class="error-state" style="display: none;"><i class="bi bi-exclamation-triangle"></i><span id="error-message">加载失败</span><button class="retry-btn" onclick="refreshChangelog()">重试</button></div>
+            <div id="changelog-container" class="changelog-list" style="display: none;"></div>
+        </div>
+    </div>
 </div>
+{% endblock %}
 
-<style>
-.changelog-list {
-    max-height: 600px;
-    overflow-y: auto;
-}
-
-.commit-item {
-    border-left: 3px solid #dee2e6;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    background: #f8f9fa;
-    border-radius: 0 0.375rem 0.375rem 0;
-    transition: all 0.2s ease;
-}
-
-.commit-item:hover {
-    border-left-color: #4361ee;
-    background: #e7f1ff;
-}
-
-.commit-sha {
-    font-family: 'Courier New', monospace;
-    font-size: 0.9rem;
-    background: #e9ecef;
-    padding: 2px 6px;
-    border-radius: 3px;
-    color: #495057;
-}
-
-.commit-author {
-    color: #6c757d;
-    font-size: 0.9rem;
-}
-
-.commit-date {
-    color: #6c757d;
-    font-size: 0.85rem;
-}
-
-.commit-message {
-    font-weight: 500;
-    color: #212529;
-    margin: 0.5rem 0;
-}
-
-.commit-link {
-    font-size: 0.85rem;
-}
-</style>
-
+{% block scripts %}
 <script>
 let changelogData = [], latestVersion = null;
 const getToken = () => new URLSearchParams(window.location.search).get('token') || '';
@@ -146,187 +85,282 @@ const getToken = () => new URLSearchParams(window.location.search).get('token') 
 document.addEventListener('DOMContentLoaded', function() {
     loadChangelog();
     loadVersionInfo();
+    checkConfigDiff();
 });
 
 async function loadVersionInfo() {
     try {
-        const response = await fetch(`/web/api/update/version?token=${getToken()}`);
-        const result = await response.json();
+        const result = await (await fetch(`/web/api/update/version?token=${getToken()}`)).json();
         if (result.success) {
-            const versionInfo = result.data;
-            document.getElementById('current-version').innerHTML = `<span class="badge bg-primary">${versionInfo.version || 'unknown'}</span>`;
-            if (versionInfo.update_time && versionInfo.update_time !== 'unknown') {
-                document.getElementById('version-update-time').textContent = `更新时间: ${versionInfo.update_time}`;
+            const info = result.data;
+            document.getElementById('current-version').textContent = info.version || 'unknown';
+            if (info.update_time && info.update_time !== 'unknown') {
+                document.getElementById('version-update-time').textContent = `更新于 ${info.update_time}`;
             }
         }
-    } catch (error) {
-        document.getElementById('current-version').innerHTML = '<span class="badge bg-secondary">unknown</span>';
+    } catch (e) {
+        document.getElementById('current-version').textContent = 'unknown';
     }
 }
 
-
 async function checkUpdate() {
+    const statusCard = document.getElementById('update-status-card');
+    const statusText = document.getElementById('update-status-text');
+    const latestText = document.getElementById('latest-version-text');
     const updateBtn = document.getElementById('update-btn');
-    const updateInfo = document.getElementById('update-info');
-    const updateMessage = document.getElementById('update-message');
+    
+    statusCard.className = 'info-card status-card checking';
+    statusCard.querySelector('.card-icon i').className = 'bi bi-hourglass-split';
+    statusText.textContent = '正在检查...';
+    latestText.textContent = '';
     updateBtn.style.display = 'none';
-    updateInfo.style.display = 'none';
+    
     try {
-        updateMessage.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>正在检查更新...';
-        updateInfo.style.display = 'block';
-        const response = await fetch(`/web/api/update/check?token=${getToken()}`);
-        const result = await response.json();
+        const result = await (await fetch(`/web/api/update/check?token=${getToken()}`)).json();
         if (result.success) {
-            const checkData = result.data;
-            if (checkData.has_update) {
-                latestVersion = checkData.latest_version;
-                updateMessage.innerHTML = `发现新版本: <strong>${checkData.latest_version}</strong> (当前: ${checkData.current_version})`;
-                updateBtn.style.display = 'inline-block';
+            const data = result.data;
+            if (data.has_update) {
+                latestVersion = data.latest_version;
+                statusCard.className = 'info-card status-card has-update';
+                statusCard.querySelector('.card-icon i').className = 'bi bi-arrow-up-circle-fill';
+                statusText.textContent = '发现新版本';
+                latestText.textContent = `最新: ${data.latest_version}`;
+                updateBtn.style.display = 'inline-flex';
             } else {
-                updateMessage.textContent = '当前已是最新版本';
-                updateInfo.querySelector('.alert').className = 'alert alert-success mb-0';
+                statusCard.className = 'info-card status-card up-to-date';
+                statusCard.querySelector('.card-icon i').className = 'bi bi-check-circle-fill';
+                statusText.textContent = '已是最新版本';
+                latestText.textContent = '';
             }
-        } else {
-            throw new Error(result.message || '检查更新失败');
-        }
-    } catch (error) {
-        updateMessage.textContent = '检查更新失败: ' + error.message;
-        updateInfo.querySelector('.alert').className = 'alert alert-danger mb-0';
+        } else throw new Error(result.message);
+    } catch (e) {
+        statusCard.className = 'info-card status-card error';
+        statusCard.querySelector('.card-icon i').className = 'bi bi-x-circle-fill';
+        statusText.textContent = '检查失败';
+        latestText.textContent = e.message;
     }
 }
 
 async function startUpdate() {
-    if (!confirm('确定要更新框架吗？\n\n更新前会自动备份当前版本，但更新过程中请不要关闭浏览器。')) return;
-    const updateBtn = document.getElementById('update-btn');
-    const updateInfo = document.getElementById('update-info');
-    const updateProgress = document.getElementById('update-progress');
-    updateBtn.style.display = 'none';
-    updateInfo.style.display = 'none';
-    updateProgress.style.display = 'block';
-    document.getElementById('update-status').textContent = '正在准备更新...';
+    if (!confirm('确定要更新框架吗？\n\n更新前会自动备份当前版本。')) return;
+    
+    document.getElementById('update-btn').style.display = 'none';
+    document.getElementById('update-progress-section').style.display = 'block';
+    
     try {
-        const response = await fetch(`/web/api/update/start?token=${getToken()}`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        });
-        const result = await response.json();
-        if (result.success) {
-            document.getElementById('update-status').textContent = '更新已开始...';
-            pollUpdateProgress();
-        } else {
-            throw new Error(result.message || '启动更新失败');
-        }
-    } catch (error) {
-        updateProgress.style.display = 'none';
-        updateInfo.style.display = 'block';
-        document.getElementById('update-message').textContent = '更新失败: ' + error.message;
-        updateInfo.querySelector('.alert').className = 'alert alert-danger mb-0';
+        const result = await (await fetch(`/web/api/update/start?token=${getToken()}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })).json();
+        if (result.success) pollUpdateProgress();
+        else throw new Error(result.message);
+    } catch (e) {
+        document.getElementById('progress-stage').textContent = '更新失败';
+        document.getElementById('progress-message').textContent = e.message;
     }
 }
 
 let pollInterval = null;
 async function pollUpdateProgress() {
     if (pollInterval) clearInterval(pollInterval);
-    const progressBar = document.getElementById('update-progress-bar');
-    const statusText = document.getElementById('update-status');
-    const updateProgress = document.getElementById('update-progress');
-    const updateInfo = document.getElementById('update-info');
     pollInterval = setInterval(async () => {
         try {
-            const response = await fetch(`/web/api/update/progress?token=${getToken()}`);
-            const result = await response.json();
+            const result = await (await fetch(`/web/api/update/progress?token=${getToken()}`)).json();
             if (result.success && result.data) {
                 const data = result.data;
-                if (data.progress !== undefined) {
-                    progressBar.style.width = data.progress + '%';
-                    progressBar.setAttribute('aria-valuenow', data.progress);
-                    progressBar.textContent = Math.round(data.progress) + '%';
-                }
-                if (data.message) statusText.textContent = data.message;
-                if (data.stage === 'failed') {
-                    progressBar.className = 'progress-bar bg-danger';
+                document.getElementById('update-progress-bar').style.width = data.progress + '%';
+                document.getElementById('progress-message').textContent = data.message || '';
+                
+                if (data.stage === 'completed') {
                     clearInterval(pollInterval);
-                    pollInterval = null;
-                    updateProgress.style.display = 'none';
-                    updateInfo.style.display = 'block';
-                    document.getElementById('update-message').innerHTML = `<strong>更新失败</strong><br>${data.message || '未知错误'}`;
-                    updateInfo.querySelector('.alert').className = 'alert alert-danger mb-0';
-                } else if (data.stage === 'completed') {
-                    progressBar.className = 'progress-bar bg-success';
-                    clearInterval(pollInterval);
-                    pollInterval = null;
-                    updateProgress.style.display = 'none';
-                    updateInfo.style.display = 'block';
-                    document.getElementById('update-message').innerHTML = `<strong>更新成功！</strong><br>${data.message || ''}<br><small>更新后需要重启框架才能生效</small>`;
-                    updateInfo.querySelector('.alert').className = 'alert alert-success mb-0';
+                    document.getElementById('progress-stage').textContent = '更新完成';
+                    document.getElementById('update-progress-section').className = 'progress-section completed';
                     setTimeout(() => loadVersionInfo(), 1000);
-                } else if (data.stage === 'preparing') {
-                    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-info';
-                } else if (data.is_updating) {
-                    progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+                    showToast('更新成功！重启框架后生效', 'success');
+                } else if (data.stage === 'failed') {
+                    clearInterval(pollInterval);
+                    document.getElementById('progress-stage').textContent = '更新失败';
+                    document.getElementById('update-progress-section').className = 'progress-section failed';
+                } else {
+                    const stages = { 'preparing': '准备更新', 'downloading': '下载中', 'backing_up': '备份中', 'updating': '更新中' };
+                    document.getElementById('progress-stage').textContent = stages[data.stage] || '更新中...';
                 }
             }
-        } catch (error) {
-            console.error('获取更新进度失败:', error);
-        }
+        } catch (e) {}
     }, 1000);
 }
 
+async function checkConfigDiff() {
+    try {
+        const result = await (await fetch(`/web/api/config/check_diff?token=${getToken()}`)).json();
+        if (result.success && result.has_diff) {
+            document.getElementById('config-diff-count').textContent = `(${result.total_missing} 项)`;
+            document.getElementById('config-diff-alert').style.display = 'block';
+        } else {
+            document.getElementById('config-diff-alert').style.display = 'none';
+        }
+    } catch (e) {}
+}
+
+async function autoFillConfig() {
+    if (!confirm('确定要自动补全缺失的配置项吗？\n\n原配置文件将备份为 config.py.backup')) return;
+    try {
+        const result = await (await fetch(`/web/api/config/auto_fill?token=${getToken()}`, { method: 'POST' })).json();
+        if (result.success) {
+            showToast(result.message, 'success');
+            document.getElementById('config-diff-alert').style.display = 'none';
+        } else throw new Error(result.message);
+    } catch (e) {
+        showToast('补全失败: ' + e.message, 'error');
+    }
+}
+
 async function loadChangelog() {
-    const loading = document.getElementById('loading-container');
-    const error = document.getElementById('error-container');
-    const changelog = document.getElementById('changelog-container');
-    loading.style.display = 'block';
-    error.style.display = 'none';
-    changelog.style.display = 'none';
+    document.getElementById('loading-container').style.display = 'flex';
+    document.getElementById('error-container').style.display = 'none';
+    document.getElementById('changelog-container').style.display = 'none';
     try {
         const result = await (await fetch(`/web/api/changelog?token=${getToken()}`)).json();
         if (result.success) {
             changelogData = result.data;
             renderChangelog();
-            loading.style.display = 'none';
-            changelog.style.display = 'block';
-        } else {
-            throw new Error(result.error || '获取更新日志失败');
-        }
-    } catch (error) {
-        loading.style.display = 'none';
-        error.style.display = 'block';
-        document.getElementById('error-message').textContent = error.message;
+            document.getElementById('loading-container').style.display = 'none';
+            document.getElementById('changelog-container').style.display = 'block';
+        } else throw new Error(result.message);
+    } catch (e) {
+        document.getElementById('loading-container').style.display = 'none';
+        document.getElementById('error-container').style.display = 'flex';
+        document.getElementById('error-message').textContent = e.message;
     }
 }
 
 function renderChangelog() {
-    const container = document.getElementById('changelog-list');
-    if (changelogData.length === 0) {
-        container.innerHTML = '<div class="text-center py-4 text-muted">没有提交记录</div>';
+    const container = document.getElementById('changelog-container');
+    if (!changelogData.length) {
+        container.innerHTML = '<div class="empty-state"><i class="bi bi-inbox"></i><p>暂无更新记录</p></div>';
         return;
     }
-    container.innerHTML = changelogData.map(commit => `
-        <div class="commit-item">
-            <div class="d-flex justify-content-between align-items-start mb-2">
-                <div class="d-flex align-items-center">
-                    <span class="commit-sha me-2">${commit.sha}</span>
-                    <span class="commit-author"><i class="bi bi-person"></i> ${commit.author}</span>
-                </div>
-                <div class="commit-date"><i class="bi bi-calendar3"></i> ${commit.date}</div>
+    container.innerHTML = changelogData.map((c, i) => `
+        <div class="commit-item ${i === 0 ? 'latest' : ''}">
+            <div class="commit-header">
+                <span class="commit-sha">${c.sha}</span>
+                ${i === 0 ? '<span class="latest-badge">最新</span>' : ''}
+                <span class="commit-date"><i class="bi bi-calendar3"></i> ${c.date}</span>
             </div>
-            <div class="commit-message">${escapeHtml(commit.message)}</div>
-            ${commit.url ? `<div class="mt-2"><a href="${commit.url}" target="_blank" class="commit-link text-decoration-none"><i class="bi bi-box-arrow-up-right"></i> 查看详情</a></div>` : ''}
+            <div class="commit-message">${escapeHtml(c.message)}</div>
+            <div class="commit-footer">
+                <span class="commit-author"><i class="bi bi-person"></i> ${c.author}</span>
+                ${c.url ? `<a href="${c.url}" target="_blank" class="commit-link"><i class="bi bi-box-arrow-up-right"></i> 查看</a>` : ''}
+            </div>
         </div>
     `).join('');
 }
 
-function refreshChangelog() {
-    loadChangelog();
-    loadVersionInfo();
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+function refreshChangelog() { loadChangelog(); loadVersionInfo(); }
+function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function showToast(msg, type = 'success') {
+    const toast = document.createElement('div');
+    toast.className = `toast-msg ${type}`;
+    toast.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-circle'}-fill"></i> ${msg}`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
 }
 </script>
+
+<style>
+.changelog-page { padding: 1rem; }
+
+.changelog-header {
+    background: var(--theme-gradient);
+    border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem;
+    box-shadow: 0 10px 30px rgba(88, 101, 242, 0.3);
+}
+.header-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.header-title { display: flex; align-items: center; gap: 1rem; color: #fff; }
+.header-icon { width: 56px; height: 56px; background: rgba(255,255,255,0.15); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+.header-title h4 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+.header-title p { margin: 4px 0 0; font-size: 0.85rem; opacity: 0.85; }
+.header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.action-btn { padding: 0.5rem 1rem; background: rgba(255,255,255,0.2); color: #fff; border: none; border-radius: 8px; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }
+.action-btn:hover { background: rgba(255,255,255,0.3); }
+.action-btn.primary { background: #fff; color: var(--primary-color); }
+.action-btn.primary:hover { background: #f0f0f0; }
+
+.config-alert {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #f59e0b; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem;
+}
+.alert-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.alert-info { display: flex; align-items: center; gap: 0.75rem; }
+.alert-info i { font-size: 1.5rem; color: #d97706; }
+.alert-info strong { display: block; color: #92400e; }
+.alert-info small { display: block; color: #b45309; font-size: 0.8rem; margin-top: 2px; }
+.alert-info span { color: #92400e; font-size: 0.85rem; }
+.fill-btn { padding: 0.5rem 1rem; background: #f59e0b; color: #fff; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; transition: all 0.2s; }
+.fill-btn:hover { background: #d97706; }
+
+.info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.info-card { background: #fff; border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: 0 4px 20px rgba(88, 101, 242, 0.1); }
+.card-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
+.version-card .card-icon { background: var(--theme-gradient); color: #fff; }
+.status-card .card-icon { background: #e0e7ff; color: var(--primary-color); }
+.status-card.checking .card-icon { background: #fef3c7; color: #f59e0b; }
+.status-card.has-update .card-icon { background: #dcfce7; color: #16a34a; }
+.status-card.up-to-date .card-icon { background: #d1fae5; color: #059669; }
+.status-card.error .card-icon { background: #fee2e2; color: #dc2626; }
+.card-content { flex: 1; }
+.card-label { font-size: 0.8rem; color: #999; margin-bottom: 4px; }
+.card-value { font-size: 1.1rem; font-weight: 600; color: #333; }
+.card-sub { font-size: 0.75rem; color: #999; margin-top: 2px; }
+
+.progress-section { background: #fff; border-radius: 16px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 4px 20px rgba(88, 101, 242, 0.1); }
+.progress-header { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; color: #333; margin-bottom: 1rem; }
+.progress-header .spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress-bar-wrapper { height: 8px; background: #e0e7ff; border-radius: 4px; overflow: hidden; margin-bottom: 0.5rem; }
+.progress-bar { height: 100%; background: var(--theme-gradient); border-radius: 4px; transition: width 0.3s; }
+.progress-text { font-size: 0.85rem; color: #666; }
+.progress-section.completed .progress-bar { background: #10b981; }
+.progress-section.completed .progress-header { color: #059669; }
+.progress-section.failed .progress-bar { background: #ef4444; }
+.progress-section.failed .progress-header { color: #dc2626; }
+
+.changelog-section { background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(88, 101, 242, 0.1); overflow: hidden; }
+.section-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid #f0f0f0; }
+.section-title { font-weight: 600; color: #333; display: flex; align-items: center; gap: 0.5rem; }
+.refresh-btn { padding: 0.4rem 0.75rem; background: #f5f7fa; border: none; border-radius: 6px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.3rem; color: #666; transition: all 0.2s; }
+.refresh-btn:hover { background: #e0e7ff; color: var(--primary-color); }
+.changelog-content { padding: 1rem 1.25rem; max-height: 500px; overflow-y: auto; }
+
+.loading-state, .error-state { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 2rem; color: #999; }
+.error-state { color: #ef4444; }
+.spinner { width: 32px; height: 32px; border: 3px solid #eee; border-top-color: var(--primary-color); border-radius: 50%; animation: spin 0.8s linear infinite; }
+.spinner-sm { width: 16px; height: 16px; border: 2px solid #eee; border-top-color: var(--primary-color); border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; }
+.retry-btn { padding: 0.4rem 0.75rem; background: var(--primary-color); color: #fff; border: none; border-radius: 6px; cursor: pointer; margin-top: 0.5rem; }
+.empty-state { text-align: center; padding: 2rem; color: #999; }
+.empty-state i { font-size: 2rem; opacity: 0.5; }
+
+.changelog-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.commit-item { background: #f8f9ff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 0.75rem 1rem; transition: all 0.2s; }
+.commit-item:hover { border-color: var(--primary-color); }
+.commit-item.latest { border-left: 3px solid var(--primary-color); background: linear-gradient(135deg, #f0f4ff 0%, #f8f9ff 100%); }
+.commit-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.commit-sha { font-family: 'Consolas', monospace; font-size: 0.8rem; background: #e0e7ff; color: var(--primary-color); padding: 2px 8px; border-radius: 4px; }
+.latest-badge { font-size: 0.7rem; background: var(--theme-gradient); color: #fff; padding: 2px 8px; border-radius: 10px; }
+.commit-date { font-size: 0.75rem; color: #999; margin-left: auto; }
+.commit-message { font-size: 0.9rem; color: #333; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.commit-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; }
+.commit-author { font-size: 0.75rem; color: #999; }
+.commit-link { font-size: 0.75rem; color: var(--primary-color); text-decoration: none; }
+.commit-link:hover { text-decoration: underline; }
+
+.toast-msg { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 0.75rem 1.25rem; border-radius: 8px; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; animation: slideIn 0.3s ease; }
+.toast-msg.success { background: #d1fae5; color: #059669; }
+.toast-msg.error { background: #fee2e2; color: #dc2626; }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+@media (max-width: 768px) {
+    .header-content { flex-direction: column; text-align: center; }
+    .header-title { flex-direction: column; }
+    .header-actions { justify-content: center; }
+    .info-grid { grid-template-columns: 1fr; }
+}
+</style>
 {% endblock %}

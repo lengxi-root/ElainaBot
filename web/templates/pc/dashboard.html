@@ -1,254 +1,111 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card robot-info-card">
-            <div class="card-body">
-                <div class="row align-items-center">
-                    <div class="col-auto">
-                        <img id="robot-avatar" src="" alt="机器人头像" class="robot-avatar" style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid #4361ee; object-fit: cover; display: none;">
-                    </div>
-                    <div class="col">
-                        <div class="robot-info">
-                            <h5 class="mb-1">
-                                <i class="bi bi-robot"></i> 
-                                <span id="robot-name">加载中...</span>
-                                <span class="badge bg-primary ms-2" id="connection-type">WebHook</span>
-                            </h5>
-                            <p class="text-muted mb-2" id="robot-desc">正在获取机器人信息...</p>
-                            <div class="d-flex align-items-center flex-wrap">
-                                <span class="me-3 mb-1">
-                                    <i class="bi bi-link-45deg"></i>
-                                    连接状态: <span class="badge" id="connection-status">检测中...</span>
-                                </span>
-                                <span class="me-3 mb-1">
-                                    <i class="bi bi-hash"></i>
-                                    QQ号: <span id="robot-qq">{{ ROBOT_QQ or 'N/A' }}</span>
-                                </span>
-                                <span class="me-3 mb-1">
-                                    <i class="bi bi-key"></i>
-                                    APPID: <span id="robot-appid">{{ appid or 'N/A' }}</span>
-                                </span>
-
-                                <span class="mb-1">
-                                    <i class="bi bi-box-arrow-up-right"></i>
-                                    <a href="#" id="robot-link" target="_blank" style="color: rgba(255,255,255,0.9);">机器人链接</a>
-                                    <button class="btn btn-sm btn-outline-light ms-2" onclick="showRobotQRCode()" title="显示二维码">
-                                        <i class="bi bi-qr-code"></i>
-                                    </button>
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-auto d-none d-md-block">
-                        <button class="btn btn-outline-light btn-sm" onclick="refreshRobotInfo()">
-                            <i class="bi bi-arrow-clockwise"></i> 刷新
-                        </button>
-                    </div>
-                </div>
+<!-- 机器人信息卡片 -->
+<div class="robot-card mb-4">
+    <div class="robot-card-bg"></div>
+    <div class="robot-card-content">
+        <div class="robot-avatar-wrapper">
+            <img id="robot-avatar" src="" alt="机器人头像" class="robot-avatar-img">
+            <div class="robot-status-dot" id="robot-status-dot"></div>
+        </div>
+        <div class="robot-info-wrapper">
+            <div class="robot-name-row">
+                <h4 id="robot-name" class="robot-name">加载中...</h4>
+                <span class="connection-badge" id="connection-type">WebHook</span>
+                <span class="status-badge" id="connection-status">检测中</span>
             </div>
+            <p id="robot-desc" class="robot-desc">正在获取机器人信息...</p>
+            <div class="robot-meta">
+                <span class="meta-item"><i class="bi bi-hash"></i><span id="robot-qq">{{ ROBOT_QQ or 'N/A' }}</span></span>
+                <span class="meta-item"><i class="bi bi-key"></i><span id="robot-appid">{{ appid or 'N/A' }}</span></span>
+                <a href="#" id="robot-link" target="_blank" class="meta-item meta-link"><i class="bi bi-box-arrow-up-right"></i>机器人主页</a>
+                <button class="qr-btn" onclick="showRobotQRCode()" title="显示二维码"><i class="bi bi-qr-code"></i></button>
+            </div>
+        </div>
+        <button class="refresh-btn" onclick="refreshRobotInfo()"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+</div>
+
+<!-- 系统监控卡片 -->
+<div class="monitor-grid mb-4">
+    <div class="monitor-card monitor-cpu">
+        <div class="monitor-icon"><i class="bi bi-cpu"></i></div>
+        <div class="monitor-content">
+            <div class="monitor-label">CPU 使用率</div>
+            <div class="monitor-value" id="cpu-text">0%</div>
+            <div class="monitor-sub">框架 <span id="framework-cpu">0%</span></div>
+            <div class="monitor-bar"><div class="monitor-bar-fill" id="cpu-progress"></div></div>
+        </div>
+    </div>
+    <div class="monitor-card monitor-memory">
+        <div class="monitor-icon"><i class="bi bi-memory"></i></div>
+        <div class="monitor-content">
+            <div class="monitor-label">内存使用</div>
+            <div class="monitor-value" id="total-memory">0 MB</div>
+            <div class="monitor-sub">框架 <span id="framework-memory-total">0 MB</span></div>
+            <div class="monitor-bar"><div class="monitor-bar-fill" id="total-memory-progress"></div></div>
+        </div>
+    </div>
+    <div class="monitor-card monitor-disk">
+        <div class="monitor-icon"><i class="bi bi-hdd"></i></div>
+        <div class="monitor-content">
+            <div class="monitor-label">磁盘空间</div>
+            <div class="monitor-value" id="disk-used">0 GB</div>
+            <div class="monitor-sub">框架 <span id="framework-disk">0 GB</span></div>
+            <div class="monitor-bar"><div class="monitor-bar-fill" id="disk-progress"></div></div>
         </div>
     </div>
 </div>
 
-<div class="row mb-4 g-3">
-    <div class="col-md-4">
-        <div class="compact-stat-card bg-white shadow-sm border-0">
-            <div class="card-body p-3">
-                <div class="d-flex align-items-center">
-                    <div class="stat-icon-box bg-primary bg-opacity-10 rounded-circle p-3 me-3">
-                        <i class="bi bi-cpu text-primary fs-4"></i>
-                    </div>
-                    <div class="flex-grow-1">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <small class="text-muted">CPU使用率</small>
-                            <span class="badge bg-primary bg-opacity-10 text-primary" style="font-size: 0.7rem;">实时</span>
-                        </div>
-                        <h4 class="mb-0 fw-bold text-dark" id="cpu-text">0%</h4>
-                        <small class="text-muted">框架: <span id="framework-cpu" class="text-primary fw-semibold">0%</span></small>
-                        <div class="progress mt-2" style="height: 4px; background: #f0f0f0;">
-                            <div id="cpu-progress" class="progress-bar bg-primary" role="progressbar" style="width: 0%"></div>
-                        </div>
-                    </div>
-                </div>
+<!-- 详细信息区域 -->
+<div class="info-grid">
+    <div class="info-card">
+        <div class="info-card-header"><i class="bi bi-server"></i>服务器信息</div>
+        <div class="info-card-body">
+            <div class="info-row">
+                <div class="info-item full"><i class="bi bi-cpu-fill"></i><span class="info-label">CPU型号</span><span class="info-value" id="cpu-model">加载中...</span></div>
+            </div>
+            <div class="info-row">
+                <div class="info-item"><i class="bi bi-diagram-3"></i><span class="info-label">核心数</span><span class="info-value" id="cpu-cores">0</span></div>
+                <div class="info-item"><i class="bi bi-hdd-stack"></i><span class="info-label">磁盘总量</span><span class="info-value" id="disk-total">0 GB</span></div>
+            </div>
+            <div class="info-row">
+                <div class="info-item"><i class="bi bi-memory"></i><span class="info-label">内存总量</span><span class="info-value" id="total-system-memory">0 GB</span></div>
+                <div class="info-item"><i class="bi bi-pie-chart"></i><span class="info-label">已用内存</span><span class="info-value" id="used-system-memory">0 GB</span></div>
+            </div>
+            <div class="info-row">
+                <div class="info-item"><i class="bi bi-calendar-check"></i><span class="info-label">开机时间</span><span class="info-value" id="boot-time">未知</span></div>
+                <div class="info-item"><i class="bi bi-clock-history"></i><span class="info-label">运行时长</span><span class="info-value" id="system-uptime">0天 0小时</span></div>
+            </div>
+            <div class="info-row">
+                <div class="info-item full"><i class="bi bi-windows"></i><span class="info-label">系统版本</span><span class="info-value" id="system-version">未知</span></div>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="compact-stat-card bg-white shadow-sm border-0">
-            <div class="card-body p-3">
-                <div class="d-flex align-items-center">
-                    <div class="stat-icon-box bg-warning bg-opacity-10 rounded-circle p-3 me-3">
-                        <i class="bi bi-hdd-rack text-warning fs-4"></i>
-                    </div>
-                    <div class="flex-grow-1">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <small class="text-muted">总内存使用</small>
-                            <span class="badge bg-warning bg-opacity-10 text-warning" style="font-size: 0.7rem;">实时</span>
-                        </div>
-                        <h4 class="mb-0 fw-bold text-dark" id="total-memory">0 MB</h4>
-                        <small class="text-muted">框架: <span id="framework-memory-total" class="text-warning fw-semibold">0 MB</span></small>
-                        <div class="progress mt-2" style="height: 4px; background: #f0f0f0;">
-                            <div id="total-memory-progress" class="progress-bar bg-warning" role="progressbar" style="width: 0%"></div>
-                        </div>
-                    </div>
+    <div class="info-card">
+        <div class="info-card-header"><i class="bi bi-bar-chart"></i>框架状态</div>
+        <div class="info-card-body">
+            <div class="framework-stats">
+                <div class="fw-stat-card primary">
+                    <i class="bi bi-calendar-event"></i>
+                    <div class="fw-stat-label">启动时间</div>
+                    <div class="fw-stat-value" id="framework-boot-time">未知</div>
                 </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="compact-stat-card bg-white shadow-sm border-0">
-            <div class="card-body p-3">
-                <div class="d-flex align-items-center">
-                    <div class="stat-icon-box bg-info bg-opacity-10 rounded-circle p-3 me-3">
-                        <i class="bi bi-hdd-fill text-info fs-4"></i>
-                    </div>
-                    <div class="flex-grow-1">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <small class="text-muted">硬盘空间</small>
-                            <span class="badge bg-info bg-opacity-10 text-info" style="font-size: 0.7rem;">实时</span>
-                        </div>
-                        <h4 class="mb-0 fw-bold text-dark" id="disk-used">0 GB</h4>
-                        <small class="text-muted">框架: <span id="framework-disk" class="text-info fw-semibold">0 GB</span></small>
-                        <div class="progress mt-2" style="height: 4px; background: #f0f0f0;">
-                            <div id="disk-progress" class="progress-bar bg-info" role="progressbar" style="width: 0%"></div>
-                        </div>
-                    </div>
+                <div class="fw-stat-card success">
+                    <i class="bi bi-hourglass-split"></i>
+                    <div class="fw-stat-label">运行时长</div>
+                    <div class="fw-stat-value" id="framework-uptime">0天 0小时</div>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row mb-4">
-    <div class="col-md-6">
-        <div class="card h-100 border-0 shadow-sm">
-            <div class="card-header bg-gradient-primary text-white border-0">
-                <h6 class="mb-0"><i class="bi bi-server me-2"></i>服务器信息</h6>
-            </div>
-            <div class="card-body p-4">
-                <div class="row g-3">
-                    <div class="col-6">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-cpu-fill text-primary fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">CPU型号</small>
-                                <span id="cpu-model" class="fw-bold" style="font-size: 0.85rem;">加载中...</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-cpu text-primary fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">内核数</small>
-                                <span id="cpu-cores" class="fw-bold">0</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-hdd-stack text-secondary fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">硬盘总量</small>
-                                <span id="disk-total" class="fw-bold">0 GB</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-hdd-fill text-info fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">已用空间</small>
-                                <span id="disk-used" class="fw-bold">0 GB</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-memory text-success fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">内存总量</small>
-                                <span id="total-system-memory" class="fw-bold">0 GB</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-pie-chart-fill text-success fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">已用内存</small>
-                                <span id="used-system-memory" class="fw-bold">0 GB</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-calendar-check text-danger fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">开机时间</small>
-                                <span id="boot-time" class="fw-bold" style="font-size: 0.85rem;">未知</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-clock-history text-primary fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">运行时间</small>
-                                <span id="system-uptime" class="fw-bold">0天 0小时</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <div class="info-item p-3 bg-light rounded">
-                            <i class="bi bi-info-circle text-success fs-5 me-2"></i>
-                            <div class="d-inline-block">
-                                <small class="text-muted d-block">系统版本</small>
-                                <span id="system-version" class="fw-bold" style="font-size: 0.85rem;">未知</span>
-                            </div>
-                        </div>
-                    </div>
+                <div class="fw-stat-card warning">
+                    <i class="bi bi-recycle"></i>
+                    <div class="fw-stat-label">GC计数</div>
+                    <div class="fw-stat-value" id="gc-count">0/0/0</div>
                 </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card h-100 border-0 shadow-sm">
-            <div class="card-header bg-gradient-success text-white border-0">
-                <h6 class="mb-0"><i class="bi bi-bar-chart-fill me-2"></i>框架数据</h6>
-            </div>
-            <div class="card-body p-4">
-                <div class="row g-3">
-                    <div class="col-12">
-                        <div class="stat-card p-4 rounded-3 text-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                            <i class="bi bi-calendar-check text-white fs-2 mb-2"></i>
-                            <div class="text-white-50 small mb-1">开机时间</div>
-                            <div id="framework-boot-time" class="text-white fw-bold fs-5">未知</div>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <div class="stat-card p-4 rounded-3 text-center" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                            <i class="bi bi-clock-history text-white fs-2 mb-2"></i>
-                            <div class="text-white-50 small mb-1">运行时间</div>
-                            <div id="framework-uptime" class="text-white fw-bold fs-5">0天 0小时</div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="stat-card p-3 bg-warning bg-opacity-10 rounded-3 text-center border border-warning border-opacity-25">
-                            <i class="bi bi-recycle text-warning fs-3 mb-2"></i>
-                            <div class="text-muted small mb-1">GC计数</div>
-                            <div id="gc-count" class="fw-bold text-dark">0/0/0</div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="stat-card p-3 bg-danger bg-opacity-10 rounded-3 text-center border border-danger border-opacity-25">
-                            <i class="bi bi-boxes text-danger fs-3 mb-2"></i>
-                            <div class="text-muted small mb-1">对象数</div>
-                            <div id="objects-count" class="fw-bold text-dark">0</div>
-                        </div>
-                    </div>
+                <div class="fw-stat-card danger">
+                    <i class="bi bi-boxes"></i>
+                    <div class="fw-stat-label">对象数量</div>
+                    <div class="fw-stat-value" id="objects-count">0</div>
                 </div>
             </div>
         </div>
@@ -256,244 +113,307 @@
 </div>
 {% endblock %}
 
-{% block styles %}
+{% block extra_styles %}
 <style>
-.compact-stat-card {
+/* 监控卡片网格 */
+.monitor-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+.monitor-card {
+    background: #fff;
     border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
     transition: all 0.3s ease;
+    border: 1px solid #e2e8f0;
 }
 
-.compact-stat-card:hover {
+.monitor-card:hover {
     transform: translateY(-4px);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
 }
 
-.stat-icon-box {
-    width: 56px;
-    height: 56px;
+.monitor-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-size: 1.5rem;
     flex-shrink: 0;
-    transition: all 0.3s ease;
+    transition: transform 0.3s;
 }
 
-.compact-stat-card:hover .stat-icon-box {
-    transform: scale(1.1) rotate(5deg);
+.monitor-card:hover .monitor-icon { transform: scale(1.1) rotate(5deg); }
+
+.monitor-cpu .monitor-icon { background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%); color: #fff; }
+.monitor-memory .monitor-icon { background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #fff; }
+.monitor-disk .monitor-icon { background: linear-gradient(135deg, #22d3ee 0%, #06b6d4 100%); color: #fff; }
+
+.monitor-content { flex: 1; min-width: 0; }
+.monitor-label { font-size: 0.8rem; color: #64748b; margin-bottom: 4px; }
+.monitor-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; line-height: 1.2; }
+.monitor-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 2px; }
+.monitor-sub span { font-weight: 600; }
+
+.monitor-cpu .monitor-sub span { color: #6366f1; }
+.monitor-memory .monitor-sub span { color: #f59e0b; }
+.monitor-disk .monitor-sub span { color: #06b6d4; }
+
+.monitor-bar {
+    height: 4px;
+    background: #e2e8f0;
+    border-radius: 2px;
+    margin-top: 12px;
+    overflow: hidden;
 }
 
-.progress-bar {
+.monitor-bar-fill {
+    height: 100%;
     border-radius: 2px;
     transition: width 0.6s ease;
+    width: 0%;
 }
+
+.monitor-cpu .monitor-bar-fill { background: linear-gradient(90deg, #818cf8, #6366f1); }
+.monitor-memory .monitor-bar-fill { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+.monitor-disk .monitor-bar-fill { background: linear-gradient(90deg, #22d3ee, #06b6d4); }
+
+/* 机器人卡片增强 */
+.robot-card {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--gradient-primary);
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+}
+
+.robot-card-bg {
+    position: absolute;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.robot-card-content {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 24px;
+}
+
+.robot-avatar-wrapper { position: relative; flex-shrink: 0; }
+
+.robot-avatar-img {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.3);
+    object-fit: cover;
+    background: rgba(255,255,255,0.1);
+    display: none;
+}
+
+.robot-status-dot {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fbbf24;
+    border: 3px solid var(--secondary-color);
+    animation: pulse-dot 2s infinite;
+}
+
+.robot-status-dot.online { background: #10b981; }
+.robot-status-dot.offline { background: #ef4444; animation: none; }
+
+@keyframes pulse-dot {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.8; }
+}
+
+.robot-info-wrapper { flex: 1; min-width: 0; color: #fff; }
+
+.robot-name-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.robot-name { margin: 0; font-size: 1.25rem; font-weight: 600; color: #fff; }
+
+.connection-badge, .status-badge {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.connection-badge { background: rgba(255,255,255,0.2); color: #fff; }
+.status-badge { background: rgba(251,191,36,0.3); color: #fef3c7; }
+.status-badge.online { background: rgba(16,185,129,0.3); color: #d1fae5; }
+
+.robot-desc {
+    margin: 0 0 12px;
+    font-size: 0.875rem;
+    color: rgba(255,255,255,0.8);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.robot-meta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.meta-item { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: rgba(255,255,255,0.9); }
+.meta-item i { font-size: 0.9rem; }
+.meta-link { text-decoration: none; }
+.meta-link:hover { color: #fff; text-decoration: underline; }
+
+.qr-btn {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.qr-btn:hover { background: rgba(255,255,255,0.25); }
+
+.refresh-btn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: rgba(255,255,255,0.15);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.refresh-btn:hover { background: rgba(255,255,255,0.25); transform: rotate(180deg); }
+
+/* 信息卡片网格 */
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.info-card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+}
+
+.info-card-header {
+    padding: 16px 20px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #fff;
+}
+
+.info-card:first-child .info-card-header { background: var(--gradient-primary); }
+.info-card:last-child .info-card-header { background: var(--gradient-primary); }
+
+.info-card-body { padding: 16px; }
+
+.info-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.info-row:last-child { margin-bottom: 0; }
 
 .info-item {
-    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: 10px;
+    transition: all 0.2s;
 }
 
-.info-item:hover {
-    background-color: #e9ecef !important;
-    transform: scale(1.02);
+.info-item:hover { background: #e2e8f0; }
+.info-item.full { grid-column: span 2; }
+.info-item i { font-size: 1.1rem; color: #6366f1; flex-shrink: 0; }
+.info-label { font-size: 0.75rem; color: #64748b; }
+.info-value { font-size: 0.85rem; font-weight: 600; color: #1e293b; margin-left: auto; text-align: right; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.info-item.full .info-value { max-width: 70%; }
+
+/* 框架状态卡片 */
+.framework-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
 }
 
-.stat-card {
-    transition: all 0.3s ease;
+.fw-stat-card {
+    padding: 16px;
+    border-radius: 12px;
+    text-align: center;
+    transition: all 0.3s;
+    background: var(--gradient-light);
 }
 
-.stat-card:hover {
-    transform: scale(1.05);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+.fw-stat-card:hover { transform: scale(1.03); }
+.fw-stat-card i { font-size: 1.5rem; margin-bottom: 8px; display: block; color: var(--primary-color); }
+.fw-stat-label { font-size: 0.75rem; color: #64748b; margin-bottom: 4px; }
+.fw-stat-value { font-size: 0.95rem; font-weight: 700; color: var(--primary-color); }
+
+.fw-stat-card.primary { background: var(--gradient-light); }
+.fw-stat-card.primary i, .fw-stat-card.primary .fw-stat-value { color: var(--primary-color); }
+
+.fw-stat-card.success { background: var(--gradient-light); }
+.fw-stat-card.success i, .fw-stat-card.success .fw-stat-value { color: var(--primary-color); }
+
+.fw-stat-card.warning { background: var(--gradient-light); }
+.fw-stat-card.warning i, .fw-stat-card.warning .fw-stat-value { color: var(--primary-color); }
+
+.fw-stat-card.danger { background: var(--gradient-light); }
+.fw-stat-card.danger i, .fw-stat-card.danger .fw-stat-value { color: var(--primary-color); }
+
+/* 响应式 */
+@media (max-width: 992px) {
+    .monitor-grid { grid-template-columns: 1fr; }
+    .info-grid { grid-template-columns: 1fr; }
 }
 
-.card-header {
-    font-weight: 600;
-}
-
-.bg-gradient-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.bg-gradient-success {
-    background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
-}
-
-/* 移动端适配 */
 @media (max-width: 768px) {
-    .compact-stat-card h4 { 
-        font-size: 1.1rem; 
-    }
-    
-    .compact-stat-card small {
-        font-size: 0.75rem;
-    }
-    
-    .stat-icon-box { 
-        width: 48px; 
-        height: 48px; 
-    }
-    
-    .stat-icon-box i { 
-        font-size: 1.1rem !important; 
-    }
-    
-    .compact-stat-card:hover {
-        transform: none;
-    }
-    
-    /* 机器人信息卡片 - 移动端优化布局 */
-    .robot-info-card .row {
-        flex-direction: row !important;
-        align-items: flex-start;
-    }
-    
-    .robot-info-card .col-auto {
-        flex: 0 0 auto;
-        padding-right: 12px;
-    }
-    
-    .robot-info-card .col {
-        flex: 1 1 auto;
-        min-width: 0;
-    }
-    
-    .robot-avatar {
-        width: 60px !important;
-        height: 60px !important;
-        display: block !important;
-    }
-    
-    .robot-info h5 {
-        font-size: 0.95rem;
-        line-height: 1.3;
-        margin-bottom: 0.4rem !important;
-        word-break: break-word;
-    }
-    
-    .robot-info p {
-        font-size: 0.8rem;
-        margin-bottom: 0.6rem !important;
-        line-height: 1.4;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    .robot-info .d-flex {
-        flex-direction: column;
-        align-items: flex-start !important;
-        gap: 6px;
-    }
-    
-    .robot-info span {
-        font-size: 0.75rem;
-        line-height: 1.3;
-    }
-    
-    .robot-info .badge {
-        font-size: 0.7rem;
-        padding: 2px 6px;
-    }
-    
-    .robot-info .btn-sm {
-        font-size: 0.7rem;
-        padding: 0.2rem 0.5rem;
-    }
-    
-    .info-item {
-        padding: 0.6rem !important;
-    }
-    
-    .info-item i {
-        font-size: 1rem !important;
-    }
-    
-    .info-item small {
-        font-size: 0.7rem;
-    }
-    
-    .info-item span {
-        font-size: 0.8rem;
-    }
-    
-    .stat-card {
-        padding: 0.8rem !important;
-    }
-    
-    .stat-card i {
-        font-size: 1.5rem !important;
-    }
-    
-    .stat-card .small {
-        font-size: 0.7rem !important;
-    }
-    
-    .stat-card:hover {
-        transform: none;
-    }
-}
-
-@media (max-width: 576px) {
-    .compact-stat-card h4 { 
-        font-size: 1rem; 
-    }
-    
-    .compact-stat-card .card-body {
-        padding: 0.75rem !important;
-    }
-    
-    .stat-icon-box { 
-        width: 42px; 
-        height: 42px; 
-    }
-    
-    .stat-icon-box i { 
-        font-size: 1rem !important; 
-    }
-    
-    .robot-avatar {
-        width: 55px !important;
-        height: 55px !important;
-    }
-    
-    .robot-info h5 {
-        font-size: 0.85rem;
-    }
-    
-    .robot-info h5 .badge {
-        display: block;
-        margin-top: 4px;
-        margin-left: 0 !important;
-    }
-    
-    .robot-info p {
-        font-size: 0.75rem;
-        margin-bottom: 0.5rem !important;
-        -webkit-line-clamp: 2;
-    }
-    
-    .robot-info span {
-        font-size: 0.7rem;
-    }
-    
-    .robot-info-card .card-body {
-        padding: 0.75rem !important;
-    }
-    
-    .info-item {
-        padding: 0.5rem !important;
-        margin-bottom: 0.5rem;
-    }
-    
-    .info-item .d-inline-block {
-        display: block !important;
-        margin-top: 4px;
-    }
-    
-    .card-header h6 {
-        font-size: 0.9rem;
-    }
+    .robot-card-content { flex-direction: column; text-align: center; padding: 20px; }
+    .robot-avatar-img { width: 64px; height: 64px; }
+    .robot-name-row { justify-content: center; }
+    .robot-meta { justify-content: center; }
+    .refresh-btn { top: 12px; right: 12px; padding: 6px 10px; }
+    .monitor-card { padding: 16px; }
+    .monitor-icon { width: 44px; height: 44px; font-size: 1.2rem; }
+    .monitor-value { font-size: 1.25rem; }
+    .info-row { grid-template-columns: 1fr; }
+    .info-item.full { grid-column: span 1; }
+    .framework-stats { grid-template-columns: 1fr; }
 }
 </style>
 {% endblock %}
@@ -504,5 +424,23 @@ document.addEventListener('DOMContentLoaded', () => {
     loadRobotInfo();
     initSocket('dashboard');
 });
+
+// 更新连接状态样式
+function updateConnectionStatus(status) {
+    const statusBadge = document.getElementById('connection-status');
+    const statusDot = document.getElementById('robot-status-dot');
+    
+    if (status === '连接成功' || status === 'WebHook') {
+        statusBadge.textContent = '在线';
+        statusBadge.classList.add('online');
+        statusDot.classList.add('online');
+        statusDot.classList.remove('offline');
+    } else {
+        statusBadge.textContent = '离线';
+        statusBadge.classList.remove('online');
+        statusDot.classList.add('offline');
+        statusDot.classList.remove('online');
+    }
+}
 </script>
 {% endblock %}

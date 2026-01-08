@@ -6,124 +6,65 @@ appid = None
 WEBSOCKET_CONFIG = None
 get_websocket_status = None
 
+_API_URL = "https://qun.qq.com/qunpro/robot/proxy/domain/qun.qq.com/cgi-bin/group_pro/robot/manager/share_info?bkn=508459323&robot_appid={}"
+_QR_API = "https://api.2dcode.biz/v1/create-qr-code?data={}"
+_SHARE_URL = "https://qun.qq.com/qunpro/robot/qunshare?robot_uin={}"
+_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 15; PJX110 Build/UKQ1.231108.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/135.0.7049.111 Mobile Safari/537.36 V1_AND_SQ_9.1.75_10026_HDBM_T PA QQ/9.1.75.25965 NetType/WIFI WebP/0.4.1 AppId/537287845 Pixel/1080 StatusBarHeight/120 SimpleUISwitch/0 QQTheme/1000 StudyMode/0 CurrentMode/0 CurrentFontScale/0.87 GlobalDensityScale/0.9028571 AllowLandscape/false InMagicWin/0',
+    'qname-service': '976321:131072', 'qname-space': 'Production'
+}
+
 def set_config(robot_qq, app_id, websocket_config, ws_status_func):
     global ROBOT_QQ, appid, WEBSOCKET_CONFIG, get_websocket_status
-    ROBOT_QQ = robot_qq
-    appid = app_id
-    WEBSOCKET_CONFIG = websocket_config
-    get_websocket_status = ws_status_func
+    ROBOT_QQ, appid, WEBSOCKET_CONFIG, get_websocket_status = robot_qq, app_id, websocket_config, ws_status_func
+
+def _get_connection_info():
+    is_ws = WEBSOCKET_CONFIG.get('enabled', False)
+    return ('WebSocket', get_websocket_status()) if is_ws else ('WebHook', 'WebHook')
 
 def handle_get_robot_info():
+    share_url = _SHARE_URL.format(ROBOT_QQ)
+    conn_type, conn_status = _get_connection_info()
+    
     try:
-        robot_share_url = f"https://qun.qq.com/qunpro/robot/qunshare?robot_uin={ROBOT_QQ}"
-        is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
+        resp = requests.get(_API_URL.format(appid), headers=_HEADERS, timeout=10)
+        resp.raise_for_status()
+        api_resp = resp.json()
         
-        if is_websocket:
-            connection_type = 'WebSocket'
-            connection_status = get_websocket_status()
-        else:
-            connection_type = 'WebHook'
-            connection_status = 'WebHook'
+        if api_resp.get('retcode') != 0:
+            raise Exception(f"API返回错误: {api_resp.get('msg', 'Unknown error')}")
         
-        response = requests.get(
-            f"https://qun.qq.com/qunpro/robot/proxy/domain/qun.qq.com/cgi-bin/group_pro/robot/manager/share_info?bkn=508459323&robot_appid={appid}",
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 15; PJX110 Build/UKQ1.231108.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/135.0.7049.111 Mobile Safari/537.36 V1_AND_SQ_9.1.75_10026_HDBM_T PA QQ/9.1.75.25965 NetType/WIFI WebP/0.4.1 AppId/537287845 Pixel/1080 StatusBarHeight/120 SimpleUISwitch/0 QQTheme/1000 StudyMode/0 CurrentMode/0 CurrentFontScale/0.87 GlobalDensityScale/0.9028571 AllowLandscape/false InMagicWin/0',
-                'qname-service': '976321:131072',
-                'qname-space': 'Production'
-            },
-            timeout=10
-        )
-        response.raise_for_status()
-        api_response = response.json()
+        robot = api_resp.get('data', {}).get('robot_data', {})
+        commands = api_resp.get('data', {}).get('commands', [])
         
-        if api_response.get('retcode') != 0:
-            error_msg = api_response.get('msg', 'Unknown error')
-            raise Exception(f"API返回错误: {error_msg}")
-        
-        robot_data = api_response.get('data', {}).get('robot_data', {})
-        commands = api_response.get('data', {}).get('commands', [])
-        
-        avatar_url = robot_data.get('robot_avatar', '')
-        if avatar_url and 'myqcloud.com' in avatar_url:
-            if '?' in avatar_url:
-                avatar_url += '&imageMogr2/format/png'
-            else:
-                avatar_url += '?imageMogr2/format/png'
+        avatar = robot.get('robot_avatar', '')
+        if avatar and 'myqcloud.com' in avatar:
+            avatar += '&imageMogr2/format/png' if '?' in avatar else '?imageMogr2/format/png'
         
         return jsonify({
-            'success': True,
-            'qq': robot_data.get('robot_uin', ROBOT_QQ),
-            'name': robot_data.get('robot_name', '未知机器人'),
-            'description': robot_data.get('robot_desc', '暂无描述'),
-            'avatar': avatar_url,
-            'appid': robot_data.get('appid', appid),
-            'developer': robot_data.get('create_name', '未知'),
-            'link': robot_share_url,
-            'status': '正常' if robot_data.get('robot_offline', 1) == 0 else '离线',
-            'connection_type': connection_type,
-            'connection_status': connection_status,
-            'data_source': 'api',
-            'is_banned': robot_data.get('robot_ban', False),
-            'mute_status': robot_data.get('mute_status', 0),
-            'commands_count': len(commands),
-            'is_sharable': robot_data.get('is_sharable', False),
-            'service_note': robot_data.get('service_note', ''),
-            'qr_code_api': f'/web/api/robot_qrcode?url={robot_share_url}'
+            'success': True, 'qq': robot.get('robot_uin', ROBOT_QQ), 'name': robot.get('robot_name', '未知机器人'),
+            'description': robot.get('robot_desc', '暂无描述'), 'avatar': avatar, 'appid': robot.get('appid', appid),
+            'developer': robot.get('create_name', '未知'), 'link': share_url,
+            'status': '正常' if robot.get('robot_offline', 1) == 0 else '离线',
+            'connection_type': conn_type, 'connection_status': conn_status, 'data_source': 'api',
+            'is_banned': robot.get('robot_ban', False), 'mute_status': robot.get('mute_status', 0),
+            'commands_count': len(commands), 'is_sharable': robot.get('is_sharable', False),
+            'service_note': robot.get('service_note', ''), 'qr_code_api': f'/web/api/robot_qrcode?url={share_url}'
         })
-        
     except Exception as e:
-        robot_share_url = f"https://qun.qq.com/qunpro/robot/qunshare?robot_uin={ROBOT_QQ}"
-        is_websocket = WEBSOCKET_CONFIG.get('enabled', False)
-        
-        if is_websocket:
-            connection_type = 'WebSocket'
-            connection_status = get_websocket_status()
-        else:
-            connection_type = 'WebHook'
-            connection_status = 'WebHook'
-        
         return jsonify({
-            'success': False,
-            'error': str(e),
-            'qq': ROBOT_QQ,
-            'name': '加载失败',
-            'description': '无法获取机器人信息',
-            'avatar': '',
-            'appid': appid,
-            'developer': '未知',
-            'link': robot_share_url,
-            'status': '未知',
-            'connection_type': connection_type,
-            'connection_status': connection_status,
-            'data_source': 'fallback',
-            'qr_code_api': f'/web/api/robot_qrcode?url={robot_share_url}'
+            'success': False, 'error': str(e), 'qq': ROBOT_QQ, 'name': '加载失败',
+            'description': '无法获取机器人信息', 'avatar': '', 'appid': appid, 'developer': '未知',
+            'link': share_url, 'status': '未知', 'connection_type': conn_type, 'connection_status': conn_status,
+            'data_source': 'fallback', 'qr_code_api': f'/web/api/robot_qrcode?url={share_url}'
         })
 
 def handle_get_robot_qrcode():
-    url = request.args.get('url')
-    
-    if not url:
-        return jsonify({
-            'success': False,
-            'error': '缺少URL参数'
-        }), 400
-    
+    if not (url := request.args.get('url')):
+        return jsonify({'success': False, 'error': '缺少URL参数'}), 400
     try:
-        response = requests.get(
-            f"https://api.2dcode.biz/v1/create-qr-code?data={url}",
-            timeout=10
-        )
-        response.raise_for_status()
-        
-        return response.content, 200, {
-            'Content-Type': 'image/png',
-            'Cache-Control': 'public, max-age=3600'
-        }
-        
+        resp = requests.get(_QR_API.format(url), timeout=10)
+        resp.raise_for_status()
+        return resp.content, 200, {'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600'}
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
+        return jsonify({'success': False, 'error': str(e)}), 500

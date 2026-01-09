@@ -105,7 +105,19 @@ def get_today_dau_data(force_refresh=False, add_error_log=None):
 def complete_dau_data():
     try:
         dau, today = _get_dau_analytics(), datetime.now()
-        missing = [d for i in range(1, 31) if not dau.load_dau_data(d := today - timedelta(days=i))]
+        missing = []
+        for i in range(1, 31):
+            d = today - timedelta(days=i)
+            data = dau.load_dau_data(d)
+            # 如果没有数据，或者数据无效（total_messages 为 0 但 message_stats_detail 为空）
+            if not data:
+                missing.append(d)
+            elif data.get('message_stats', {}).get('total_messages', 0) == 0:
+                # 检查是否是空记录（只有事件统计，没有消息统计）
+                ms = data.get('message_stats', {})
+                if not ms.get('top_groups') and not ms.get('top_users'):
+                    missing.append(d)
+        
         if not missing:
             return {'generated_count': 0, 'failed_count': 0, 'total_missing': 0, 'generated_dates': [], 'failed_dates': [], 'message': '近30天DAU数据完整，无需补全'}
         
@@ -118,7 +130,7 @@ def complete_dau_data():
         
         return {'generated_count': len(gen), 'failed_count': len(fail), 'total_missing': len(missing),
                 'generated_dates': gen, 'failed_dates': fail,
-                'message': f'检测到{len(missing)}天的DAU数据缺失，成功生成{len(gen)}天，失败{len(fail)}天'}
+                'message': f'检测到{len(missing)}天的DAU数据缺失或无效，成功生成{len(gen)}天，失败{len(fail)}天'}
     except Exception as e:
         raise Exception(f"补全DAU数据失败: {e}")
 

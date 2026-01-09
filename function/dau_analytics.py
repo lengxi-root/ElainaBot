@@ -103,6 +103,7 @@ class DAUAnalytics:
         schedule.every().day.at("01:00").do(self._daily_id_cleanup_task)
         self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
         self.scheduler_thread.start()
+        logger.info(f"DAU定时任务已启动，当前任务数: {len(schedule.jobs)}")
 
     def stop_scheduler(self):
         self.is_running = False
@@ -114,18 +115,30 @@ class DAUAnalytics:
 
     def _run_scheduler(self):
         while self.is_running:
-            if schedule.jobs:
-                schedule.run_pending()
+            try:
+                if schedule.jobs:
+                    schedule.run_pending()
+                else:
+                    # 任务列表为空，重新注册
+                    logger.warning("DAU定时任务列表为空，重新注册")
+                    schedule.every().day.at("00:10").do(self._daily_dau_task)
+                    schedule.every().day.at("01:00").do(self._daily_id_cleanup_task)
+            except Exception as e:
+                logger.error(f"DAU定时任务执行异常: {e}")
             time.sleep(60)
 
     def _daily_dau_task(self):
         yesterday = datetime.datetime.now() - _ONE_DAY
+        logger.info(f"开始执行DAU统计任务: {self._format_date(yesterday)}")
         try:
             dau_data = self.collect_dau_data(yesterday)
             if dau_data:
                 self.save_dau_data(dau_data, yesterday)
-        except:
-            pass
+                logger.info(f"DAU统计完成: {self._format_date(yesterday)}")
+            else:
+                logger.warning(f"DAU统计无数据: {self._format_date(yesterday)}")
+        except Exception as e:
+            logger.error(f"DAU统计任务失败: {e}")
         self._clear_expired_cache()
     
     def _clear_expired_cache(self):
@@ -142,6 +155,7 @@ class DAUAnalytics:
     def collect_dau_data(self, target_date: datetime.datetime) -> Optional[Dict[str, Any]]:
         date_str = self._format_date(target_date, 'table')
         display_date = self._format_date(target_date)
+        logger.info(f"开始收集DAU数据: {display_date} (表: {date_str})")
         with ThreadPoolExecutor(max_workers=3, thread_name_prefix="DAUCollect") as executor:
             future_message = executor.submit(self._get_message_stats, date_str)
             future_user = executor.submit(self._get_user_stats)
@@ -150,10 +164,13 @@ class DAUAnalytics:
                 message_stats = future_message.result(timeout=60)
                 user_stats = future_user.result(timeout=30)
                 command_stats = future_command.result(timeout=45)
-            except:
+            except Exception as e:
+                logger.error(f"收集DAU数据超时或失败: {e}")
                 return None
         if not message_stats:
+            logger.warning(f"消息统计为空，可能表 {self.log_table_prefix}{date_str}_message 不存在")
             return None
+        logger.info(f"DAU数据收集完成: {display_date}, 消息数: {message_stats.get('total_messages', 0)}, 活跃用户: {message_stats.get('active_users', 0)}")
         return {
             'date': display_date, 'date_str': date_str,
             'generated_at': self._format_date(datetime.datetime.now(), 'iso'),
@@ -340,10 +357,13 @@ class DAUAnalytics:
         return results
 
     def manual_generate_dau(self, target_date: datetime.datetime) -> bool:
+        logger.info(f"手动生成DAU: {self._format_date(target_date)}")
         dau_data = self.collect_dau_data(target_date)
         if dau_data:
             self.save_dau_data(dau_data, target_date)
+            logger.info(f"手动生成DAU成功: {self._format_date(target_date)}")
             return True
+        logger.warning(f"手动生成DAU失败: {self._format_date(target_date)}, 无数据")
         return False
 
     def generate_all_dau_data(self, start_date: datetime.datetime = None, end_date: datetime.datetime = None) -> Dict[str, Any]:
@@ -403,3 +423,8 @@ def stop_dau_analytics():
     
 def get_dau_analytics() -> DAUAnalytics:
     return dau_analytics
+
+def generate_yesterday_dau():
+    """手动生成昨日DAU数据"""
+    yesterday = datetime.datetime.now() - _ONE_DAY
+    return dau_analytics.manual_generate_dau(yesterday)

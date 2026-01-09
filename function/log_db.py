@@ -322,8 +322,8 @@ class LogDatabaseManager:
         if log_type not in _LOG_TYPES_SET:
             return False
         self.log_queues[log_type].put(log_data)
-        if _INSERT_INTERVAL == 0:
-            self._save_logs_to_db()
+        if _INSERT_INTERVAL == 0 or log_type == 'dau':
+            self._save_log_type_to_db(log_type)
         return True
     
     def update_id_cache(self, chat_type, chat_id, message_id):
@@ -403,6 +403,7 @@ class LogDatabaseManager:
             return
         batch = size if _BATCH_SIZE == 0 else min(size, _BATCH_SIZE)
         if not self._create_table(log_type):
+            logger.error(f"创建表失败: {log_type}")
             return
         table_name = self._get_table_name(log_type)
         logs = []
@@ -416,9 +417,13 @@ class LogDatabaseManager:
         try:
             with self._with_cursor(cursor_class=None) as (cursor, conn):
                 sql = self._sql_templates.get(log_type, self._sql_templates['default']).format(table_name=table_name)
-                cursor.executemany(sql, self._extract_log_data(log_type, logs))
+                data = self._extract_log_data(log_type, logs)
+                cursor.executemany(sql, data)
                 conn.commit()
-        except:
+                if log_type == 'dau':
+                    logger.info(f"DAU数据保存成功: {table_name}, 记录数: {len(logs)}")
+        except Exception as e:
+            logger.error(f"保存日志失败 [{log_type}]: {e}")
             if _FALLBACK_TO_FILE:
                 self._fallback_to_file(log_type, logs)
         finally:
@@ -499,13 +504,15 @@ def save_daily_dau_data(date, active_users, active_groups, total_messages, priva
 
 def save_complete_dau_data(d):
     ms, us, cs = d.get('message_stats', {}), d.get('user_stats', {}), d.get('command_stats', [])
-    return add_log_to_db('dau', {
+    log_data = {
         'date': d.get('date'), 'active_users': ms.get('active_users', 0), 'active_groups': ms.get('active_groups', 0),
         'total_messages': ms.get('total_messages', 0), 'private_messages': ms.get('private_messages', 0),
         'group_join_count': 0, 'group_leave_count': 0, 'group_count_change': 0,
         'friend_add_count': 0, 'friend_remove_count': 0, 'friend_count_change': 0,
         'message_stats_detail': ms, 'user_stats_detail': us, 'command_stats_detail': cs
-    })
+    }
+    logger.info(f"保存DAU数据: date={log_data['date']}, active_users={log_data['active_users']}, total_messages={log_data['total_messages']}")
+    return add_log_to_db('dau', log_data)
 
 def record_last_message_id(chat_type, chat_id, message_id):
     return log_db_manager.update_id_cache(chat_type, chat_id, message_id)

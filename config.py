@@ -60,6 +60,26 @@ WEB_CONFIG = {
     'pc_title_suffix': "仪表盘",  # PC端标题后缀
     'login_title_suffix': "面板",  # 登录页面标题后缀
 }
+# 日志数据库配置 - 系统日志存储设置
+LOG_DB_CONFIG = {
+    # 连接基础配置
+    'host': "127.0.0.1",  # 日志数据库服务器地址
+    'port': 3306,  # 日志数据库服务器端口
+    'user': "",  # 日志数据库用户名
+    'password': "",  # 日志数据库密码
+    'database': "",  # 日志数据库名称
+    
+    # 日志策略
+    'insert_interval': 2,  # 批量写入间隔时间(秒)，0表示立即写入
+    'batch_size': 1000,  # 每批次最大写入日志记录数
+    'table_prefix': f"{appid}_",  # 日志表名前缀，使用机器人appid作为前缀
+    'retention_days': 5,  # 日志保留天数，0表示永久保留
+    'max_retry': 3,  # 写入失败最大重试次数
+    'retry_interval': 2,  # 重试间隔时间(秒)
+    
+    # web日志界面加载配置
+    'initial_load_count': 50,  # 进入日志界面时自动加载的今日日志条数
+}
 
 # 主数据库配置 - 业务数据存储设置
 DB_CONFIG = {
@@ -83,27 +103,22 @@ DB_CONFIG = {
     'retry_interval': 0.5,  # 重试间隔时间(秒)
 }
 
-# 日志数据库配置 - 系统日志存储设置
-LOG_DB_CONFIG = {
-    # 连接基础配置
-    'host': "127.0.0.1",  # 日志数据库服务器地址
-    'port': 3306,  # 日志数据库服务器端口
-    'user': "",  # 日志数据库用户名
-    'password': "",  # 日志数据库密码
-    'database': "",  # 日志数据库名称
+# Redis缓存配置 - 可选功能，用于缓存和高速数据存储
+REDIS_CONFIG = {
+    'enabled': False,  # 是否启用Redis连接池（需要安装redis模块: pip install redis）
+    'host': "127.0.0.1",  # Redis服务器地址
+    'port': 6379,  # Redis服务器端口
+    'password': None,  # Redis密码，无密码设为None
+    'db': 0,  # 数据库编号（0-15）
     
-    # 日志策略
-    'insert_interval': 2,  # 批量写入间隔时间(秒)，0表示立即写入
-    'batch_size': 1000,  # 每批次最大写入日志记录数
-    'table_prefix': f"{appid}_",  # 日志表名前缀，使用机器人appid作为前缀
-    'retention_days': 5,  # 日志保留天数，0表示永久保留
-    'max_retry': 3,  # 写入失败最大重试次数
-    'retry_interval': 2,  # 重试间隔时间(秒)
-    
-    # web日志界面加载配置
-    'initial_load_count': 50,  # 进入日志界面时自动加载的今日日志条数
+    # 连接池设置
+    'max_connections': 50,  # 连接池最大连接数
+    'socket_timeout': 5,  # 套接字超时时间(秒)
+    'socket_connect_timeout': 5,  # 连接超时时间(秒)
+    'retry_on_timeout': True,  # 超时时是否重试
+    'health_check_interval': 30,  # 健康检查间隔(秒)
+    'decode_responses': True,  # 是否自动解码响应为字符串
 }
-
 # 腾讯云COS对象存储配置 - 简单上传功能
 COS_CONFIG = {
     'enabled': True,  # 是否启用COS上传功能

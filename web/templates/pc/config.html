@@ -154,8 +154,8 @@ function buildConfigGroups() {
 
 function renderGroupSelector() {
     const container = document.getElementById('config-groups-selector');
-    const names = { '_standalone': '独立配置', 'BOT': '机器人设置', 'WEB': 'Web面板', 'DATABASE': '数据库', 'OPENAPI': '开放平台', 'LOG': '日志设置', 'PLUGIN': '插件设置', 'MESSAGE': '消息设置', 'ADMIN': '管理员设置' };
-    const icons = { '_standalone': 'bi-sliders', 'BOT': 'bi-robot', 'WEB': 'bi-globe', 'DATABASE': 'bi-database', 'OPENAPI': 'bi-cloud', 'LOG': 'bi-journal-text', 'PLUGIN': 'bi-puzzle', 'MESSAGE': 'bi-chat-dots', 'ADMIN': 'bi-shield-lock' };
+    const names = { '_standalone': '独立配置', 'BOT': '机器人设置', 'WEB': 'Web面板', 'DATABASE': '数据库', 'REDIS_CONFIG': 'Redis缓存', 'OPENAPI': '开放平台', 'LOG': '日志设置', 'PLUGIN': '插件设置', 'MESSAGE': '消息设置', 'ADMIN': '管理员设置' };
+    const icons = { '_standalone': 'bi-sliders', 'BOT': 'bi-robot', 'WEB': 'bi-globe', 'DATABASE': 'bi-database', 'REDIS_CONFIG': 'bi-lightning-charge', 'OPENAPI': 'bi-cloud', 'LOG': 'bi-journal-text', 'PLUGIN': 'bi-puzzle', 'MESSAGE': 'bi-chat-dots', 'ADMIN': 'bi-shield-lock' };
     let html = '';
     Object.keys(configGroups).forEach(key => {
         if (configGroups[key].length === 0) return;
@@ -175,7 +175,7 @@ function showConfigGroup(key) {
     currentGroupKey = key;
     document.querySelectorAll('.group-item').forEach(el => el.classList.remove('active'));
     document.querySelector(`.group-item[onclick="showConfigGroup('${key}')"]`)?.classList.add('active');
-    const names = { '_standalone': '独立配置', 'BOT': '机器人设置', 'WEB': 'Web面板', 'DATABASE': '数据库', 'OPENAPI': '开放平台', 'LOG': '日志设置', 'PLUGIN': '插件设置', 'MESSAGE': '消息设置', 'ADMIN': '管理员设置' };
+    const names = { '_standalone': '独立配置', 'BOT': '机器人设置', 'WEB': 'Web面板', 'DATABASE': '数据库', 'REDIS_CONFIG': 'Redis缓存', 'OPENAPI': '开放平台', 'LOG': '日志设置', 'PLUGIN': '插件设置', 'MESSAGE': '消息设置', 'ADMIN': '管理员设置' };
     document.getElementById('current-group-name').textContent = groupDisplayNames[key] || names[key] || key;
     renderConfigForm(configGroups[key] || []);
 }

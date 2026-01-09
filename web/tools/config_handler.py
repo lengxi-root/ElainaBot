@@ -28,8 +28,11 @@ def _get_target_config_path():
 
 
 def _parse_dict_item(line):
-    """解析字典项，正确处理带引号的字符串值（即使内部有逗号）"""
+    """解析字典项，提取键名、值和注释"""
     stripped = line.strip()
+    # 匹配: 'key': value,  # comment 或 'key': value, 或 'key': value
+    # 使用更简单的方式：先找注释位置
+    
     # 匹配键名
     key_match = re.match(r"^['\"]?([a-zA-Z_][a-zA-Z0-9_]*)['\"]?\s*:\s*", stripped)
     if not key_match:
@@ -38,38 +41,33 @@ def _parse_dict_item(line):
     key_name = key_match.group(1)
     rest = stripped[key_match.end():]
     
-    # 解析值部分，需要正确处理引号内的逗号
-    value_str = ""
+    # 找到不在字符串内的 # 位置
     comment = ""
+    value_part = rest
+    
+    # 简单处理：从后往前找 #，检查它前面是否在字符串内
+    hash_pos = -1
     in_string = False
     string_char = None
-    i = 0
-    
-    while i < len(rest):
-        char = rest[i]
-        
+    for i, char in enumerate(rest):
         if not in_string:
             if char in ('"', "'"):
                 in_string = True
                 string_char = char
-                value_str += char
             elif char == '#':
-                # 注释开始
-                comment = rest[i+1:].strip()
+                hash_pos = i
                 break
-            elif char == ',':
-                # 值结束（在字符串外的逗号）
-                break
-            else:
-                value_str += char
         else:
-            value_str += char
             if char == string_char and (i == 0 or rest[i-1] != '\\'):
                 in_string = False
                 string_char = None
-        i += 1
     
-    value_str = value_str.strip().rstrip(',').strip()
+    if hash_pos >= 0:
+        comment = rest[hash_pos+1:].strip()
+        value_part = rest[:hash_pos]
+    
+    # 清理值部分
+    value_str = value_part.strip().rstrip(',').strip()
     return key_name, value_str, comment
 
 

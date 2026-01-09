@@ -1,5 +1,23 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+# ==================== 性能优化预定义 ====================
+# Python 优化标志
+import sys
+sys.dont_write_bytecode = False  # 保持 .pyc 缓存加速导入
+
+# 预编译正则表达式缓存
+import re
+re.DOTALL  # 触发 re 模块初始化
+
+# 设置更高效的内存分配器 (Python 3.8+)
+try:
+    import ctypes
+    libc = ctypes.CDLL("msvcrt" if sys.platform == "win32" else "libc.so.6")
+except:
+    pass
+
+# ==================== Eventlet Monkey Patch ====================
 import eventlet
 eventlet.monkey_patch(all=True, thread=True, socket=True, select=True, time=True)
 import sys, os, time, shutil
@@ -160,6 +178,12 @@ from function.Access import BOT凭证, BOTAPI, Json取, Json
 from function.httpx_pool import get_pool_manager
 
 warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# 预导入常用模块到缓存
+import datetime
+import hashlib
+import urllib.parse
 
 # 创建主框架 logger
 logger = logging.getLogger('ElainaBot')
@@ -200,8 +224,8 @@ def log_error(error_msg, tb_str=None):
 def cleanup_gc():
     global _gc_counter
     _gc_counter += 1
-    if _gc_counter >= 100:
-        gc.collect(0)
+    if _gc_counter >= 50:  # 降低阈值，更频繁清理
+        gc.collect(0)  # 只清理第0代，速度快
         _gc_counter = 0
 
 
@@ -242,8 +266,10 @@ flask.cli.show_server_banner = lambda *args: None
 def create_app():
     flask_app = Flask(__name__)
     flask_app.config['SECRET_KEY'] = 'elainabot_secret'
-    flask_app.config['TEMPLATES_AUTO_RELOAD'] = True
-    flask_app.jinja_env.auto_reload = True
+    flask_app.config['TEMPLATES_AUTO_RELOAD'] = False  # 生产环境关闭自动重载
+    flask_app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000  # 静态文件缓存1年
+    flask_app.config['JSON_SORT_KEYS'] = False  # 禁用 JSON 键排序
+    flask_app.jinja_env.auto_reload = False
     flask_app.logger.disabled = True
     socketio = SocketIO(flask_app, cors_allowed_origins="*", async_mode='eventlet', logger=False, engineio_logger=False)
     flask_app.socketio = socketio
@@ -409,9 +435,15 @@ def setup_websocket():
 def init_systems(is_subprocess=False):
     global _message_handler_ready, _plugins_preloaded
     setup_logging()
+    
+    # 优化 GC 设置
     gc.enable()
-    gc.set_threshold(700, 10, 5)
+    gc.set_threshold(500, 10, 5)  # 更激进的第0代回收
     gc.collect(0)
+    
+    # 禁用 GC 调试
+    gc.set_debug(0)
+    
     log_to_console("垃圾回收系统初始化成功")
     
     def init_critical_systems():
@@ -419,6 +451,22 @@ def init_systems(is_subprocess=False):
             from function.database import Database
             Database()
             log_to_console("数据库系统初始化成功")
+            
+            # 初始化 Redis
+            try:
+                from function.redis_pool import init_redis
+                status, message = init_redis()
+                if status == 'success':
+                    log_to_console(f"✅ {message}")
+                elif status == 'disabled':
+                    log_to_console(f"⏸️ {message}")
+                elif status == 'no_module':
+                    log_to_console(f"⚠️ {message}")
+                else:  # failed
+                    log_to_console(f"❌ {message}")
+            except Exception as e:
+                log_to_console(f"⚠️ Redis初始化异常: {e}")
+            
             from core.plugin.PluginManager import PluginManager
             PluginManager.load_plugins()
             log_to_console("插件系统初始化成功")

@@ -64,9 +64,9 @@
                     <label>插件文件名</label>
                     <input type="text" class="form-input" id="create-filename" placeholder="例如: 我的插件">
                 </div>
-                <div class="form-group">
+                <div class="form-group flex-grow">
                     <label>功能描述</label>
-                    <textarea class="form-textarea" id="create-description" rows="4" placeholder="详细描述你想要的插件功能..."></textarea>
+                    <textarea class="form-textarea" id="create-description" placeholder="详细描述你想要的插件功能..."></textarea>
                 </div>
                 <button class="action-btn primary" onclick="aiCreatePlugin()">
                     <i class="bi bi-magic"></i> AI 生成插件
@@ -81,9 +81,9 @@
                         <span class="placeholder">请从左侧选择一个插件</span>
                     </div>
                 </div>
-                <div class="form-group">
+                <div class="form-group flex-grow">
                     <label>修改要求</label>
-                    <textarea class="form-textarea" id="modify-description" rows="4" placeholder="描述你想要修改的内容..."></textarea>
+                    <textarea class="form-textarea" id="modify-description" placeholder="描述你想要修改的内容..."></textarea>
                 </div>
                 <button class="action-btn primary" onclick="aiModifyPlugin()" id="btn-modify" disabled>
                     <i class="bi bi-magic"></i> AI 修改插件
@@ -98,9 +98,9 @@
                         <span class="placeholder">请从左侧选择一个插件</span>
                     </div>
                 </div>
-                <div class="form-group">
+                <div class="form-group flex-grow">
                     <label>新功能描述</label>
-                    <textarea class="form-textarea" id="feature-description" rows="4" placeholder="描述你想要添加的新功能..."></textarea>
+                    <textarea class="form-textarea" id="feature-description" placeholder="描述你想要添加的新功能..."></textarea>
                 </div>
                 <button class="action-btn primary" onclick="aiAddFeature()" id="btn-feature" disabled>
                     <i class="bi bi-magic"></i> AI 添加功能
@@ -115,9 +115,9 @@
                         <span class="placeholder">请从左侧选择一个插件</span>
                     </div>
                 </div>
-                <div class="form-group">
+                <div class="form-group flex-grow">
                     <label>错误信息</label>
-                    <textarea class="form-textarea" id="fix-error" rows="4" placeholder="粘贴错误信息或描述问题..."></textarea>
+                    <textarea class="form-textarea" id="fix-error" placeholder="粘贴错误信息或描述问题..."></textarea>
                 </div>
                 <button class="action-btn primary" onclick="aiFixPlugin()" id="btn-fix" disabled>
                     <i class="bi bi-magic"></i> AI 修复错误
@@ -588,10 +588,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
 /* 表单 */
 .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
+.form-group.flex-grow { flex: 1; }
+.form-group.flex-grow .form-textarea { flex: 1; }
 .form-group label { font-size: 0.85rem; color: #555; font-weight: 500; }
 .form-select, .form-input, .form-textarea { padding: 0.6rem 0.75rem; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 0.85rem; transition: border-color 0.2s; }
 .form-select:focus, .form-input:focus, .form-textarea:focus { outline: none; border-color: var(--theme-primary, #5865F2); }
-.form-textarea { resize: none; min-height: 100px; }
+.form-textarea { resize: none; flex: 1; min-height: 80px; }
 .selected-plugin { padding: 0.6rem 0.75rem; background: #f8f9ff; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; }
 .selected-plugin .placeholder { color: #999; }
 .selected-plugin i { color: var(--theme-primary, #5865F2); }

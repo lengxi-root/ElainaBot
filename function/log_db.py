@@ -420,8 +420,6 @@ class LogDatabaseManager:
                 data = self._extract_log_data(log_type, logs)
                 cursor.executemany(sql, data)
                 conn.commit()
-                if log_type == 'dau':
-                    logger.info(f"DAU数据保存成功: {table_name}, 记录数: {len(logs)}")
         except Exception as e:
             logger.error(f"保存日志失败 [{log_type}]: {e}")
             if _FALLBACK_TO_FILE:

@@ -146,6 +146,10 @@ from web.tools.config_handler import (handle_get_config, handle_parse_config, ha
     handle_save_config, handle_check_pending_config, handle_cancel_pending_config)
 from web.tools.plugin_manager import (handle_toggle_plugin, handle_read_plugin, handle_save_plugin,
     handle_create_plugin, handle_create_plugin_folder, handle_get_plugin_folders, handle_upload_plugin, scan_plugins_internal)
+from web.tools.ai_plugin_handler import (handle_list_plugins, handle_read_plugin as handle_ai_read_plugin,
+    handle_ai_create_plugin, handle_ai_modify_plugin, handle_ai_add_feature, handle_ai_fix_plugin,
+    handle_save_ai_plugin, handle_search_plugins, handle_get_plugin_template, handle_get_ai_models,
+    handle_get_ai_config, handle_save_ai_config)
 
 status_routes.set_restart_function(execute_bot_restart)
 check_openapi_login = lambda uid: openapi_user_data.get(uid)
@@ -192,6 +196,11 @@ def index():
     for h, v in _SECURITY_HEADERS:
         response.headers[h] = v
     return response
+
+@web.route('/ai_plugins')
+@full_auth
+def ai_plugins_page():
+    return render_template('pc/ai_plugins.html')
 
 @web.route('/plugin/<plugin_path>')
 @full_auth
@@ -413,6 +422,67 @@ def get_plugin_folders():
 @full_auth
 def upload_plugin():
     return handle_upload_plugin(add_framework_log)
+
+# AI 插件编辑相关路由
+@web.route('/api/ai_plugin/list', methods=['POST'])
+@full_auth
+def ai_list_plugins():
+    return handle_list_plugins()
+
+@web.route('/api/ai_plugin/read', methods=['POST'])
+@full_auth
+def ai_read_plugin():
+    return handle_ai_read_plugin()
+
+@web.route('/api/ai_plugin/create', methods=['POST'])
+@full_auth
+def ai_create_plugin():
+    return handle_ai_create_plugin()
+
+@web.route('/api/ai_plugin/modify', methods=['POST'])
+@full_auth
+def ai_modify_plugin():
+    return handle_ai_modify_plugin()
+
+@web.route('/api/ai_plugin/add_feature', methods=['POST'])
+@full_auth
+def ai_add_feature():
+    return handle_ai_add_feature()
+
+@web.route('/api/ai_plugin/fix', methods=['POST'])
+@full_auth
+def ai_fix_plugin():
+    return handle_ai_fix_plugin()
+
+@web.route('/api/ai_plugin/save', methods=['POST'])
+@full_auth
+def ai_save_plugin():
+    return handle_save_ai_plugin()
+
+@web.route('/api/ai_plugin/search', methods=['POST'])
+@full_auth
+def ai_search_plugins():
+    return handle_search_plugins()
+
+@web.route('/api/ai_plugin/template', methods=['GET'])
+@full_auth
+def ai_get_template():
+    return handle_get_plugin_template()
+
+@web.route('/api/ai_plugin/models', methods=['GET'])
+@full_auth
+def ai_get_models():
+    return handle_get_ai_models()
+
+@web.route('/api/ai_plugin/config', methods=['GET'])
+@full_auth
+def ai_get_config():
+    return handle_get_ai_config()
+
+@web.route('/api/ai_plugin/config', methods=['POST'])
+@full_auth
+def ai_save_config():
+    return handle_save_ai_config()
 
 @web.route('/openapi/start_login', methods=['POST'])
 @simple_auth

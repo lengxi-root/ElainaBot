@@ -1,13 +1,35 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Redis连接池模块"""
+"""Redis连接池模块 - 支持热重载
 
+使用方式：
+    from function.redis_pool import redis_pool
+    
+    # 直接使用，可以安全缓存引用
+    if redis_pool.is_enabled():
+        redis_pool.set('key', 'value')
+"""
+
+import sys
 import threading
 import logging
 from typing import Optional, Any
 from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger('ElainaBot.function.redis_pool')
+
+# ============ 热重载保护机制 ============
+# 使用 sys.modules 存储单例，确保模块重载时实例不丢失
+_INSTANCE_KEY = '__elaina_redis_pool_singleton__'
+
+def _get_existing_instance():
+    """获取已存在的实例"""
+    return sys.modules.get(_INSTANCE_KEY)
+
+def _save_instance(instance):
+    """保存实例到 sys.modules"""
+    sys.modules[_INSTANCE_KEY] = instance
+# ========================================
 
 try:
     from config import REDIS_CONFIG
@@ -554,7 +576,7 @@ class RedisConnectionManager:
     __slots__ = ('pool', 'client')
     
     def __init__(self):
-        self.pool = RedisPool()
+        self.pool = redis_pool
         self.client = None
     
     def __enter__(self) -> Optional[Redis]:
@@ -566,9 +588,24 @@ class RedisConnectionManager:
         self.client = None
 
 
-redis_pool = RedisPool()
+# ============ 创建/复用单例 ============
+_existing = _get_existing_instance()
+if _existing is not None and hasattr(_existing, '_client') and hasattr(_existing, 'is_enabled'):
+    # 复用已存在的实例（热重载场景）
+    redis_pool = _existing
+    logger.debug("Redis连接池: 复用已存在的实例")
+else:
+    # 首次创建实例
+    redis_pool = RedisPool()
+    _save_instance(redis_pool)
+    logger.debug("Redis连接池: 创建新实例")
 
 
 def init_redis() -> tuple:
     """初始化Redis并返回状态"""
-    return RedisPool().get_init_status()
+    return redis_pool.get_init_status()
+
+
+def get_redis_pool():
+    """获取Redis连接池实例"""
+    return redis_pool

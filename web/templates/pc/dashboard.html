@@ -1,6 +1,17 @@
 {% extends "pc/base.html" %}
 
 {% block content %}
+<!-- ASCII Banner -->
+<div class="ascii-banner mb-4">
+    <pre class="banner-text">
+███████╗██╗     █████╗ ██╗███╗   ██╗█████╗ 
+██╔════╝██║    ██╔══██╗██║████╗  ██║██╔══██╗
+█████╗  ██║    ███████║██║██╔██╗ ██║███████║
+██╔══╝  ██║    ██╔══██║██║██║╚██╗██║██╔══██║
+███████╗█████████║  ██║██║██║ ╚████║██║  ██║
+╚══════╝╚══════╝═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝</pre>
+</div>
+
 <!-- 机器人信息卡片 -->
 <div class="robot-card mb-4">
     <div class="robot-card-bg"></div>
@@ -115,6 +126,46 @@
 
 {% block extra_styles %}
 <style>
+/* ASCII Banner */
+.ascii-banner {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    overflow: hidden;
+}
+
+.banner-text {
+    color: #00d4ff;
+    font-family: 'Courier New', monospace;
+    font-size: 0.6rem;
+    line-height: 1.2;
+    margin: 0;
+    text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+    white-space: pre;
+    overflow-x: auto;
+}
+
+.banner-subtitle {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.9rem;
+    margin: 12px 0 0;
+}
+
+.banner-subtitle i {
+    margin-right: 6px;
+}
+
+@media (max-width: 768px) {
+    .banner-text {
+        font-size: 0.4rem;
+    }
+    .ascii-banner {
+        padding: 16px;
+    }
+}
+
 /* 监控卡片网格 */
 .monitor-grid {
     display: grid;

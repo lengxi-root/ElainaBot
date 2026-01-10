@@ -103,7 +103,6 @@ class DAUAnalytics:
         schedule.every().day.at("01:00").do(self._daily_id_cleanup_task)
         self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
         self.scheduler_thread.start()
-        logger.info(f"DAU定时任务已启动，当前任务数: {len(schedule.jobs)}")
 
     def stop_scheduler(self):
         self.is_running = False

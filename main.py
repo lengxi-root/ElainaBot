@@ -1,23 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# ==================== 性能优化预定义 ====================
-# Python 优化标志
 import sys
-sys.dont_write_bytecode = False  # 保持 .pyc 缓存加速导入
+sys.dont_write_bytecode = False
 
-# 预编译正则表达式缓存
 import re
-re.DOTALL  # 触发 re 模块初始化
+re.DOTALL
 
-# 设置更高效的内存分配器 (Python 3.8+)
 try:
     import ctypes
     libc = ctypes.CDLL("msvcrt" if sys.platform == "win32" else "libc.so.6")
 except:
     pass
 
-# ==================== Eventlet Monkey Patch ====================
 import eventlet
 eventlet.monkey_patch(all=True, thread=True, socket=True, select=True, time=True)
 import sys, os, time, shutil
@@ -65,10 +60,7 @@ def check_config_and_redirect():
             subprocess.run([sys.executable, config_wizard])
             sys.exit(0)
         
-        # 配置检查通过
-        print("✅ 配置文件检查通过")
-        print(f"   - APPID: {appid}")
-        print(f"   - ROBOT_QQ: {getattr(config, 'ROBOT_QQ', 'N/A')}")
+        # 配置检查通过（静默）
         return True
         
     except Exception as e:
@@ -82,7 +74,6 @@ def check_python_version():
     if current_version < required_version:
         print(f"❌ Python版本不符合要求！当前: {current_version[0]}.{current_version[1]}, 要求: {required_version[0]}.{required_version[1]}+")
         sys.exit(1)
-    print(f"✅ Python版本检查通过: Python {current_version[0]}.{current_version[1]}")
     return True
 
 def check_dependencies():
@@ -98,10 +89,8 @@ def check_dependencies():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     requirements_file = os.path.join(base_dir, 'requirements.txt')
     if not os.path.exists(requirements_file):
-        print("⚠️  警告: 未找到 requirements.txt 文件，跳过依赖检查")
         return True
     
-    print("🔍 正在检查依赖包...")
     missing_packages = []
     try:
         with open(requirements_file, 'r', encoding='utf-8') as f:
@@ -137,7 +126,6 @@ def check_dependencies():
                 missing_packages.append(package_name)
         
         if not missing_packages:
-            print("✅ 所有依赖包检查通过！")
             return True
         
         print("\n❌ 缺少依赖包:", ', '.join(missing_packages))
@@ -180,12 +168,10 @@ from function.httpx_pool import get_pool_manager
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# 预导入常用模块到缓存
 import datetime
 import hashlib
 import urllib.parse
 
-# 创建主框架 logger
 logger = logging.getLogger('ElainaBot')
 
 try:
@@ -224,8 +210,8 @@ def log_error(error_msg, tb_str=None):
 def cleanup_gc():
     global _gc_counter
     _gc_counter += 1
-    if _gc_counter >= 50:  # 降低阈值，更频繁清理
-        gc.collect(0)  # 只清理第0代，速度快
+    if _gc_counter >= 50:
+        gc.collect(0)
         _gc_counter = 0
 
 
@@ -252,11 +238,7 @@ def setup_logging():
         logger.setLevel(logging.ERROR)
         logger.propagate = False
     _logging_initialized = True
-    log_to_console("日志系统初始化成功")
-    
-    # 测试logger输出
-    test_logger = logging.getLogger('test_logger')
-    test_logger.info("✅ Logger测试：控制台输出正常")
+    log_to_console("📝 日志系统初始化成功")
 
 sys.excepthook = lambda exctype, value, tb: log_error(f"{exctype.__name__}: {value}", "".join(traceback.format_tb(tb)))
 
@@ -266,9 +248,9 @@ flask.cli.show_server_banner = lambda *args: None
 def create_app():
     flask_app = Flask(__name__)
     flask_app.config['SECRET_KEY'] = 'elainabot_secret'
-    flask_app.config['TEMPLATES_AUTO_RELOAD'] = False  # 生产环境关闭自动重载
-    flask_app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000  # 静态文件缓存1年
-    flask_app.config['JSON_SORT_KEYS'] = False  # 禁用 JSON 键排序
+    flask_app.config['TEMPLATES_AUTO_RELOAD'] = False
+    flask_app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
+    flask_app.config['JSON_SORT_KEYS'] = False
     flask_app.jinja_env.auto_reload = False
     flask_app.logger.disabled = True
     socketio = SocketIO(flask_app, cors_allowed_origins="*", async_mode='eventlet', logger=False, engineio_logger=False)
@@ -303,7 +285,7 @@ def create_app():
             return Signs().sign(data.decode())
         return "Event not handled", 400
     
-    log_to_console("Flask应用创建成功")
+    log_to_console("📦 Flask应用创建成功")
     return flask_app
 
 def process_message_event(data, http_context=None):
@@ -323,7 +305,6 @@ def process_message_event(data, http_context=None):
             del event
             return False
         
-        # 立即执行web实时推送（主线程中执行）
         try:
             if not event.skip_recording:
                 import datetime
@@ -332,12 +313,11 @@ def process_message_event(data, http_context=None):
         except:
             pass
         
-        # 异步执行数据库操作
         def async_db_tasks():
             try:
                 if not event.skip_recording:
                     event._record_user_and_group()
-                    event._record_message_to_db_only()  # 只执行数据库记录，不包含web推送
+                    event._record_message_to_db_only()
                 event.record_last_message_id()
             except:
                 pass
@@ -436,23 +416,19 @@ def init_systems(is_subprocess=False):
     global _message_handler_ready, _plugins_preloaded
     setup_logging()
     
-    # 优化 GC 设置
     gc.enable()
-    gc.set_threshold(500, 10, 5)  # 更激进的第0代回收
+    gc.set_threshold(500, 10, 5)
     gc.collect(0)
-    
-    # 禁用 GC 调试
     gc.set_debug(0)
     
-    log_to_console("垃圾回收系统初始化成功")
+    log_to_console("♻️ 垃圾回收系统初始化成功")
     
     def init_critical_systems():
         try:
             from function.database import Database
             Database()
-            log_to_console("数据库系统初始化成功")
+            log_to_console("💾 数据库系统初始化成功")
             
-            # 初始化 Redis
             try:
                 from function.redis_pool import init_redis
                 status, message = init_redis()
@@ -469,7 +445,7 @@ def init_systems(is_subprocess=False):
             
             from core.plugin.PluginManager import PluginManager
             PluginManager.load_plugins()
-            log_to_console("插件系统初始化成功")
+            log_to_console("🔌 插件系统初始化成功")
             _plugins_preloaded = True
             _message_handler_ready.set()
         except Exception as e:
@@ -489,10 +465,9 @@ def initialize_app():
     init_systems()
     if _web_available:
         start_web(app)
-        log_to_console("Web面板服务已集成到主进程")
     if _dau_available:
         start_dau_analytics()
-        log_to_console("DAU分析服务启动成功")
+        log_to_console("📊 DAU分析服务启动成功")
     _app_initialized = True
     return app
 
@@ -507,11 +482,15 @@ def start_main_process():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     app = initialize_app()
+    
+    _message_handler_ready.wait(timeout=10)
+    
     from eventlet import wsgi
     host = SERVER_CONFIG.get('host', '0.0.0.0')
     port = SERVER_CONFIG.get('port', 5001)
+    
     logger.info(f"🚀 主框架启动成功！")
-    logger.info(f"📡 主服务器地址: {host}:{port}")
+    logger.info(f"📡 服务器地址: {host}:{port}")
     if _web_available:
         web_token = WEB_CONFIG.get('access_token', '')
         display_host = 'localhost' if host == '0.0.0.0' else host

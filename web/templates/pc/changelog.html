@@ -12,9 +12,27 @@
                 </div>
             </div>
             <div class="header-actions">
+                <button class="action-btn" onclick="showSourceSelector()"><i class="bi bi-cloud-download"></i> 下载源</button>
                 <button class="action-btn" onclick="checkConfigDiff()"><i class="bi bi-gear-fill"></i> 检查配置</button>
                 <button class="action-btn" onclick="checkUpdate()"><i class="bi bi-search"></i> 检查更新</button>
+                <button class="action-btn warning" onclick="forceUpdate()"><i class="bi bi-arrow-repeat"></i> 强制更新</button>
                 <button class="action-btn primary" id="update-btn" onclick="startUpdate()" style="display: none;"><i class="bi bi-download"></i> 立即更新</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 下载源选择弹窗 -->
+    <div id="source-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content source-modal">
+            <div class="modal-header">
+                <h5><i class="bi bi-cloud-download"></i> 选择下载源</h5>
+                <button class="close-btn" onclick="closeSourceModal()"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="source-tip">如果默认代理服务器无法连接，可以尝试切换到其他下载源</p>
+                <div id="source-list" class="source-list">
+                    <div class="loading-state"><div class="spinner-sm"></div> 加载中...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -50,6 +68,14 @@
                 <div class="card-sub" id="latest-version-text"></div>
             </div>
         </div>
+        <div class="info-card source-card">
+            <div class="card-icon"><i class="bi bi-cloud-download"></i></div>
+            <div class="card-content">
+                <div class="card-label">下载源</div>
+                <div class="card-value" id="current-source-name">加载中...</div>
+                <div class="card-sub" id="current-source-desc"></div>
+            </div>
+        </div>
     </div>
 
     <div id="update-progress-section" class="progress-section" style="display: none;">
@@ -79,14 +105,129 @@
 
 {% block scripts %}
 <script>
-let changelogData = [], latestVersion = null;
+let changelogData = [], latestVersion = null, currentSource = 'proxy', availableSources = {};
 const getToken = () => new URLSearchParams(window.location.search).get('token') || '';
 
 document.addEventListener('DOMContentLoaded', function() {
+    loadDownloadSources();
     loadChangelog();
     loadVersionInfo();
     checkConfigDiff();
 });
+
+async function loadDownloadSources() {
+    try {
+        const result = await (await fetch(`/web/api/update/sources?token=${getToken()}`)).json();
+        if (result.success) {
+            availableSources = result.data.sources;
+            currentSource = result.data.current;
+            updateSourceDisplay();
+        }
+    } catch (e) {
+        console.error('加载下载源失败:', e);
+    }
+}
+
+function updateSourceDisplay() {
+    const source = availableSources[currentSource];
+    if (source) {
+        document.getElementById('current-source-name').textContent = source.name;
+        document.getElementById('current-source-desc').textContent = source.description;
+    }
+}
+
+function showSourceSelector() {
+    document.getElementById('source-modal').style.display = 'flex';
+    renderSourceList();
+}
+
+function closeSourceModal() {
+    document.getElementById('source-modal').style.display = 'none';
+}
+
+function renderSourceList() {
+    const container = document.getElementById('source-list');
+    if (!Object.keys(availableSources).length) {
+        container.innerHTML = '<div class="empty-state">暂无可用下载源</div>';
+        return;
+    }
+    
+    // 定义显示顺序
+    const sourceOrder = ['proxy', 'github', 'ghfast', 'github-sha'];
+    const orderedSources = sourceOrder
+        .filter(key => availableSources[key])
+        .map(key => [key, availableSources[key]]);
+    
+    container.innerHTML = orderedSources.map(([key, source]) => `
+        <div class="source-item ${key === currentSource ? 'active' : ''}" data-source="${key}">
+            <div class="source-info">
+                <div class="source-name">
+                    ${source.name}
+                    ${key === currentSource ? '<span class="current-badge">当前</span>' : ''}
+                </div>
+                <div class="source-desc">${source.description}</div>
+            </div>
+            <div class="source-actions">
+                <button class="test-btn" onclick="testSource('${key}', event)">
+                    <i class="bi bi-speedometer2"></i> 测试
+                </button>
+                ${key !== currentSource ? `<button class="select-btn" onclick="selectSource('${key}')">
+                    <i class="bi bi-check-lg"></i> 选择
+                </button>` : ''}
+            </div>
+            <div class="source-status" id="source-status-${key}"></div>
+        </div>
+    `).join('');
+}
+
+async function testSource(source, event) {
+    if (event) event.stopPropagation();
+    const statusEl = document.getElementById(`source-status-${source}`);
+    statusEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 测试中...';
+    statusEl.className = 'source-status testing';
+    
+    try {
+        const result = await (await fetch(`/web/api/update/test_source?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({source})
+        })).json();
+        
+        if (result.success && result.data.success) {
+            statusEl.innerHTML = `<i class="bi bi-check-circle-fill"></i> ${result.data.message}`;
+            statusEl.className = 'source-status success';
+        } else {
+            statusEl.innerHTML = `<i class="bi bi-x-circle-fill"></i> ${result.data?.message || result.message}`;
+            statusEl.className = 'source-status error';
+        }
+    } catch (e) {
+        statusEl.innerHTML = `<i class="bi bi-x-circle-fill"></i> 测试失败`;
+        statusEl.className = 'source-status error';
+    }
+}
+
+async function selectSource(source) {
+    try {
+        const result = await (await fetch(`/web/api/update/sources?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({source})
+        })).json();
+        
+        if (result.success) {
+            currentSource = source;
+            updateSourceDisplay();
+            renderSourceList();
+            showToast(`已切换到 ${availableSources[source].name}`, 'success');
+            // 重新加载更新日志
+            loadChangelog();
+        } else {
+            showToast(result.message, 'error');
+        }
+    } catch (e) {
+        showToast('切换下载源失败', 'error');
+    }
+}
 
 async function loadVersionInfo() {
     try {
@@ -119,6 +260,13 @@ async function checkUpdate() {
         const result = await (await fetch(`/web/api/update/check?token=${getToken()}`)).json();
         if (result.success) {
             const data = result.data;
+            if (data.error) {
+                statusCard.className = 'info-card status-card error';
+                statusCard.querySelector('.card-icon i').className = 'bi bi-x-circle-fill';
+                statusText.textContent = '检查失败';
+                latestText.textContent = data.error;
+                return;
+            }
             if (data.has_update) {
                 latestVersion = data.latest_version;
                 statusCard.className = 'info-card status-card has-update';
@@ -142,13 +290,39 @@ async function checkUpdate() {
 }
 
 async function startUpdate() {
-    if (!confirm('确定要更新框架吗？\n\n更新前会自动备份当前版本。')) return;
+    const sourceName = availableSources[currentSource]?.name || currentSource;
+    if (!confirm(`确定要更新框架吗？\n\n当前下载源: ${sourceName}\n更新前会自动备份当前版本。`)) return;
     
     document.getElementById('update-btn').style.display = 'none';
     document.getElementById('update-progress-section').style.display = 'block';
     
     try {
-        const result = await (await fetch(`/web/api/update/start?token=${getToken()}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })).json();
+        const result = await (await fetch(`/web/api/update/start?token=${getToken()}`, { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({source: currentSource})
+        })).json();
+        if (result.success) pollUpdateProgress();
+        else throw new Error(result.message);
+    } catch (e) {
+        document.getElementById('progress-stage').textContent = '更新失败';
+        document.getElementById('progress-message').textContent = e.message;
+    }
+}
+
+async function forceUpdate() {
+    const sourceName = availableSources[currentSource]?.name || currentSource;
+    if (!confirm(`确定要强制更新吗？\n\n当前下载源: ${sourceName}\n将直接下载最新版本，不检查当前版本。\n更新前会自动备份。`)) return;
+    
+    document.getElementById('update-btn').style.display = 'none';
+    document.getElementById('update-progress-section').style.display = 'block';
+    
+    try {
+        const result = await (await fetch(`/web/api/update/start?token=${getToken()}`, { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({source: currentSource, force: true})
+        })).json();
         if (result.success) pollUpdateProgress();
         else throw new Error(result.message);
     } catch (e) {
@@ -179,7 +353,7 @@ async function pollUpdateProgress() {
                     document.getElementById('progress-stage').textContent = '更新失败';
                     document.getElementById('update-progress-section').className = 'progress-section failed';
                 } else {
-                    const stages = { 'preparing': '准备更新', 'downloading': '下载中', 'backing_up': '备份中', 'updating': '更新中' };
+                    const stages = { 'preparing': '准备更新', 'downloading': '下载中', 'backing_up': '备份中', 'updating': '更新中', 'checking': '检查中' };
                     document.getElementById('progress-stage').textContent = stages[data.stage] || '更新中...';
                 }
             }
@@ -262,6 +436,11 @@ function showToast(msg, type = 'success') {
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
 }
+
+// 点击弹窗外部关闭
+document.getElementById('source-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeSourceModal();
+});
 </script>
 
 <style>
@@ -282,6 +461,57 @@ function showToast(msg, type = 'success') {
 .action-btn:hover { background: rgba(255,255,255,0.3); }
 .action-btn.primary { background: #fff; color: var(--primary-color); }
 .action-btn.primary:hover { background: #f0f0f0; }
+.action-btn.warning { background: rgba(245, 158, 11, 0.9); color: #fff; }
+.action-btn.warning:hover { background: rgba(217, 119, 6, 1); }
+
+/* 下载源弹窗 */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.modal-content {
+    background: #fff; border-radius: 16px; width: 90%; max-width: 500px;
+    max-height: 80vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    animation: modalIn 0.3s ease;
+}
+@keyframes modalIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 1rem 1.25rem; border-bottom: 1px solid #eee;
+    background: var(--theme-gradient); color: #fff;
+}
+.modal-header h5 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+.close-btn { background: rgba(255,255,255,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.close-btn:hover { background: rgba(255,255,255,0.3); }
+.modal-body { padding: 1.25rem; max-height: 60vh; overflow-y: auto; }
+.source-tip { font-size: 0.85rem; color: #666; margin: 0 0 1rem; padding: 0.75rem; background: #f8f9ff; border-radius: 8px; border-left: 3px solid var(--primary-color); }
+
+.source-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.source-item {
+    background: #f8f9ff; border: 2px solid #e8e8e8; border-radius: 12px;
+    padding: 1rem; transition: all 0.2s; position: relative;
+}
+.source-item:hover { border-color: var(--primary-color); }
+.source-item.active { border-color: var(--primary-color); background: linear-gradient(135deg, #f0f4ff 0%, #f8f9ff 100%); }
+.source-info { margin-bottom: 0.75rem; }
+.source-name { font-weight: 600; color: #333; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 4px; }
+.source-desc { font-size: 0.8rem; color: #666; }
+.current-badge { font-size: 0.7rem; background: var(--theme-gradient); color: #fff; padding: 2px 8px; border-radius: 10px; }
+.source-actions { display: flex; gap: 0.5rem; }
+.test-btn, .select-btn {
+    padding: 0.4rem 0.75rem; border: none; border-radius: 6px;
+    font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;
+}
+.test-btn { background: #e0e7ff; color: var(--primary-color); }
+.test-btn:hover { background: #c7d2fe; }
+.select-btn { background: var(--theme-gradient); color: #fff; }
+.select-btn:hover { opacity: 0.9; }
+.source-status { font-size: 0.8rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.3rem; }
+.source-status.testing { color: #f59e0b; }
+.source-status.success { color: #10b981; }
+.source-status.error { color: #ef4444; }
 
 .config-alert {
     background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
@@ -296,11 +526,12 @@ function showToast(msg, type = 'success') {
 .fill-btn { padding: 0.5rem 1rem; background: #f59e0b; color: #fff; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; transition: all 0.2s; }
 .fill-btn:hover { background: #d97706; }
 
-.info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
 .info-card { background: #fff; border-radius: 16px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: 0 4px 20px rgba(88, 101, 242, 0.1); }
 .card-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
 .version-card .card-icon { background: var(--theme-gradient); color: #fff; }
 .status-card .card-icon { background: #e0e7ff; color: var(--primary-color); }
+.source-card .card-icon { background: #d1fae5; color: #059669; }
 .status-card.checking .card-icon { background: #fef3c7; color: #f59e0b; }
 .status-card.has-update .card-icon { background: #dcfce7; color: #16a34a; }
 .status-card.up-to-date .card-icon { background: #d1fae5; color: #059669; }
@@ -308,7 +539,7 @@ function showToast(msg, type = 'success') {
 .card-content { flex: 1; }
 .card-label { font-size: 0.8rem; color: #999; margin-bottom: 4px; }
 .card-value { font-size: 1.1rem; font-weight: 600; color: #333; }
-.card-sub { font-size: 0.75rem; color: #999; margin-top: 2px; }
+.card-sub { font-size: 0.75rem; color: #999; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .progress-section { background: #fff; border-radius: 16px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 4px 20px rgba(88, 101, 242, 0.1); }
 .progress-header { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; color: #333; margin-bottom: 1rem; }
@@ -361,6 +592,7 @@ function showToast(msg, type = 'success') {
     .header-title { flex-direction: column; }
     .header-actions { justify-content: center; }
     .info-grid { grid-template-columns: 1fr; }
+    .modal-content { width: 95%; margin: 1rem; }
 }
 </style>
 {% endblock %}

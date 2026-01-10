@@ -348,6 +348,21 @@ def get_update_status():
 def get_update_progress():
     return update_handler.handle_get_update_progress()
 
+@web.route('/api/update/sources')
+@token_auth
+def get_download_sources():
+    return update_handler.handle_get_download_sources()
+
+@web.route('/api/update/sources', methods=['POST'])
+@token_auth
+def set_download_source():
+    return update_handler.handle_set_download_source()
+
+@web.route('/api/update/test_source', methods=['POST'])
+@token_auth
+def test_download_source():
+    return update_handler.handle_test_download_source()
+
 @web.route('/api/config/check_diff')
 @token_auth
 def check_config_diff():

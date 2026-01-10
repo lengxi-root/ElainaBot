@@ -363,15 +363,10 @@ def set_download_source():
 def test_download_source():
     return update_handler.handle_test_download_source()
 
-@web.route('/api/config/check_diff')
+@web.route('/api/config/apply_diff', methods=['POST'])
 @token_auth
-def check_config_diff():
-    return update_handler.handle_check_config_diff()
-
-@web.route('/api/config/auto_fill', methods=['POST'])
-@token_auth
-def auto_fill_config():
-    return update_handler.handle_auto_fill_config()
+def apply_config_diff():
+    return update_handler.handle_apply_config_diff()
 
 @web.route('/api/config/get')
 @token_auth

@@ -13,7 +13,6 @@
             </div>
             <div class="header-actions">
                 <button class="action-btn" onclick="showSourceSelector()"><i class="bi bi-cloud-download"></i> 下载源</button>
-                <button class="action-btn" onclick="checkConfigDiff()"><i class="bi bi-gear-fill"></i> 检查配置</button>
                 <button class="action-btn" onclick="checkUpdate()"><i class="bi bi-search"></i> 检查更新</button>
                 <button class="action-btn warning" onclick="forceUpdate()"><i class="bi bi-arrow-repeat"></i> 强制更新</button>
                 <button class="action-btn primary" id="update-btn" onclick="startUpdate()" style="display: none;"><i class="bi bi-download"></i> 立即更新</button>
@@ -37,17 +36,21 @@
         </div>
     </div>
 
-    <div id="config-diff-alert" class="config-alert" style="display: none;">
-        <div class="alert-content">
-            <div class="alert-info">
-                <i class="bi bi-exclamation-triangle-fill"></i>
-                <div>
-                    <strong>发现配置项缺失</strong>
-                    <span id="config-diff-count"></span>
-                    <small>新版本新增了配置项，建议自动补全以避免启动失败</small>
+    <!-- 配置差异弹窗 -->
+    <div id="config-diff-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content config-modal">
+            <div class="modal-header warning-header">
+                <h5><i class="bi bi-exclamation-triangle-fill"></i> 发现配置差异</h5>
+                <button class="close-btn" onclick="closeConfigModal()"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="config-tip">新版本包含以下新增配置项，建议补全以避免启动失败：</p>
+                <div id="config-diff-list" class="config-diff-list"></div>
+                <div class="config-actions">
+                    <button class="skip-btn" onclick="closeConfigModal()">暂不处理</button>
+                    <button class="apply-btn" onclick="applyConfigDiff()"><i class="bi bi-magic"></i> 自动补全</button>
                 </div>
             </div>
-            <button class="fill-btn" onclick="autoFillConfig()"><i class="bi bi-magic"></i> 自动补全</button>
         </div>
     </div>
 
@@ -105,14 +108,13 @@
 
 {% block scripts %}
 <script>
-let changelogData = [], latestVersion = null, currentSource = 'proxy', availableSources = {};
+let changelogData = [], latestVersion = null, currentSource = 'proxy', availableSources = {}, pendingConfigDiff = null;
 const getToken = () => new URLSearchParams(window.location.search).get('token') || '';
 
 document.addEventListener('DOMContentLoaded', function() {
     loadDownloadSources();
     loadChangelog();
     loadVersionInfo();
-    checkConfigDiff();
 });
 
 async function loadDownloadSources() {
@@ -348,6 +350,11 @@ async function pollUpdateProgress() {
                     document.getElementById('update-progress-section').className = 'progress-section completed';
                     setTimeout(() => loadVersionInfo(), 1000);
                     showToast('更新成功！重启框架后生效', 'success');
+                    // 检查配置差异
+                    if (data.config_diff && data.config_diff.has_diff) {
+                        pendingConfigDiff = data.config_diff.missing;
+                        showConfigDiffModal(data.config_diff);
+                    }
                 } else if (data.stage === 'failed') {
                     clearInterval(pollInterval);
                     document.getElementById('progress-stage').textContent = '更新失败';
@@ -361,28 +368,41 @@ async function pollUpdateProgress() {
     }, 1000);
 }
 
-async function checkConfigDiff() {
-    try {
-        const result = await (await fetch(`/web/api/config/check_diff?token=${getToken()}`)).json();
-        if (result.success && result.has_diff) {
-            document.getElementById('config-diff-count').textContent = `(${result.total_missing} 项)`;
-            document.getElementById('config-diff-alert').style.display = 'block';
+function showConfigDiffModal(diff) {
+    const list = document.getElementById('config-diff-list');
+    list.innerHTML = diff.missing.map(item => {
+        if (item.type === 'var') {
+            return `<div class="diff-item"><span class="diff-type var">变量</span><code>${item.name} = ${item.value}</code></div>`;
+        } else if (item.type === 'dict') {
+            return `<div class="diff-item"><span class="diff-type dict">字典</span><code>${item.name}</code></div>`;
         } else {
-            document.getElementById('config-diff-alert').style.display = 'none';
+            return `<div class="diff-item"><span class="diff-type key">键</span><code>${item.dict}['${item.key}'] = ${item.value}</code></div>`;
         }
-    } catch (e) {}
+    }).join('');
+    document.getElementById('config-diff-modal').style.display = 'flex';
 }
 
-async function autoFillConfig() {
-    if (!confirm('确定要自动补全缺失的配置项吗？\n\n原配置文件将备份为 config.py.backup')) return;
+function closeConfigModal() {
+    document.getElementById('config-diff-modal').style.display = 'none';
+    pendingConfigDiff = null;
+}
+
+async function applyConfigDiff() {
+    if (!pendingConfigDiff) return;
     try {
-        const result = await (await fetch(`/web/api/config/auto_fill?token=${getToken()}`, { method: 'POST' })).json();
+        const result = await (await fetch(`/web/api/config/apply_diff?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({missing: pendingConfigDiff})
+        })).json();
         if (result.success) {
-            showToast(result.message, 'success');
-            document.getElementById('config-diff-alert').style.display = 'none';
-        } else throw new Error(result.message);
+            showToast(`成功补全 ${result.count} 个配置项`, 'success');
+            closeConfigModal();
+        } else {
+            showToast('补全失败: ' + result.message, 'error');
+        }
     } catch (e) {
-        showToast('补全失败: ' + e.message, 'error');
+        showToast('补全失败', 'error');
     }
 }
 
@@ -463,6 +483,23 @@ document.getElementById('source-modal').addEventListener('click', function(e) {
 .action-btn.primary:hover { background: #f0f0f0; }
 .action-btn.warning { background: rgba(245, 158, 11, 0.9); color: #fff; }
 .action-btn.warning:hover { background: rgba(217, 119, 6, 1); }
+
+/* 配置差异弹窗 */
+.config-modal { max-width: 550px; }
+.warning-header { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important; }
+.config-tip { font-size: 0.9rem; color: #666; margin: 0 0 1rem; }
+.config-diff-list { max-height: 300px; overflow-y: auto; margin-bottom: 1rem; }
+.diff-item { background: #f8f9ff; border: 1px solid #e8e8e8; border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
+.diff-item code { font-size: 0.8rem; color: #333; word-break: break-all; flex: 1; }
+.diff-type { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; color: #fff; white-space: nowrap; }
+.diff-type.var { background: #3b82f6; }
+.diff-type.dict { background: #8b5cf6; }
+.diff-type.key { background: #10b981; }
+.config-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+.skip-btn { padding: 0.5rem 1rem; background: #e5e7eb; color: #666; border: none; border-radius: 8px; cursor: pointer; }
+.skip-btn:hover { background: #d1d5db; }
+.apply-btn { padding: 0.5rem 1rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; }
+.apply-btn:hover { opacity: 0.9; }
 
 /* 下载源弹窗 */
 .modal-overlay {

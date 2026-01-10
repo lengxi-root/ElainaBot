@@ -84,9 +84,10 @@ class FrameworkUpdater:
         except:
             pass
     
-    def _report_progress(self, stage, message, progress=0):
+    def _report_progress(self, stage, message, progress=0, config_diff=None):
         self.current_progress = {'stage': stage, 'message': message, 'progress': progress, 
-                                  'is_updating': stage not in ('idle', 'completed', 'failed')}
+                                  'is_updating': stage not in ('idle', 'completed', 'failed'),
+                                  'config_diff': config_diff}
     
     def get_progress(self):
         return self.current_progress.copy()
@@ -200,7 +201,7 @@ class FrameworkUpdater:
         return False
     
     def apply_update(self, zip_file, version):
-        result = {'success': False, 'message': '', 'updated': 0, 'skipped': 0}
+        result = {'success': False, 'message': '', 'updated': 0, 'skipped': 0, 'config_diff': None}
         try:
             self._report_progress('backing_up', '正在备份...', 45)
             backup = self.backup_current_version()
@@ -221,6 +222,12 @@ class FrameworkUpdater:
             items = list(temp.iterdir())
             source = items[0] if len(items) == 1 and items[0].is_dir() else temp
             
+            # 检查配置差异（用新版 config.py 对比本地）
+            new_config = source / "config.py"
+            local_config = self.base_dir / "config.py"
+            if new_config.exists() and local_config.exists():
+                result['config_diff'] = self._check_config_diff(str(new_config), str(local_config))
+            
             self._report_progress('updating', '正在更新文件...', 60)
             for root, _, files in os.walk(source):
                 for f in files:
@@ -239,11 +246,120 @@ class FrameworkUpdater:
             
             result['success'] = True
             result['message'] = f'更新成功！更新 {result["updated"]} 个文件，跳过 {result["skipped"]} 个'
-            self._report_progress('completed', result['message'], 100)
+            self._report_progress('completed', result['message'], 100, result['config_diff'])
         except Exception as e:
             result['message'] = f'更新失败: {e}'
             self._report_progress('failed', result['message'], 0)
         return result
+    
+    def _check_config_diff(self, new_config_path, local_config_path):
+        """检查新旧配置文件差异，返回缺失项"""
+        import re, ast
+        try:
+            with open(new_config_path, 'r', encoding='utf-8') as f:
+                new_content = f.read()
+            with open(local_config_path, 'r', encoding='utf-8') as f:
+                local_content = f.read()
+            
+            def parse_config(content):
+                vars_dict, dicts_dict = {}, {}
+                lines = content.split('\n')
+                current_dict, dict_content, brace_count = None, [], 0
+                for line in lines:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith('#'):
+                        if current_dict:
+                            dict_content.append(line)
+                        continue
+                    if current_dict:
+                        dict_content.append(line)
+                        brace_count += line.count('{') - line.count('}')
+                        if brace_count == 0:
+                            try:
+                                match = re.match(r'^[A-Z_][A-Z0-9_]*\s*=\s*(\{.*\})', '\n'.join(dict_content), re.DOTALL)
+                                if match:
+                                    dicts_dict[current_dict] = ast.literal_eval(match.group(1))
+                            except:
+                                pass
+                            current_dict, dict_content = None, []
+                        continue
+                    dict_match = re.match(r'^([A-Z_][A-Z0-9_]*)\s*=\s*\{', stripped)
+                    if dict_match:
+                        current_dict = dict_match.group(1)
+                        dict_content = [line]
+                        brace_count = line.count('{') - line.count('}')
+                        if brace_count == 0:
+                            try:
+                                match = re.match(r'^[A-Z_][A-Z0-9_]*\s*=\s*(\{.*\})', stripped)
+                                if match:
+                                    dicts_dict[current_dict] = ast.literal_eval(match.group(1))
+                            except:
+                                pass
+                            current_dict, dict_content = None, []
+                        continue
+                    var_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+?)(?:\s*#.*)?$', stripped)
+                    if var_match:
+                        name, value = var_match.group(1), var_match.group(2).strip()
+                        if not value.startswith(('{', '[')):
+                            try:
+                                vars_dict[name] = ast.literal_eval(value)
+                            except:
+                                vars_dict[name] = value
+                return vars_dict, dicts_dict
+            
+            new_vars, new_dicts = parse_config(new_content)
+            local_vars, local_dicts = parse_config(local_content)
+            
+            missing = []
+            for k, v in new_vars.items():
+                if k not in local_vars:
+                    missing.append({'type': 'var', 'name': k, 'value': repr(v)})
+            for k, v in new_dicts.items():
+                if k not in local_dicts:
+                    missing.append({'type': 'dict', 'name': k, 'value': repr(v)})
+                else:
+                    for key, val in v.items():
+                        if key not in local_dicts[k]:
+                            missing.append({'type': 'dict_key', 'dict': k, 'key': key, 'value': repr(val)})
+            
+            return {'has_diff': len(missing) > 0, 'missing': missing, 'count': len(missing)}
+        except:
+            return None
+    
+    def apply_config_diff(self, missing_items):
+        """将缺失的配置项追加到 config.py"""
+        try:
+            config_path = self.base_dir / "config.py"
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 备份
+            backup_path = str(config_path) + '.backup'
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            additions = ['\n# ===== 自动补全的配置项 =====']
+            dict_hints = []
+            for item in missing_items:
+                if item['type'] == 'var':
+                    additions.append(f"{item['name']} = {item['value']}")
+                elif item['type'] == 'dict':
+                    additions.append(f"{item['name']} = {item['value']}")
+                elif item['type'] == 'dict_key':
+                    dict_hints.append(f"# {item['dict']}['{item['key']}'] = {item['value']}")
+            
+            if dict_hints:
+                additions.append('\n# ===== 字典内缺失的键（请手动添加）=====')
+                additions.extend(dict_hints)
+            
+            new_content = content.rstrip() + '\n' + '\n'.join(additions) + '\n'
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            
+            return {'success': True, 'count': len(missing_items)}
+        except Exception as e:
+            return {'success': False, 'message': str(e)}
     
     def update_to_version(self, version):
         self._report_progress('preparing', f'准备更新到 {version}...', 0)

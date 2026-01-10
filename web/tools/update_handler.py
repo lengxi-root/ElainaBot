@@ -1,4 +1,4 @@
-import threading, requests, os, re, ast
+import threading, requests, os
 from datetime import datetime
 from flask import request, jsonify
 
@@ -100,167 +100,14 @@ def handle_test_download_source():
     from web.tools.updater import get_updater
     return jsonify({'success': True, 'data': get_updater().test_source_connection(data.get('source'))})
 
-# ===== 配置文件解析相关 =====
+def handle_apply_config_diff():
+    """应用配置差异补全"""
+    data = request.get_json() or {}
+    missing = data.get('missing', [])
+    if not missing:
+        return jsonify({'success': False, 'message': '没有需要补全的配置项'})
+    from web.tools.updater import get_updater
+    result = get_updater().apply_config_diff(missing)
+    return jsonify(result)
 
-def _parse_config_file(content):
-    """解析配置文件，提取变量和字典"""
-    config_vars, config_dicts = {}, {}
-    lines = content.split('\n')
-    current_dict, dict_content, brace_count = None, [], 0
-    
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith('#'):
-            if current_dict:
-                dict_content.append(line)
-            continue
-        
-        if current_dict:
-            dict_content.append(line)
-            brace_count += line.count('{') - line.count('}')
-            if brace_count == 0:
-                try:
-                    match = re.match(r'^[A-Z_][A-Z0-9_]*\s*=\s*(\{.*\})', '\n'.join(dict_content), re.DOTALL)
-                    if match:
-                        config_dicts[current_dict] = ast.literal_eval(match.group(1))
-                except:
-                    pass
-                current_dict, dict_content = None, []
-            continue
-        
-        dict_match = re.match(r'^([A-Z_][A-Z0-9_]*)\s*=\s*\{', stripped)
-        if dict_match:
-            current_dict = dict_match.group(1)
-            dict_content = [line]
-            brace_count = line.count('{') - line.count('}')
-            if brace_count == 0:
-                try:
-                    match = re.match(r'^[A-Z_][A-Z0-9_]*\s*=\s*(\{.*\})', stripped)
-                    if match:
-                        config_dicts[current_dict] = ast.literal_eval(match.group(1))
-                except:
-                    pass
-                current_dict, dict_content = None, []
-            continue
-        
-        var_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+?)(?:\s*#.*)?$', stripped)
-        if var_match:
-            name, value = var_match.group(1), var_match.group(2).strip()
-            if not value.startswith(('{', '[')):
-                try:
-                    config_vars[name] = ast.literal_eval(value)
-                except:
-                    config_vars[name] = value
-    
-    return config_vars, config_dicts
-
-def _get_default_config():
-    """获取默认配置"""
-    try:
-        resp = requests.get(_API_URL + "?file=config.py", timeout=10)
-        if resp.status_code == 200:
-            return resp.text
-    except:
-        pass
-    template = os.path.join(_BASE_DIR, 'config.py.template')
-    return open(template, 'r', encoding='utf-8').read() if os.path.exists(template) else None
-
-
-def handle_check_config_diff():
-    """检查配置文件差异"""
-    if not os.path.exists(_CONFIG_PATH):
-        return jsonify({'success': False, 'message': '配置文件不存在'})
-    
-    with open(_CONFIG_PATH, 'r', encoding='utf-8') as f:
-        current_vars, current_dicts = _parse_config_file(f.read())
-    
-    default_content = _get_default_config()
-    if not default_content:
-        return jsonify({'success': True, 'has_diff': False, 'message': '无法获取默认配置模板'})
-    
-    default_vars, default_dicts = _parse_config_file(default_content)
-    
-    missing_vars = [{'name': k, 'value': v, 'type': type(v).__name__} 
-                    for k, v in default_vars.items() if k not in current_vars]
-    missing_vars += [{'name': k, 'value': v, 'type': 'dict'} 
-                     for k, v in default_dicts.items() if k not in current_dicts]
-    
-    missing_keys = []
-    for dict_name, dict_value in default_dicts.items():
-        if dict_name in current_dicts:
-            for key, value in dict_value.items():
-                if key not in current_dicts[dict_name]:
-                    missing_keys.append({'dict_name': dict_name, 'key': key, 'value': value, 'type': type(value).__name__})
-    
-    return jsonify({
-        'success': True, 'has_diff': bool(missing_vars or missing_keys),
-        'missing_vars': missing_vars, 'missing_dict_keys': missing_keys,
-        'total_missing': len(missing_vars) + len(missing_keys)
-    })
-
-
-def handle_auto_fill_config():
-    """自动补全缺失的配置项"""
-    if not os.path.exists(_CONFIG_PATH):
-        return jsonify({'success': False, 'message': '配置文件不存在'})
-    
-    with open(_CONFIG_PATH, 'r', encoding='utf-8') as f:
-        current_content = f.read()
-    
-    default_content = _get_default_config()
-    if not default_content:
-        return jsonify({'success': False, 'message': '无法获取默认配置模板'})
-    
-    current_vars, current_dicts = _parse_config_file(current_content)
-    default_vars, default_dicts = _parse_config_file(default_content)
-    
-    additions = []
-    
-    # 补全缺失的变量
-    for name, value in default_vars.items():
-        if name not in current_vars:
-            additions.append(f"{name} = {repr(value)}")
-    
-    # 补全缺失的字典
-    for name, value in default_dicts.items():
-        if name not in current_dicts:
-            additions.append(f"{name} = {repr(value)}")
-    
-    # 补全字典内缺失的键（简化处理：追加到文件末尾作为注释提示）
-    dict_key_hints = []
-    for dict_name, dict_value in default_dicts.items():
-        if dict_name in current_dicts:
-            for key, value in dict_value.items():
-                if key not in current_dicts[dict_name]:
-                    dict_key_hints.append(f"# {dict_name}['{key}'] = {repr(value)}")
-    
-    if not additions and not dict_key_hints:
-        return jsonify({'success': True, 'message': '配置已是最新，无需补全'})
-    
-    # 备份
-    backup_path = _CONFIG_PATH + '.backup'
-    with open(backup_path, 'w', encoding='utf-8') as f:
-        f.write(current_content)
-    
-    # 追加内容
-    new_content = current_content.rstrip() + '\n'
-    if additions:
-        new_content += '\n# ===== 自动补全的配置项 =====\n'
-        new_content += '\n'.join(additions) + '\n'
-    if dict_key_hints:
-        new_content += '\n# ===== 字典内缺失的键（请手动添加到对应字典中）=====\n'
-        new_content += '\n'.join(dict_key_hints) + '\n'
-    
-    try:
-        compile(new_content, '<string>', 'exec')
-    except SyntaxError as e:
-        return jsonify({'success': False, 'message': f'生成的配置文件语法错误: {e}'})
-    
-    with open(_CONFIG_PATH, 'w', encoding='utf-8') as f:
-        f.write(new_content)
-    
-    return jsonify({
-        'success': True,
-        'message': f'成功补全 {len(additions)} 个配置项，{len(dict_key_hints)} 个字典键提示',
-        'backup_path': backup_path
-    })
+# 配置解析相关代码已移至 updater.py

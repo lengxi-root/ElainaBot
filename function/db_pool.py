@@ -8,10 +8,12 @@ from concurrent.futures import ThreadPoolExecutor, Future
 
 logger = logging.getLogger('ElainaBot.function.db_pool')
 
-try:
-    from web.app import add_framework_log
-except:
-    def add_framework_log(msg):
+def add_framework_log(msg):
+    """延迟导入避免循环依赖"""
+    try:
+        from web.app import add_framework_log as _add_framework_log
+        _add_framework_log(msg)
+    except:
         pass
 
 _CONNECTION_TIMEOUT = DB_CONFIG['connect_timeout']
@@ -45,6 +47,7 @@ class DatabasePool:
     _pool = []
     _busy_connections = {}
     _initialized = False
+    _db_available = False
     _connection_requests = queue.Queue()
     _thread_pool = None
     
@@ -59,9 +62,60 @@ class DatabasePool:
             if not self._initialized:
                 self._thread_pool = ThreadPoolExecutor(max_workers=300, thread_name_prefix="DBPool")
                 threading.Thread(target=self._process_connection_requests, daemon=True, name="DBConnRequestProcessor").start()
-                self._init_pool()
-                threading.Thread(target=self._maintain_pool, daemon=True, name="DBPoolMaintenance").start()
+                self._init_pool_with_timeout()
+                if self._db_available:
+                    threading.Thread(target=self._maintain_pool, daemon=True, name="DBPoolMaintenance").start()
                 self._initialized = True
+
+    def _create_connection_quick(self, timeout=5):
+        """快速创建连接，不重试，用于初始化检测"""
+        try:
+            return pymysql.connect(
+                host=_DB_HOST, port=_DB_PORT, user=_DB_USER, password=_DB_PASSWORD,
+                database=_DB_DATABASE, charset='utf8mb4', cursorclass=DictCursor,
+                connect_timeout=timeout, read_timeout=_READ_TIMEOUT,
+                write_timeout=_WRITE_TIMEOUT, autocommit=_DB_AUTOCOMMIT
+            )
+        except Exception as e:
+            logger.warning(f"主数据库连接失败: {e}")
+            return None
+
+    def _init_pool_with_timeout(self):
+        """带5秒超时的连接池初始化"""
+        result = [None]
+        init_done = threading.Event()
+        
+        def try_connect():
+            conn = self._create_connection_quick(timeout=5)
+            result[0] = conn
+            init_done.set()
+        
+        connect_thread = threading.Thread(target=try_connect, daemon=True)
+        connect_thread.start()
+        
+        if not init_done.wait(timeout=5):
+            logger.warning("主数据库连接超时(5秒)，数据库功能将不可用")
+            self._db_available = False
+            return
+        
+        conn = result[0]
+        if conn:
+            current_time = time.time()
+            self._pool.append({'connection': conn, 'created_at': current_time, 'last_used': current_time})
+            self._db_available = True
+            add_framework_log(f"主数据库连接池初始化完成")
+            # 继续创建剩余连接
+            for _ in range(_MIN_CONNECTIONS - 1):
+                conn = self._create_connection_quick(timeout=3)
+                if conn:
+                    self._pool.append({'connection': conn, 'created_at': current_time, 'last_used': current_time})
+        else:
+            logger.warning("主数据库连接失败，数据库功能将不可用")
+            self._db_available = False
+
+    def is_available(self):
+        """检查数据库是否可用"""
+        return self._db_available
 
     def _retry_with_backoff(self, func, max_retries=_RETRY_COUNT, base_delay=_RETRY_INTERVAL):
         delay = base_delay
@@ -88,19 +142,10 @@ class DatabasePool:
             connection.close()
         except:
             pass
-
-    def _init_pool(self):
-        successful = 0
-        for _ in range(_MIN_CONNECTIONS):
-            conn = self._create_connection()
-            if conn:
-                successful += 1
-                current_time = time.time()
-                self._pool.append({'connection': conn, 'created_at': current_time, 'last_used': current_time})
-        if successful > 0:
-            add_framework_log(f"动态数据库连接池初始化完成，最少{_MIN_CONNECTIONS}个连接")
     
     def _create_connection(self):
+        if not self._db_available:
+            return None
         def create_func():
             return pymysql.connect(
                 host=_DB_HOST, port=_DB_PORT, user=_DB_USER, password=_DB_PASSWORD,

@@ -50,7 +50,7 @@ def _decimal_converter(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 class LogDatabasePool:
-    __slots__ = ('_thread_pool', '_pool', '_busy_connections', '_initialized')
+    __slots__ = ('_thread_pool', '_pool', '_busy_connections', '_initialized', '_db_available')
     _instance = None
     _init_lock = threading.Lock()
     
@@ -66,12 +66,28 @@ class LogDatabasePool:
             return
         self._pool = []
         self._busy_connections = {}
+        self._db_available = False
         self._thread_pool = ThreadPoolExecutor(max_workers=None, thread_name_prefix="LogDBPool")
-        self._init_pool()
-        threading.Thread(target=self._maintain_pool, daemon=True, name="LogDBPoolMaintenance").start()
+        self._init_pool_with_timeout()
+        if self._db_available:
+            threading.Thread(target=self._maintain_pool, daemon=True, name="LogDBPoolMaintenance").start()
         self._initialized = True
 
+    def _create_connection_quick(self, timeout=5):
+        """快速创建连接，不重试，用于初始化检测"""
+        try:
+            return pymysql.connect(
+                host=_DB_HOST, port=_DB_PORT, user=_DB_USER, password=_DB_PASSWORD,
+                database=_DB_DATABASE, charset='utf8mb4', cursorclass=DictCursor,
+                connect_timeout=timeout, read_timeout=3, write_timeout=3, autocommit=False
+            )
+        except Exception as e:
+            logger.warning(f"日志数据库连接失败: {e}")
+            return None
+
     def _create_connection(self):
+        if not self._db_available:
+            return None
         delay = _RETRY_INTERVAL
         for i in range(_MAX_RETRY):
             try:
@@ -86,12 +102,43 @@ class LogDatabasePool:
                     delay *= 2
         return None
     
-    def _init_pool(self):
+    def _init_pool_with_timeout(self):
+        """带5秒超时的连接池初始化，超时则降级为文本日志"""
         current_time = time.time()
-        for _ in range(_MIN_POOL_SIZE):
-            conn = self._create_connection()
-            if conn:
-                self._pool.append({'connection': conn, 'created_at': current_time, 'last_used': current_time})
+        result = [None]
+        init_done = threading.Event()
+        
+        def try_connect():
+            conn = self._create_connection_quick(timeout=5)
+            result[0] = conn
+            init_done.set()
+        
+        connect_thread = threading.Thread(target=try_connect, daemon=True)
+        connect_thread.start()
+        
+        # 等待5秒超时
+        if not init_done.wait(timeout=5):
+            logger.warning("日志数据库连接超时(5秒)，降级为文本日志记录")
+            self._db_available = False
+            return
+        
+        conn = result[0]
+        if conn:
+            self._pool.append({'connection': conn, 'created_at': current_time, 'last_used': current_time})
+            self._db_available = True
+            logger.info("日志数据库连接成功")
+            # 继续创建剩余连接
+            for _ in range(_MIN_POOL_SIZE - 1):
+                conn = self._create_connection_quick(timeout=3)
+                if conn:
+                    self._pool.append({'connection': conn, 'created_at': current_time, 'last_used': current_time})
+        else:
+            logger.warning("日志数据库连接失败，降级为文本日志记录")
+            self._db_available = False
+    
+    def is_available(self):
+        """检查数据库是否可用"""
+        return self._db_available
     
     def _check_connection(self, connection):
         try:
@@ -174,7 +221,7 @@ class LogDatabasePool:
 
 class LogDatabaseManager:
     __slots__ = ('pool', 'tables_created', 'log_queues', 'id_cache', 'id_cache_lock',
-                 '_sql_templates', '_field_extractors', '_table_schemas', '_stop_event')
+                 '_sql_templates', '_field_extractors', '_table_schemas', '_stop_event', '_fallback_mode')
     _instance = None
     _lock = threading.Lock()
     
@@ -188,18 +235,19 @@ class LogDatabaseManager:
         if hasattr(self, 'pool') and self.pool:
             return
         self.pool = LogDatabasePool()
+        self._fallback_mode = not self.pool.is_available()
         self.tables_created = set()
         self.log_queues = {t: queue.Queue() for t in _LOG_TYPES}
         self.id_cache = {}
         self.id_cache_lock = threading.Lock()
         self._init_sql_templates()
         self._init_table_schemas()
-        if _CREATE_TABLES:
+        if not self._fallback_mode and _CREATE_TABLES:
             for t in _LOG_TYPES:
                 self._create_table(t)
         self._stop_event = threading.Event()
         threading.Thread(target=self._periodic_save, daemon=True, name="LogDBSaveThread").start()
-        if _RETENTION_DAYS > 0:
+        if not self._fallback_mode and _RETENTION_DAYS > 0:
             threading.Thread(target=self._periodic_cleanup, daemon=True, name="LogDBCleanupThread").start()
 
     def _init_sql_templates(self):
@@ -402,6 +450,21 @@ class LogDatabaseManager:
         if size == 0:
             return
         batch = size if _BATCH_SIZE == 0 else min(size, _BATCH_SIZE)
+        
+        # 降级模式：直接写入文件
+        if self._fallback_mode:
+            logs = []
+            for _ in range(batch):
+                try:
+                    logs.append(q.get_nowait())
+                except queue.Empty:
+                    break
+            if logs and _FALLBACK_TO_FILE:
+                self._fallback_to_file(log_type, logs)
+            for _ in range(len(logs)):
+                q.task_done()
+            return
+        
         if not self._create_table(log_type):
             logger.error(f"创建表失败: {log_type}")
             return

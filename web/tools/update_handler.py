@@ -1,10 +1,12 @@
 import threading, requests, os
 from datetime import datetime
 from flask import request, jsonify
+from werkzeug.utils import secure_filename
 
 _API_URL = "https://i.elaina.vin/api/elainabot/"
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _CONFIG_PATH = os.path.join(_BASE_DIR, 'config.py')
+_UPLOAD_DIR = os.path.join(_BASE_DIR, 'data', 'temp_update')
 
 def handle_get_changelog():
     """获取更新日志 - 统一使用 GitHub API 格式"""
@@ -109,5 +111,43 @@ def handle_apply_config_diff():
     from web.tools.updater import get_updater
     result = get_updater().apply_config_diff(missing)
     return jsonify(result)
+
+def handle_upload_update():
+    """处理上传压缩包更新"""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': '没有上传文件'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'message': '没有选择文件'}), 400
+    
+    if not file.filename.lower().endswith('.zip'):
+        return jsonify({'success': False, 'message': '只支持 ZIP 格式的压缩包'}), 400
+    
+    try:
+        # 确保上传目录存在
+        os.makedirs(_UPLOAD_DIR, exist_ok=True)
+        
+        # 保存文件
+        filename = secure_filename(file.filename) or f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        filepath = os.path.join(_UPLOAD_DIR, filename)
+        file.save(filepath)
+        
+        # 获取版本名（可选）
+        version_name = request.form.get('version_name', '').strip() or None
+        
+        from web.tools.updater import get_updater
+        updater = get_updater()
+        
+        def do_update():
+            try:
+                updater.update_from_upload(filepath, version_name)
+            except Exception as e:
+                updater._report_progress('failed', f'更新出错: {e}', 0)
+        
+        threading.Thread(target=do_update, daemon=True).start()
+        return jsonify({'success': True, 'message': '上传成功，开始更新'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'上传失败: {e}'}), 500
 
 # 配置解析相关代码已移至 updater.py

@@ -13,6 +13,7 @@
             </div>
             <div class="header-actions">
                 <button class="action-btn" onclick="showSourceSelector()"><i class="bi bi-cloud-download"></i> 下载源</button>
+                <button class="action-btn" onclick="showUploadModal()"><i class="bi bi-upload"></i> 上传更新</button>
                 <button class="action-btn" onclick="checkUpdate()"><i class="bi bi-search"></i> 检查更新</button>
                 <button class="action-btn warning" onclick="forceUpdate()"><i class="bi bi-arrow-repeat"></i> 强制更新</button>
                 <button class="action-btn primary" id="update-btn" onclick="startUpdate()" style="display: none;"><i class="bi bi-download"></i> 立即更新</button>
@@ -31,6 +32,40 @@
                 <p class="source-tip">如果默认代理服务器无法连接，可以尝试切换到其他下载源</p>
                 <div id="source-list" class="source-list">
                     <div class="loading-state"><div class="spinner-sm"></div> 加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传更新弹窗 -->
+    <div id="upload-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content upload-modal">
+            <div class="modal-header upload-header">
+                <h5><i class="bi bi-upload"></i> 上传压缩包更新</h5>
+                <button class="close-btn" onclick="closeUploadModal()"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="upload-tip">上传框架压缩包进行手动更新，支持 ZIP 格式</p>
+                <div class="upload-area" id="upload-area" onclick="document.getElementById('upload-input').click()">
+                    <input type="file" id="upload-input" accept=".zip" style="display: none;" onchange="handleFileSelect(event)">
+                    <div class="upload-icon"><i class="bi bi-cloud-arrow-up"></i></div>
+                    <div class="upload-text">点击选择或拖拽文件到此处</div>
+                    <div class="upload-hint">仅支持 .zip 格式</div>
+                </div>
+                <div id="selected-file" class="selected-file" style="display: none;">
+                    <i class="bi bi-file-earmark-zip"></i>
+                    <span id="selected-filename"></span>
+                    <button class="remove-file-btn" onclick="clearSelectedFile()"><i class="bi bi-x"></i></button>
+                </div>
+                <div class="version-input">
+                    <label for="version-name">版本名称（可选）</label>
+                    <input type="text" id="version-name" placeholder="留空则自动生成">
+                </div>
+                <div class="upload-actions">
+                    <button class="cancel-btn" onclick="closeUploadModal()">取消</button>
+                    <button class="upload-btn" id="start-upload-btn" onclick="startUploadUpdate()" disabled>
+                        <i class="bi bi-cloud-upload"></i> 开始更新
+                    </button>
                 </div>
             </div>
         </div>
@@ -108,7 +143,7 @@
 
 {% block scripts %}
 <script>
-let changelogData = [], latestVersion = null, currentSource = 'proxy', availableSources = {}, pendingConfigDiff = null;
+let changelogData = [], latestVersion = null, currentSource = 'proxy', availableSources = {}, pendingConfigDiff = null, selectedFile = null;
 const getToken = () => new URLSearchParams(window.location.search).get('token') || '';
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -146,6 +181,115 @@ function showSourceSelector() {
 function closeSourceModal() {
     document.getElementById('source-modal').style.display = 'none';
 }
+
+// 上传更新相关函数
+function showUploadModal() {
+    document.getElementById('upload-modal').style.display = 'flex';
+    clearSelectedFile();
+}
+
+function closeUploadModal() {
+    document.getElementById('upload-modal').style.display = 'none';
+    clearSelectedFile();
+}
+
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) {
+        if (!file.name.toLowerCase().endsWith('.zip')) {
+            showToast('只支持 ZIP 格式的压缩包', 'error');
+            return;
+        }
+        selectedFile = file;
+        document.getElementById('selected-file').style.display = 'flex';
+        document.getElementById('selected-filename').textContent = file.name + ' (' + formatFileSize(file.size) + ')';
+        document.getElementById('upload-area').style.display = 'none';
+        document.getElementById('start-upload-btn').disabled = false;
+    }
+}
+
+function clearSelectedFile() {
+    selectedFile = null;
+    document.getElementById('upload-input').value = '';
+    document.getElementById('selected-file').style.display = 'none';
+    document.getElementById('upload-area').style.display = 'flex';
+    document.getElementById('start-upload-btn').disabled = true;
+    document.getElementById('version-name').value = '';
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function startUploadUpdate() {
+    if (!selectedFile) {
+        showToast('请先选择文件', 'error');
+        return;
+    }
+    
+    if (!confirm('确定要使用上传的压缩包更新框架吗？\n\n更新前会自动备份当前版本。')) return;
+    
+    closeUploadModal();
+    document.getElementById('update-progress-section').style.display = 'block';
+    document.getElementById('progress-stage').textContent = '上传中...';
+    document.getElementById('progress-message').textContent = '正在上传文件...';
+    document.getElementById('update-progress-bar').style.width = '10%';
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        const versionName = document.getElementById('version-name').value.trim();
+        if (versionName) {
+            formData.append('version_name', versionName);
+        }
+        
+        const result = await (await fetch(`/web/api/update/upload?token=${getToken()}`, {
+            method: 'POST',
+            body: formData
+        })).json();
+        
+        if (result.success) {
+            pollUpdateProgress();
+        } else {
+            throw new Error(result.message);
+        }
+    } catch (e) {
+        document.getElementById('progress-stage').textContent = '上传失败';
+        document.getElementById('progress-message').textContent = e.message;
+        document.getElementById('update-progress-section').className = 'progress-section failed';
+    }
+}
+
+// 拖拽上传支持
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadArea = document.getElementById('upload-area');
+    if (uploadArea) {
+        uploadArea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', function(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                document.getElementById('upload-input').files = files;
+                handleFileSelect({target: {files: files}});
+            }
+        });
+    }
+    
+    // 点击弹窗外部关闭
+    document.getElementById('upload-modal')?.addEventListener('click', function(e) {
+        if (e.target === this) closeUploadModal();
+    });
+});
 
 function renderSourceList() {
     const container = document.getElementById('source-list');
@@ -483,6 +627,47 @@ document.getElementById('source-modal').addEventListener('click', function(e) {
 .action-btn.primary:hover { background: #f0f0f0; }
 .action-btn.warning { background: rgba(245, 158, 11, 0.9); color: #fff; }
 .action-btn.warning:hover { background: rgba(217, 119, 6, 1); }
+
+/* 上传更新弹窗 */
+.upload-modal { max-width: 480px; }
+.upload-header { background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important; }
+.upload-tip { font-size: 0.85rem; color: #666; margin: 0 0 1rem; padding: 0.75rem; background: #f0fdf4; border-radius: 8px; border-left: 3px solid #10b981; }
+.upload-area {
+    border: 2px dashed #d1d5db; border-radius: 12px; padding: 2rem;
+    text-align: center; cursor: pointer; transition: all 0.2s;
+    background: #f9fafb;
+}
+.upload-area:hover, .upload-area.dragover { border-color: #10b981; background: #f0fdf4; }
+.upload-icon { font-size: 2.5rem; color: #9ca3af; margin-bottom: 0.75rem; }
+.upload-area:hover .upload-icon, .upload-area.dragover .upload-icon { color: #10b981; }
+.upload-text { font-size: 0.95rem; color: #374151; margin-bottom: 0.25rem; }
+.upload-hint { font-size: 0.8rem; color: #9ca3af; }
+.selected-file {
+    display: flex; align-items: center; gap: 0.5rem;
+    background: #f0fdf4; border: 1px solid #10b981; border-radius: 8px;
+    padding: 0.75rem 1rem; margin-top: 0.5rem;
+}
+.selected-file i { font-size: 1.25rem; color: #10b981; }
+.selected-file span { flex: 1; font-size: 0.9rem; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remove-file-btn { background: none; border: none; color: #9ca3af; cursor: pointer; padding: 0.25rem; }
+.remove-file-btn:hover { color: #ef4444; }
+.version-input { margin-top: 1rem; }
+.version-input label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+.version-input input {
+    width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #d1d5db; border-radius: 8px;
+    font-size: 0.9rem; transition: all 0.2s; box-sizing: border-box;
+}
+.version-input input:focus { outline: none; border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1); }
+.upload-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.25rem; }
+.cancel-btn { padding: 0.5rem 1rem; background: #e5e7eb; color: #666; border: none; border-radius: 8px; cursor: pointer; }
+.cancel-btn:hover { background: #d1d5db; }
+.upload-btn {
+    padding: 0.5rem 1.25rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #fff; border: none; border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;
+}
+.upload-btn:hover:not(:disabled) { opacity: 0.9; }
+.upload-btn:disabled { background: #d1d5db; cursor: not-allowed; }
 
 /* 配置差异弹窗 */
 .config-modal { max-width: 550px; }

@@ -368,6 +368,11 @@ def test_download_source():
 def apply_config_diff():
     return update_handler.handle_apply_config_diff()
 
+@web.route('/api/update/upload', methods=['POST'])
+@token_auth
+def upload_update():
+    return update_handler.handle_upload_update()
+
 @web.route('/api/config/get')
 @token_auth
 def get_config():

@@ -393,6 +393,34 @@ class FrameworkUpdater:
         except Exception as e:
             self._report_progress('failed', f'获取版本失败: {e}', 0)
             return {'success': False, 'message': str(e)}
+    
+    def update_from_upload(self, zip_file_path, version_name=None):
+        """从上传的压缩包更新"""
+        try:
+            self._report_progress('preparing', '准备从上传的压缩包更新...', 0)
+            
+            # 验证文件
+            if not os.path.exists(zip_file_path):
+                self._report_progress('failed', '上传的文件不存在', 0)
+                return {'success': False, 'message': '上传的文件不存在'}
+            
+            if not zipfile.is_zipfile(zip_file_path):
+                self._report_progress('failed', '无效的压缩包格式', 0)
+                return {'success': False, 'message': '无效的压缩包格式，请上传 ZIP 文件'}
+            
+            # 生成版本号
+            version = version_name or f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            self._report_progress('updating', '正在应用更新...', 40)
+            result = self.apply_update(zip_file_path, version)
+            
+            if result['success']:
+                self._save_version(version)
+            
+            return result
+        except Exception as e:
+            self._report_progress('failed', f'更新失败: {e}', 0)
+            return {'success': False, 'message': str(e)}
 
 _updater = None
 def get_updater():

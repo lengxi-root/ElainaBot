@@ -242,6 +242,11 @@ class MessageEvent:
         self.group_id = self.guild_id = None
         self.is_group = False
         self.is_private = True
+        
+        # 记录私聊用户召回状态
+        if self.user_id:
+            from function.log_db import update_user_wakeup
+            update_user_wakeup(self.user_id)
 
     def _parse_interaction(self):
         if self.get('d/type') == 13:
@@ -362,7 +367,32 @@ class MessageEvent:
         self.is_group, self.is_private = False, True
         self.timestamp = self.get('d/timestamp')
         self.id = self.get('id')
+        
+        self.scene = self.get('d/scene') or 0
+        self.scene_param = self.get('d/scene_param')
+        self.sharer_id = None
+        
+        try:
+            self.scene = int(self.scene)
+        except:
+            self.scene = 0
+        
+        if self.scene_param:
+            try:
+                data = json.loads(self.scene_param) if isinstance(self.scene_param, str) else self.scene_param
+                self.sharer_id = data.get('callbackData', '') if isinstance(data, dict) else self.scene_param
+            except:
+                self.sharer_id = self.scene_param
+            
+            if self.sharer_id:
+                from function.log_db import record_share_relation
+                record_share_relation(self.sharer_id, self.user_id, self.scene)
+        
         self.content = f"用户 {self.user_id} 添加机器人为好友"
+        if self.sharer_id:
+            from function.log_db import get_scene_name
+            self.content += f" (通过 {self.sharer_id} 的分享链接, 场景: {get_scene_name(self.scene)})"
+        
         self.handled = self.welcome_allowed = True
         from function.log_db import add_dau_event_to_db
         add_dau_event_to_db('friend_add')
@@ -687,7 +717,10 @@ class MessageEvent:
                     'message': resp_obj.get('message', '未知错误'),
                     'code': error_code
                 })
-            return self._extract_message_id(response)
+            msg_id = self._extract_message_id(response)
+            if msg_id:
+                self._last_sent_payload = payload
+            return msg_id
         return None
 
     def _send_simple_message(self, payload_builder, content_type, auto_delete_time=None, **kwargs):
@@ -1190,3 +1223,102 @@ class MessageEvent:
             return None
         except:
             return None
+
+    def get_share_link(self, callback_data=None):
+        if callback_data is None:
+            callback_data = self.user_id
+        if not callback_data:
+            return None
+        try:
+            response = BOTAPI("/v2/generate_url_link", "POST", Json({"callbackData": str(callback_data)}))
+            resp_data = json.loads(response) if isinstance(response, str) else response
+            if resp_data.get('retcode') == 0 and resp_data.get('data', {}).get('url'):
+                return resp_data['data']['url']
+            return None
+        except:
+            return None
+
+    def get_share_referrals(self):
+        if not self.user_id:
+            return {}
+        try:
+            from function.log_db import get_share_referrals
+            return get_share_referrals(self.user_id)
+        except:
+            return {}
+
+    def get_share_count(self):
+        if not self.user_id:
+            return 0
+        try:
+            from function.log_db import get_share_count
+            return get_share_count(self.user_id)
+        except:
+            return 0
+
+    def send_wakeup(self, user_id, content='', buttons=None):
+        from function.log_db import can_send_wakeup, mark_wakeup_sent
+        
+        can_send, stage, days = can_send_wakeup(user_id)
+        if not can_send:
+            if days == -1:
+                return (False, "用户未在召回表中(从未发过消息)")
+            elif days > 30:
+                return (False, f"超过30天({days}天)无法召回")
+            else:
+                return (False, f"今日已推送过该周期(周期{stage})")
+        
+        try:
+            payload = {"msg_type": 0, "content": content, "msg_seq": self._generate_msg_seq(), "is_wakeup": True}
+            if buttons:
+                payload["keyboard"] = buttons
+            
+            response = BOTAPI(f"/v2/users/{user_id}/messages", "POST", Json(payload))
+            resp_data = json.loads(response) if isinstance(response, str) else response
+            
+            msg_id = resp_data.get('id') or resp_data.get('msg_id')
+            if msg_id:
+                mark_wakeup_sent(user_id, stage)
+                self._record_sent_message_for_user(user_id, payload, "召回消息")
+                return (True, msg_id)
+            return (False, resp_data.get('message', '发送失败'))
+        except Exception as e:
+            return (False, str(e))
+
+    def can_send_wakeup(self, user_id=None):
+        from function.log_db import can_send_wakeup
+        return can_send_wakeup(user_id or self.user_id)
+
+    def force_wakeup(self, user_id, content='', buttons=None):
+        try:
+            payload = {"msg_type": 0, "content": content, "msg_seq": self._generate_msg_seq(), "is_wakeup": True}
+            if buttons:
+                payload["keyboard"] = buttons
+            response = BOTAPI(f"/v2/users/{user_id}/messages", "POST", Json(payload))
+            resp_data = json.loads(response) if isinstance(response, str) else response
+            msg_id = resp_data.get('id') or resp_data.get('msg_id')
+            if msg_id:
+                self._record_sent_message_for_user(user_id, payload, "强制召回消息")
+                return (True, msg_id)
+            return (False, resp_data.get('message', '发送失败'))
+        except Exception as e:
+            return (False, str(e))
+
+    def _record_sent_message_for_user(self, user_id, payload, content_type="消息"):
+        from config import SAVE_RAW_MESSAGE_TO_DB
+        if not SAVE_RAW_MESSAGE_TO_DB:
+            return
+        try:
+            content = payload.get('content', '') or f"[{content_type}]"
+            db_entry = {
+                'timestamp': datetime.datetime.now().strftime(self._TIMESTAMP_FORMAT),
+                'type': 'sent',
+                'content': content,
+                'user_id': user_id or "",
+                'group_id': "c2c",
+                'plugin_name': '',
+                'raw_message': json.dumps(payload, ensure_ascii=False)
+            }
+            add_log_to_db('message', db_entry)
+        except:
+            pass

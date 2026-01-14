@@ -11,17 +11,10 @@ error_logs = deque(maxlen=_MAX_LOGS)
 _GLOBAL_LOGS = {'message': message_logs, 'framework': framework_logs, 'error': error_logs}
 
 socketio = None
-LOG_DB_CONFIG = None
-add_log_to_db = None
 
 def set_socketio(sio):
     global socketio
     socketio = sio
-
-def set_log_db_config(config, add_log_func):
-    global LOG_DB_CONFIG, add_log_to_db
-    LOG_DB_CONFIG = config
-    add_log_to_db = add_log_func
 
 def catch_error(func):
     @functools.wraps(func)
@@ -40,30 +33,15 @@ class LogHandler:
         self.logs = deque(maxlen=_MAX_LOGS)
         self.global_logs = _GLOBAL_LOGS.get(log_type, message_logs)
     
-    def add(self, content, traceback_info=None, skip_db=False):
-        if isinstance(content, dict):
-            entry = content.copy()
-        else:
-            entry = {
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'content': content
-            }
-        
+    def add(self, content, traceback_info=None):
+        entry = content.copy() if isinstance(content, dict) else {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'content': content}
         if 'timestamp' not in entry:
             entry['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
         if traceback_info:
             entry['traceback'] = traceback_info
         
         self.logs.append(entry)
         self.global_logs.append(entry)
-        
-        if not skip_db and LOG_DB_CONFIG:
-            try:
-                if add_log_to_db:
-                    add_log_to_db(self.log_type, entry)
-            except:
-                pass
         
         if socketio:
             try:
@@ -103,10 +81,10 @@ def add_display_message(formatted_message, timestamp=None, user_id=None, group_i
                  'user_id': user_id, 'group_id': group_id or '-', 'message': message_content, 'raw_message': message_content}
     else:
         entry = {'timestamp': ts, 'type': 'received', 'content': formatted_message}
-    return message_handler.add(entry, skip_db=True)
+    return message_handler.add(entry)
 
 @catch_error
-def add_plugin_log(log, user_id=None, group_id=None, plugin_name=None):
+def add_plugin_log(log, user_id=None, group_id=None, plugin_name=None, raw_message=None):
     ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if isinstance(log, str):
         log_data = {'timestamp': ts, 'type': 'plugin', 'content': log,
@@ -114,6 +92,8 @@ def add_plugin_log(log, user_id=None, group_id=None, plugin_name=None):
     else:
         log_data = log.copy() if isinstance(log, dict) else {'content': str(log)}
         log_data.update({'type': 'plugin', 'user_id': user_id or '', 'group_id': group_id or 'c2c', 'plugin_name': plugin_name or ''})
+    if raw_message:
+        log_data['raw_message'] = raw_message
     return message_handler.add(log_data)
 
 @catch_error

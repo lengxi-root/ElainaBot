@@ -44,6 +44,60 @@ _CLEANUP_TABLES_SQL = "SELECT TABLE_NAME as table_name FROM information_schema.t
 
 _FALLBACK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'log')
 
+# ==================== 分享表相关常量 ====================
+_SHARE_TABLE = f"{_TABLE_PREFIX}Share"
+_share_table_initialized = False
+
+_SQL_CREATE_SHARE_TABLE = f"""
+CREATE TABLE IF NOT EXISTS `{_SHARE_TABLE}` (
+    `id` bigint(20) NOT NULL AUTO_INCREMENT,
+    `openid` varchar(255) NOT NULL COMMENT '分享者openid或自定义callbackData',
+    `referrals` json DEFAULT NULL COMMENT '被邀请用户信息 {{openid: scene}}',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_openid` (`openid`),
+    KEY `idx_updated_at` (`updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
+_SQL_SELECT_SHARE_REFERRALS = f"SELECT referrals FROM `{_SHARE_TABLE}` WHERE openid = %s"
+_SQL_INSERT_SHARE = f"INSERT INTO `{_SHARE_TABLE}` (openid, referrals) VALUES (%s, %s)"
+_SQL_UPDATE_SHARE_REFERRALS = f"UPDATE `{_SHARE_TABLE}` SET referrals = %s WHERE openid = %s"
+
+# 场景值定义
+SHARE_SCENE_MAP = {
+    0: '未知',
+    1000: '缺省默认值',
+    1001: '网络搜索(全部tab)',
+    1002: '网络搜索(机器人tab)',
+    1003: '群场景',
+    1004: '空间场景',
+    2001: '站内分享资料页',
+    2002: '站外分享资料页',
+    2003: '开发者分享链接(站内)',
+    2004: '开发者分享链接(站外)',
+}
+
+# ==================== 召回表相关常量 ====================
+_WAKEUP_TABLE = f"{_TABLE_PREFIX}Wakeup"
+_wakeup_table_initialized = False
+
+_SQL_CREATE_WAKEUP_TABLE = f"""
+CREATE TABLE IF NOT EXISTS `{_WAKEUP_TABLE}` (
+    `openid` varchar(255) NOT NULL,
+    `last_msg_date` date NOT NULL,
+    `wakeup_stage` tinyint NOT NULL DEFAULT 0 COMMENT '0=未推送,1-4=已推送周期',
+    `last_wakeup_date` date DEFAULT NULL COMMENT '最后推送日期',
+    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`openid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
+_SQL_SELECT_WAKEUP = f"SELECT last_msg_date, wakeup_stage, last_wakeup_date FROM `{_WAKEUP_TABLE}` WHERE openid = %s"
+_SQL_UPSERT_WAKEUP = f"INSERT INTO `{_WAKEUP_TABLE}` (openid, last_msg_date, wakeup_stage) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE last_msg_date = VALUES(last_msg_date), wakeup_stage = VALUES(wakeup_stage)"
+_SQL_UPDATE_WAKEUP_STAGE = f"UPDATE `{_WAKEUP_TABLE}` SET wakeup_stage = %s, last_wakeup_date = %s WHERE openid = %s"
+
 def _decimal_converter(obj):
     if isinstance(obj, Decimal):
         return int(obj) if obj % 1 == 0 else float(obj)
@@ -245,6 +299,8 @@ class LogDatabaseManager:
         if not self._fallback_mode and _CREATE_TABLES:
             for t in _LOG_TYPES:
                 self._create_table(t)
+            self._create_share_table()
+            self._create_wakeup_table()
         self._stop_event = threading.Event()
         threading.Thread(target=self._periodic_save, daemon=True, name="LogDBSaveThread").start()
         if not self._fallback_mode and _RETENTION_DAYS > 0:
@@ -517,6 +573,30 @@ class LogDatabaseManager:
             cursor.execute(f"DELETE FROM `{table_name}` WHERE `timestamp` < %s", (cutoff,))
             conn.commit()
 
+    def _create_share_table(self):
+        global _share_table_initialized
+        try:
+            with self._with_cursor() as (cursor, conn):
+                cursor.execute(_SQL_CREATE_SHARE_TABLE)
+                conn.commit()
+                _share_table_initialized = True
+                return True
+        except Exception as e:
+            logger.error(f"初始化分享表失败: {e}")
+            return False
+
+    def _create_wakeup_table(self):
+        global _wakeup_table_initialized
+        try:
+            with self._with_cursor() as (cursor, conn):
+                cursor.execute(_SQL_CREATE_WAKEUP_TABLE)
+                conn.commit()
+                _wakeup_table_initialized = True
+                return True
+        except Exception as e:
+            logger.error(f"初始化召回表失败: {e}")
+            return False
+
     def shutdown(self):
         self._stop_event.set()
         self._save_logs_to_db()
@@ -599,3 +679,215 @@ def cleanup_old_ids():
 def cleanup_expired_log_tables():
     log_db_manager._cleanup_expired_tables()
     return True
+
+
+# ==================== 分享链接功能 ====================
+
+def _init_share_table():
+    global _share_table_initialized
+    if _share_table_initialized:
+        return True
+    if log_db_manager._fallback_mode:
+        return False
+    return log_db_manager._create_share_table()
+
+
+def get_scene_name(scene):
+    try:
+        scene = int(scene) if scene else 0
+    except:
+        scene = 0
+    return SHARE_SCENE_MAP.get(scene, f'未知场景({scene})')
+
+
+def record_share_relation(sharer_id, referral_id, scene=0):
+    if not sharer_id or not referral_id:
+        return False
+    if not _share_table_initialized and not _init_share_table():
+        return False
+    
+    try:
+        scene = int(scene) if scene else 0
+    except:
+        scene = 0
+    
+    try:
+        with log_db_manager._with_cursor() as (cursor, conn):
+            cursor.execute(_SQL_SELECT_SHARE_REFERRALS, (sharer_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                try:
+                    referrals = json.loads(result['referrals']) if isinstance(result.get('referrals'), str) else (result.get('referrals') or {})
+                except:
+                    referrals = {}
+                if referral_id not in referrals:
+                    referrals[referral_id] = scene
+                    cursor.execute(_SQL_UPDATE_SHARE_REFERRALS, (json.dumps(referrals, ensure_ascii=False), sharer_id))
+                    conn.commit()
+            else:
+                cursor.execute(_SQL_INSERT_SHARE, (sharer_id, json.dumps({referral_id: scene}, ensure_ascii=False)))
+                conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"记录分享关系失败: {e}")
+        return False
+
+
+def get_share_referrals(sharer_id):
+    if not sharer_id or (not _share_table_initialized and not _init_share_table()):
+        return {}
+    try:
+        with log_db_manager._with_cursor() as (cursor, conn):
+            cursor.execute(_SQL_SELECT_SHARE_REFERRALS, (sharer_id,))
+            result = cursor.fetchone()
+            if result and result.get('referrals'):
+                referrals = json.loads(result['referrals']) if isinstance(result['referrals'], str) else result['referrals']
+                return referrals if isinstance(referrals, dict) else {}
+            return {}
+    except:
+        return {}
+
+
+def get_share_referrals_list(sharer_id):
+    return list(get_share_referrals(sharer_id).keys())
+
+
+def get_share_count(sharer_id):
+    return len(get_share_referrals(sharer_id))
+
+
+def get_share_referrals_with_scene_name(sharer_id):
+    return {openid: get_scene_name(scene) for openid, scene in get_share_referrals(sharer_id).items()}
+
+
+def get_sharer_by_referral(referral_id):
+    if not referral_id or (not _share_table_initialized and not _init_share_table()):
+        return None
+    try:
+        with log_db_manager._with_cursor() as (cursor, conn):
+            cursor.execute(f"SELECT openid FROM `{_SHARE_TABLE}` WHERE JSON_CONTAINS_PATH(referrals, 'one', %s)", (f'$."{referral_id}"',))
+            result = cursor.fetchone()
+            return result.get('openid') if result else None
+    except:
+        return None
+
+
+# ==================== 召回功能 ====================
+
+def _init_wakeup_table():
+    global _wakeup_table_initialized
+    if _wakeup_table_initialized:
+        return True
+    if log_db_manager._fallback_mode:
+        return False
+    return log_db_manager._create_wakeup_table()
+
+
+def update_user_wakeup(openid):
+    if not openid or (not _wakeup_table_initialized and not _init_wakeup_table()):
+        return False
+    today = datetime.datetime.now().strftime('%Y-%m-%d')
+    try:
+        with log_db_manager._with_cursor() as (cursor, conn):
+            cursor.execute(_SQL_SELECT_WAKEUP, (openid,))
+            result = cursor.fetchone()
+            if result and str(result['last_msg_date']) == today:
+                return True
+            cursor.execute(_SQL_UPSERT_WAKEUP, (openid, today, 0))
+            conn.commit()
+            return True
+    except:
+        return False
+
+
+def get_wakeup_status(openid):
+    if not openid or (not _wakeup_table_initialized and not _init_wakeup_table()):
+        return None
+    try:
+        with log_db_manager._with_cursor() as (cursor, conn):
+            cursor.execute(_SQL_SELECT_WAKEUP, (openid,))
+            result = cursor.fetchone()
+            if result:
+                return (str(result['last_msg_date']), result['wakeup_stage'], 
+                        str(result['last_wakeup_date']) if result.get('last_wakeup_date') else None)
+            return None
+    except:
+        return None
+
+
+def can_send_wakeup(openid):
+    status = get_wakeup_status(openid)
+    if not status:
+        return (False, 0, -1)
+    
+    last_date_str, stage, last_wakeup_str = status
+    today = datetime.datetime.now().date()
+    last_date = datetime.datetime.strptime(last_date_str, '%Y-%m-%d').date()
+    days_diff = (today - last_date).days
+    
+    if last_wakeup_str == today.strftime('%Y-%m-%d'):
+        return (False, stage, days_diff)
+    
+    if days_diff == 0:
+        target = 1
+    elif days_diff <= 3:
+        target = 2
+    elif days_diff <= 7:
+        target = 3
+    elif days_diff <= 30:
+        target = 4
+    else:
+        return (False, 0, days_diff)
+    
+    return (stage < target, target, days_diff)
+
+
+def mark_wakeup_sent(openid, stage):
+    if not openid or (not _wakeup_table_initialized and not _init_wakeup_table()):
+        return False
+    try:
+        with log_db_manager._with_cursor() as (cursor, conn):
+            cursor.execute(_SQL_UPDATE_WAKEUP_STAGE, (stage, datetime.datetime.now().strftime('%Y-%m-%d'), openid))
+            conn.commit()
+            return True
+    except:
+        return False
+
+
+def get_wakeup_stage_name(stage):
+    return {0: '未推送', 1: '当天', 2: '1-3天', 3: '3-7天', 4: '7-30天'}.get(stage, f'未知({stage})')
+
+
+def get_wakeup_users(target_stage=None):
+    if not _wakeup_table_initialized and not _init_wakeup_table():
+        return []
+    try:
+        today = datetime.datetime.now().date()
+        with log_db_manager._with_cursor() as (cursor, conn):
+            cursor.execute(f"SELECT openid, last_msg_date, wakeup_stage, last_wakeup_date FROM `{_WAKEUP_TABLE}`")
+            results = []
+            for row in cursor.fetchall():
+                last_date = datetime.datetime.strptime(str(row['last_msg_date']), '%Y-%m-%d').date()
+                days_diff = (today - last_date).days
+                last_wakeup = str(row['last_wakeup_date']) if row.get('last_wakeup_date') else None
+                if last_wakeup == today.strftime('%Y-%m-%d'):
+                    continue
+                if days_diff == 0:
+                    stage = 1
+                elif days_diff <= 3:
+                    stage = 2
+                elif days_diff <= 7:
+                    stage = 3
+                elif days_diff <= 30:
+                    stage = 4
+                else:
+                    continue
+                if row['wakeup_stage'] >= stage:
+                    continue
+                if target_stage and stage != target_stage:
+                    continue
+                results.append({'openid': row['openid'], 'days': days_diff, 'stage': stage})
+            return results
+    except:
+        return []

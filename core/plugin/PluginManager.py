@@ -1148,6 +1148,9 @@ class PluginManager:
     def _create_method_logger(cls, original_methods_dict, plugin_name, is_first_reply, event):
         def _create_logged_method(original_method, method_name):
             def logged_method(*args, **kwargs):
+                # 先调用原方法
+                result = original_method(*args, **kwargs)
+                
                 # 提取内容信息
                 content_extractors = {
                     'reply': lambda a, k: a[0] if a else k.get('content', ''),
@@ -1167,11 +1170,36 @@ class PluginManager:
                 user_id = getattr(event, 'user_id', '')
                 group_id = getattr(event, 'group_id', _DEFAULT_GROUP_ID)
                 
-                add_plugin_log(text_content, user_id=user_id, group_id=group_id, plugin_name=plugin_name)
+                # 获取最后发送的payload
+                raw_message = ''
+                payload = getattr(event, '_last_sent_payload', None)
+                if payload:
+                    try:
+                        raw_message = json.dumps(payload, ensure_ascii=False)
+                    except:
+                        raw_message = str(payload)
+                    event._last_sent_payload = None
+                
+                # 记录到web面板
+                add_plugin_log(text_content, user_id=user_id, group_id=group_id, plugin_name=plugin_name, raw_message=raw_message)
+                
+                # 记录到数据库
+                from config import SAVE_RAW_MESSAGE_TO_DB
+                db_entry = {
+                    'timestamp': time.strftime(_TIMESTAMP_FORMAT),
+                    'type': 'plugin',
+                    'content': text_content,
+                    'user_id': user_id,
+                    'group_id': group_id,
+                    'plugin_name': plugin_name,
+                    'raw_message': raw_message if SAVE_RAW_MESSAGE_TO_DB else ''
+                }
+                add_log_to_db('message', db_entry)
+                
                 if is_first_reply[0]:
                     is_first_reply[0] = False
                 
-                return original_method(*args, **kwargs)
+                return result
             return logged_method
         
         wrapped_methods = {}

@@ -53,7 +53,6 @@ add_error_log = log_handler.add_error_log
 get_system_info = system_info.get_system_info
 get_websocket_status = system_info.get_websocket_status
 
-log_handler.set_log_db_config(LOG_DB_CONFIG, add_log_to_db)
 system_info.set_start_time(datetime.now())
 system_info.set_error_log_func(add_error_log)
 log_query.set_log_queues(message_logs, framework_logs, error_logs)
@@ -150,6 +149,9 @@ from web.tools.ai_plugin_handler import (handle_list_plugins, handle_read_plugin
     handle_ai_create_plugin, handle_ai_modify_plugin, handle_ai_add_feature, handle_ai_fix_plugin,
     handle_save_ai_plugin, handle_search_plugins, handle_get_plugin_template, handle_get_ai_models,
     handle_get_ai_config, handle_save_ai_config)
+from web.tools.plugin_market_handler import (handle_market_submit, handle_market_list, handle_market_pending,
+    handle_market_review, handle_market_update_status, handle_market_delete, handle_market_categories,
+    handle_market_export, handle_market_download)
 
 status_routes.set_restart_function(execute_bot_restart)
 check_openapi_login = lambda uid: openapi_user_data.get(uid)
@@ -201,6 +203,11 @@ def index():
 @full_auth
 def ai_plugins_page():
     return render_template('pc/ai_plugins.html')
+
+@web.route('/plugin_market')
+@full_auth
+def plugin_market_page():
+    return render_template('pc/plugin_market.html')
 
 @web.route('/plugin/<plugin_path>')
 @full_auth
@@ -498,6 +505,52 @@ def ai_get_config():
 @full_auth
 def ai_save_config():
     return handle_save_ai_config()
+
+# 插件市场路由
+@web.route('/api/market/submit', methods=['POST'])
+@safe_route
+def market_submit():
+    return handle_market_submit()
+
+@web.route('/api/market/list', methods=['GET'])
+@safe_route
+def market_list():
+    return handle_market_list()
+
+@web.route('/api/market/pending', methods=['GET'])
+@safe_route
+def market_pending():
+    return handle_market_pending()
+
+@web.route('/api/market/review', methods=['POST'])
+@safe_route
+def market_review():
+    return handle_market_review()
+
+@web.route('/api/market/update_status', methods=['POST'])
+@safe_route
+def market_update_status():
+    return handle_market_update_status()
+
+@web.route('/api/market/delete', methods=['POST'])
+@safe_route
+def market_delete():
+    return handle_market_delete()
+
+@web.route('/api/market/categories', methods=['GET'])
+@safe_route
+def market_categories():
+    return handle_market_categories()
+
+@web.route('/api/market/export', methods=['GET'])
+@safe_route
+def market_export():
+    return handle_market_export()
+
+@web.route('/api/market/download', methods=['POST'])
+@safe_route
+def market_download():
+    return handle_market_download()
 
 @web.route('/openapi/start_login', methods=['POST'])
 @simple_auth

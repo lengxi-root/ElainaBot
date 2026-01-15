@@ -51,8 +51,8 @@ _share_table_initialized = False
 _SQL_CREATE_SHARE_TABLE = f"""
 CREATE TABLE IF NOT EXISTS `{_SHARE_TABLE}` (
     `id` bigint(20) NOT NULL AUTO_INCREMENT,
-    `openid` varchar(255) NOT NULL COMMENT '分享者openid或自定义callbackData',
-    `referrals` json DEFAULT NULL COMMENT '被邀请用户信息 {{openid: scene}}',
+    `openid` varchar(128) NOT NULL COMMENT '分享者openid或自定义callbackData',
+    `referrals` text DEFAULT NULL COMMENT '被邀请用户信息',
     `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -85,7 +85,7 @@ _wakeup_table_initialized = False
 
 _SQL_CREATE_WAKEUP_TABLE = f"""
 CREATE TABLE IF NOT EXISTS `{_WAKEUP_TABLE}` (
-    `openid` varchar(255) NOT NULL,
+    `openid` varchar(128) NOT NULL,
     `last_msg_date` date NOT NULL,
     `wakeup_stage` tinyint NOT NULL DEFAULT 0 COMMENT '0=未推送,1-4=已推送周期',
     `last_wakeup_date` date DEFAULT NULL COMMENT '最后推送日期',

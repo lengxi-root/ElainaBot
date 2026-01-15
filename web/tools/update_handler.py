@@ -60,14 +60,16 @@ def handle_start_update():
     if data.get('source'):
         updater.set_download_source(data['source'])
     
+    skip_backup = data.get('skip_backup', False)
+    
     def do_update():
         try:
             if data.get('force'):
-                updater.force_update()
+                updater.force_update(skip_backup=skip_backup)
             elif data.get('version'):
-                updater.update_to_version(data['version'])
+                updater.update_to_version(data['version'], skip_backup=skip_backup)
             else:
-                updater.update_to_latest()
+                updater.update_to_latest(skip_backup=skip_backup)
         except Exception as e:
             updater._report_progress('failed', f'更新出错: {e}', 0)
     
@@ -135,13 +137,14 @@ def handle_upload_update():
         
         # 获取版本名（可选）
         version_name = request.form.get('version_name', '').strip() or None
+        skip_backup = request.form.get('skip_backup', '').lower() in ('true', '1', 'yes')
         
         from web.tools.updater import get_updater
         updater = get_updater()
         
         def do_update():
             try:
-                updater.update_from_upload(filepath, version_name)
+                updater.update_from_upload(filepath, version_name, skip_backup=skip_backup)
             except Exception as e:
                 updater._report_progress('failed', f'更新出错: {e}', 0)
         

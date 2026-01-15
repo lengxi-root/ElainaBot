@@ -61,6 +61,14 @@
                     <label for="version-name">版本名称（可选）</label>
                     <input type="text" id="version-name" placeholder="留空则自动生成">
                 </div>
+                <div class="update-options" style="margin-top: 1rem;">
+                    <label class="option-item">
+                        <input type="checkbox" id="upload-skip-backup-checkbox">
+                        <span class="option-text">
+                            <i class="bi bi-lightning-charge"></i> 跳过备份（更快，但无法回滚）
+                        </span>
+                    </label>
+                </div>
                 <div class="upload-actions">
                     <button class="cancel-btn" onclick="closeUploadModal()">取消</button>
                     <button class="upload-btn" id="start-upload-btn" onclick="startUploadUpdate()" disabled>
@@ -84,6 +92,33 @@
                 <div class="config-actions">
                     <button class="skip-btn" onclick="closeConfigModal()">暂不处理</button>
                     <button class="apply-btn" onclick="applyConfigDiff()"><i class="bi bi-magic"></i> 自动补全</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 更新确认弹窗 -->
+    <div id="update-confirm-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content update-confirm-modal">
+            <div class="modal-header">
+                <h5><i class="bi bi-download"></i> 确认更新</h5>
+                <button class="close-btn" onclick="closeUpdateConfirmModal()"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="update-confirm-tip" id="update-confirm-tip">确定要更新框架吗？</p>
+                <div class="update-options">
+                    <label class="option-item">
+                        <input type="checkbox" id="skip-backup-checkbox">
+                        <span class="option-text">
+                            <i class="bi bi-lightning-charge"></i> 跳过备份（更快，但无法回滚）
+                        </span>
+                    </label>
+                </div>
+                <div class="update-confirm-actions">
+                    <button class="cancel-btn" onclick="closeUpdateConfirmModal()">取消</button>
+                    <button class="confirm-btn" id="confirm-update-btn" onclick="confirmUpdate()">
+                        <i class="bi bi-check-lg"></i> 确认更新
+                    </button>
                 </div>
             </div>
         </div>
@@ -229,7 +264,7 @@ async function startUploadUpdate() {
         return;
     }
     
-    if (!confirm('确定要使用上传的压缩包更新框架吗？\n\n更新前会自动备份当前版本。')) return;
+    const skipBackup = document.getElementById('upload-skip-backup-checkbox').checked;
     
     closeUploadModal();
     document.getElementById('update-progress-section').style.display = 'block';
@@ -243,6 +278,9 @@ async function startUploadUpdate() {
         const versionName = document.getElementById('version-name').value.trim();
         if (versionName) {
             formData.append('version_name', versionName);
+        }
+        if (skipBackup) {
+            formData.append('skip_backup', 'true');
         }
         
         const result = await (await fetch(`/web/api/update/upload?token=${getToken()}`, {
@@ -436,29 +474,33 @@ async function checkUpdate() {
 }
 
 async function startUpdate() {
-    const sourceName = availableSources[currentSource]?.name || currentSource;
-    if (!confirm(`确定要更新框架吗？\n\n当前下载源: ${sourceName}\n更新前会自动备份当前版本。`)) return;
-    
-    document.getElementById('update-btn').style.display = 'none';
-    document.getElementById('update-progress-section').style.display = 'block';
-    
-    try {
-        const result = await (await fetch(`/web/api/update/start?token=${getToken()}`, { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({source: currentSource})
-        })).json();
-        if (result.success) pollUpdateProgress();
-        else throw new Error(result.message);
-    } catch (e) {
-        document.getElementById('progress-stage').textContent = '更新失败';
-        document.getElementById('progress-message').textContent = e.message;
-    }
+    showUpdateConfirmModal(false);
 }
 
 async function forceUpdate() {
+    showUpdateConfirmModal(true);
+}
+
+let pendingForceUpdate = false;
+
+function showUpdateConfirmModal(isForce) {
+    pendingForceUpdate = isForce;
     const sourceName = availableSources[currentSource]?.name || currentSource;
-    if (!confirm(`确定要强制更新吗？\n\n当前下载源: ${sourceName}\n将直接下载最新版本，不检查当前版本。\n更新前会自动备份。`)) return;
+    const tip = isForce 
+        ? `将直接下载最新版本，不检查当前版本。<br>当前下载源: <strong>${sourceName}</strong>`
+        : `当前下载源: <strong>${sourceName}</strong>`;
+    document.getElementById('update-confirm-tip').innerHTML = tip;
+    document.getElementById('skip-backup-checkbox').checked = false;
+    document.getElementById('update-confirm-modal').style.display = 'flex';
+}
+
+function closeUpdateConfirmModal() {
+    document.getElementById('update-confirm-modal').style.display = 'none';
+}
+
+async function confirmUpdate() {
+    const skipBackup = document.getElementById('skip-backup-checkbox').checked;
+    closeUpdateConfirmModal();
     
     document.getElementById('update-btn').style.display = 'none';
     document.getElementById('update-progress-section').style.display = 'block';
@@ -467,7 +509,7 @@ async function forceUpdate() {
         const result = await (await fetch(`/web/api/update/start?token=${getToken()}`, { 
             method: 'POST', 
             headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({source: currentSource, force: true})
+            body: JSON.stringify({source: currentSource, force: pendingForceUpdate, skip_backup: skipBackup})
         })).json();
         if (result.success) pollUpdateProgress();
         else throw new Error(result.message);
@@ -605,6 +647,9 @@ function showToast(msg, type = 'success') {
 document.getElementById('source-modal').addEventListener('click', function(e) {
     if (e.target === this) closeSourceModal();
 });
+document.getElementById('update-confirm-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeUpdateConfirmModal();
+});
 </script>
 
 <style>
@@ -685,6 +730,19 @@ document.getElementById('source-modal').addEventListener('click', function(e) {
 .skip-btn:hover { background: #d1d5db; }
 .apply-btn { padding: 0.5rem 1rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; }
 .apply-btn:hover { opacity: 0.9; }
+
+/* 更新确认弹窗 */
+.update-confirm-modal { max-width: 420px; }
+.update-confirm-tip { font-size: 0.9rem; color: #374151; margin: 0 0 1rem; line-height: 1.5; }
+.update-options { margin-bottom: 1.25rem; }
+.option-item { display: flex; align-items: center; gap: 0.6rem; cursor: pointer; padding: 0.75rem; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; transition: all 0.2s; }
+.option-item:hover { background: #fde68a; }
+.option-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: #f59e0b; }
+.option-text { font-size: 0.9rem; color: #92400e; display: flex; align-items: center; gap: 0.4rem; }
+.option-text i { color: #f59e0b; }
+.update-confirm-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+.confirm-btn { padding: 0.5rem 1.25rem; background: var(--theme-gradient); color: #fff; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }
+.confirm-btn:hover { opacity: 0.9; }
 
 /* 下载源弹窗 */
 .modal-overlay {

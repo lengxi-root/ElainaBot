@@ -133,7 +133,7 @@ class LogDatabasePool:
             return pymysql.connect(
                 host=_DB_HOST, port=_DB_PORT, user=_DB_USER, password=_DB_PASSWORD,
                 database=_DB_DATABASE, charset='utf8mb4', cursorclass=DictCursor,
-                connect_timeout=timeout, read_timeout=3, write_timeout=3, autocommit=False
+                connect_timeout=timeout, read_timeout=10, write_timeout=10, autocommit=False
             )
         except Exception as e:
             logger.warning(f"日志数据库连接失败: {e}")
@@ -148,7 +148,7 @@ class LogDatabasePool:
                 return pymysql.connect(
                     host=_DB_HOST, port=_DB_PORT, user=_DB_USER, password=_DB_PASSWORD,
                     database=_DB_DATABASE, charset='utf8mb4', cursorclass=DictCursor,
-                    connect_timeout=3, read_timeout=3, write_timeout=3, autocommit=False
+                    connect_timeout=5, read_timeout=10, write_timeout=10, autocommit=False
                 )
             except:
                 if i < _MAX_RETRY - 1:

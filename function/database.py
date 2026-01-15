@@ -96,22 +96,32 @@ class Database:
                 pool.release_connection(connection)
 
     def _initialize_tables(self):
-        tables_sql = [
-            f"CREATE TABLE IF NOT EXISTS {_USERS_TABLE} (user_id VARCHAR(255) NOT NULL UNIQUE, name VARCHAR(255) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            f"CREATE TABLE IF NOT EXISTS {_GROUPS_USERS_TABLE} (group_id VARCHAR(255) NOT NULL UNIQUE, users JSON DEFAULT NULL, PRIMARY KEY (group_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            f"CREATE TABLE IF NOT EXISTS {_MEMBERS_TABLE} (user_id VARCHAR(255) NOT NULL UNIQUE, PRIMARY KEY (user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-        ]
-        try:
-            with self._get_cursor() as (cursor, connection):
-                if not cursor:
-                    return
-                for sql in tables_sql:
-                    cursor.execute(sql)
-                self._add_name_column_if_not_exists(cursor)
-                connection.commit()
-        except Exception as e:
-            import traceback
-            logger.error(f"初始化数据库表失败: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        """在独立线程中初始化表，避免 eventlet 超时"""
+        import threading
+        
+        def do_init():
+            tables_sql = [
+                f"CREATE TABLE IF NOT EXISTS {_USERS_TABLE} (user_id VARCHAR(255) NOT NULL UNIQUE, name VARCHAR(255) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+                f"CREATE TABLE IF NOT EXISTS {_GROUPS_USERS_TABLE} (group_id VARCHAR(255) NOT NULL UNIQUE, users JSON DEFAULT NULL, PRIMARY KEY (group_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+                f"CREATE TABLE IF NOT EXISTS {_MEMBERS_TABLE} (user_id VARCHAR(255) NOT NULL UNIQUE, PRIMARY KEY (user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            ]
+            try:
+                with self._get_cursor() as (cursor, connection):
+                    if not cursor:
+                        return
+                    for sql in tables_sql:
+                        cursor.execute(sql)
+                    self._add_name_column_if_not_exists(cursor)
+                    connection.commit()
+            except Exception as e:
+                logger.error(f"初始化数据库表失败: {type(e).__name__}: {e}")
+        
+        # 使用原生线程执行，绕过 eventlet
+        init_thread = threading.Thread(target=do_init, daemon=True)
+        init_thread.start()
+        init_thread.join(timeout=15)  # 最多等待15秒
+        if init_thread.is_alive():
+            logger.warning("数据库表初始化超时，将在后台继续")
 
     def _add_name_column_if_not_exists(self, cursor):
         cursor.execute(

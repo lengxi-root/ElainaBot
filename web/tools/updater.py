@@ -178,18 +178,23 @@ class FrameworkUpdater:
             backup_dir.mkdir(parents=True, exist_ok=True)
             backup_file = backup_dir / f"backup_{self.current_version}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
             
-            skip = ('plugins', 'data/backup', 'data/temp', '.git', '__pycache__')
+            skip_prefixes = ('plugins', 'data/backup', 'data\\backup', 'data/temp_update', 'data\\temp_update')
+            skip_contains = ('.git', '__pycache__')
+            
             with zipfile.ZipFile(backup_file, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for root, dirs, files in os.walk(self.base_dir):
                     rel = os.path.relpath(root, self.base_dir)
-                    if any(s in rel for s in skip):
+                    if any(rel.startswith(p) for p in skip_prefixes) or any(s in rel for s in skip_contains):
                         dirs[:] = []
                         continue
+                    dirs[:] = [d for d in dirs if not any(os.path.relpath(os.path.join(root, d), self.base_dir).startswith(p) for p in skip_prefixes)]
                     for f in files:
                         fp = os.path.join(root, f)
-                        zf.write(fp, os.path.relpath(fp, self.base_dir))
+                        if not any(s in fp for s in skip_contains):
+                            zf.write(fp, os.path.relpath(fp, self.base_dir))
             return str(backup_file)
-        except:
+        except Exception as e:
+            logging.error(f"备份失败: {e}")
             return None
     
     def _should_skip(self, path):
@@ -200,14 +205,18 @@ class FrameworkUpdater:
                 return True
         return False
     
-    def apply_update(self, zip_file, version):
+    def apply_update(self, zip_file, version, skip_backup=False):
         result = {'success': False, 'message': '', 'updated': 0, 'skipped': 0, 'config_diff': None}
         try:
-            self._report_progress('backing_up', '正在备份...', 45)
-            backup = self.backup_current_version()
-            if not backup and self.config.get('backup_enabled'):
-                self._report_progress('failed', '备份失败', 0)
-                return result
+            if skip_backup:
+                self._report_progress('backing_up', '跳过备份...', 45)
+                backup = 'skipped'
+            else:
+                self._report_progress('backing_up', '正在备份...', 45)
+                backup = self.backup_current_version()
+                if not backup and self.config.get('backup_enabled'):
+                    self._report_progress('failed', '备份失败', 0)
+                    return result
             
             self._report_progress('updating', '正在解压...', 55)
             temp = self.base_dir / "data" / "temp_extract"
@@ -361,25 +370,25 @@ class FrameworkUpdater:
         except Exception as e:
             return {'success': False, 'message': str(e)}
     
-    def update_to_version(self, version):
+    def update_to_version(self, version, skip_backup=False):
         self._report_progress('preparing', f'准备更新到 {version}...', 0)
         zip_file = self.download_update(version)
         if not zip_file:
             return {'success': False, 'message': '下载失败'}
-        result = self.apply_update(zip_file, version)
+        result = self.apply_update(zip_file, version, skip_backup=skip_backup)
         if result['success']:
             self._save_version(version)
         return result
     
-    def update_to_latest(self):
+    def update_to_latest(self, skip_backup=False):
         check = self.check_for_updates()
         if check.get('error'):
             return {'success': False, 'message': f"检查失败: {check['error']}"}
         if not check['has_update']:
             return {'success': False, 'message': '已是最新版本'}
-        return self.update_to_version(check['latest_version'])
+        return self.update_to_version(check['latest_version'], skip_backup=skip_backup)
     
-    def force_update(self):
+    def force_update(self, skip_backup=False):
         """强制更新到最新版本，不检查是否已是最新"""
         source_config = DOWNLOAD_SOURCES.get(self.download_source, DOWNLOAD_SOURCES['proxy'])
         try:
@@ -389,12 +398,12 @@ class FrameworkUpdater:
             if not commits:
                 return {'success': False, 'message': '无法获取版本信息'}
             latest = commits[0].get('sha', '')[:8]
-            return self.update_to_version(latest)
+            return self.update_to_version(latest, skip_backup=skip_backup)
         except Exception as e:
             self._report_progress('failed', f'获取版本失败: {e}', 0)
             return {'success': False, 'message': str(e)}
     
-    def update_from_upload(self, zip_file_path, version_name=None):
+    def update_from_upload(self, zip_file_path, version_name=None, skip_backup=False):
         """从上传的压缩包更新"""
         try:
             self._report_progress('preparing', '准备从上传的压缩包更新...', 0)
@@ -412,7 +421,7 @@ class FrameworkUpdater:
             version = version_name or f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             
             self._report_progress('updating', '正在应用更新...', 40)
-            result = self.apply_update(zip_file_path, version)
+            result = self.apply_update(zip_file_path, version, skip_backup=skip_backup)
             
             if result['success']:
                 self._save_version(version)

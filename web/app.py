@@ -138,7 +138,7 @@ from web.tools.openapi_handler import (openapi_user_data, handle_start_login, ha
     handle_batch_add_whitelist, handle_create_template_qr, handle_check_template_qr, handle_preview_template,
     handle_submit_template, handle_audit_templates, handle_delete_templates)
 from web.tools.message_handler import (handle_get_chats, handle_get_chat_history, handle_send_message,
-    handle_get_nickname, handle_get_nicknames_batch, handle_get_markdown_templates)
+    handle_get_nickname, handle_get_nicknames_batch, handle_get_markdown_templates, handle_get_markdown_templates_detail)
 from web.tools.statistics_handler import (handle_get_statistics, handle_get_statistics_task_status,
     handle_get_all_statistics_tasks, handle_complete_dau, handle_get_user_nickname, handle_get_available_dates)
 from web.tools.config_handler import (handle_get_config, handle_parse_config, handle_update_config_items,
@@ -714,6 +714,11 @@ def get_nicknames_batch():
 @simple_auth
 def get_markdown_templates():
     return handle_get_markdown_templates()
+
+@web.route('/api/config/markdown_templates', methods=['GET'])
+@token_auth
+def get_markdown_templates_detail():
+    return handle_get_markdown_templates_detail()
 
 _LOGS_MAP = {
     'received': lambda: log_handler.received_handler.logs,

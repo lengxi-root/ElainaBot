@@ -302,3 +302,40 @@ def handle_get_markdown_templates():
         return jsonify({'success': True, 'data': {'templates': [{'id': tid, 'name': f'模板{tid}', 'params': info.get('params', []), 'param_count': len(info.get('params', []))} for tid, info in get_all_templates().items()]}})
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取模板列表失败: {e}'})
+
+def handle_get_markdown_templates_detail():
+    """获取Markdown模板详细信息，包含原始模板内容"""
+    try:
+        from core.event.markdown_templates import get_all_templates, MARKDOWN_TEMPLATES
+        import re
+        
+        templates = []
+        # 读取源文件获取注释中的原始模板内容
+        raw_contents = {}
+        try:
+            _ensure_path()
+            template_file = os.path.join(_PROJECT_ROOT, 'core', 'event', 'markdown_templates.py')
+            if os.path.exists(template_file):
+                with open(template_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                # 匹配模板定义和其后的注释
+                pattern = r'"(\d+)":\s*\{[^}]+\},?\s*#\s*原始模板内容:\s*(.+?)(?=\n|$)'
+                matches = re.findall(pattern, content)
+                for tid, raw in matches:
+                    raw_contents[tid] = raw.strip()
+        except:
+            pass
+        
+        for tid, info in get_all_templates().items():
+            templates.append({
+                'id': tid,
+                'name': f'模板{tid}',
+                'template_id': info.get('id', ''),
+                'params': info.get('params', []),
+                'param_count': len(info.get('params', [])),
+                'raw_content': raw_contents.get(tid, '未提供原始模板内容')
+            })
+        
+        return jsonify({'success': True, 'data': {'templates': templates}})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取模板详情失败: {e}'})

@@ -36,6 +36,7 @@
         <div class="tabs-wrapper">
             <button class="mode-tab active" id="simple-mode-tab" onclick="switchMode('simple')"><i class="bi bi-ui-checks"></i> 简单模式</button>
             <button class="mode-tab" id="advanced-mode-tab" onclick="switchMode('advanced')"><i class="bi bi-code-square"></i> 高级模式</button>
+            <button class="mode-tab" id="markdown-mode-tab" onclick="switchMode('markdown')"><i class="bi bi-markdown"></i> Markdown模板</button>
         </div>
         <div class="mode-hint" id="mode-hint"><i class="bi bi-info-circle"></i><span>点击配置组快速切换，修改后点击"保存配置"，重启框架后生效</span></div>
     </div>
@@ -62,6 +63,25 @@
         <div class="error-state" id="advanced-error" style="display: none;"><i class="bi bi-exclamation-triangle"></i><span id="advanced-error-message">加载失败</span><button class="retry-btn" onclick="loadConfigData()">重试</button></div>
         <div id="editor-container" style="display: none;"><div id="config-editor"></div></div>
     </div>
+
+    <div class="config-content" id="markdown-mode" style="display: none;">
+        <div class="loading-state" id="markdown-loading"><div class="spinner"></div><span>正在加载Markdown模板...</span></div>
+        <div class="error-state" id="markdown-error" style="display: none;"><i class="bi bi-exclamation-triangle"></i><span id="markdown-error-message">加载失败</span><button class="retry-btn" onclick="loadMarkdownTemplates()">重试</button></div>
+        <div id="markdown-container" style="display: none;">
+            <div class="markdown-templates-wrapper">
+                <div class="templates-list-section">
+                    <div class="templates-header"><i class="bi bi-file-earmark-code"></i> 模板列表</div>
+                    <div class="templates-list" id="markdown-templates-list"></div>
+                </div>
+                <div class="template-detail-section">
+                    <div class="detail-header"><i class="bi bi-info-circle"></i> <span id="template-detail-title">选择模板查看详情</span></div>
+                    <div class="detail-content" id="template-detail-content">
+                        <div class="empty-detail">← 请从左侧选择一个模板查看详情</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -87,14 +107,19 @@ function switchMode(mode) {
     document.getElementById(`${mode}-mode-tab`).classList.add('active');
     document.getElementById('simple-mode').style.display = mode === 'simple' ? 'block' : 'none';
     document.getElementById('advanced-mode').style.display = mode === 'advanced' ? 'block' : 'none';
+    document.getElementById('markdown-mode').style.display = mode === 'markdown' ? 'block' : 'none';
     const hint = document.getElementById('mode-hint');
     if (mode === 'simple') {
         hint.className = 'mode-hint';
         hint.innerHTML = '<i class="bi bi-info-circle"></i><span>点击配置组快速切换，修改后点击"保存配置"，重启框架后生效</span>';
-    } else {
+    } else if (mode === 'advanced') {
         hint.className = 'mode-hint warning';
         hint.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i><span>直接编辑配置文件，请确保语法正确，否则框架可能无法启动！</span>';
         if (codeMirrorEditor) setTimeout(() => codeMirrorEditor.refresh(), 50);
+    } else if (mode === 'markdown') {
+        hint.className = 'mode-hint info';
+        hint.innerHTML = '<i class="bi bi-markdown"></i><span>查看已配置的Markdown模板，模板用于发送富文本消息</span>';
+        loadMarkdownTemplates();
     }
 }
 
@@ -424,6 +449,88 @@ function showToast(msg, type = 'success') {
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
 }
+
+let markdownTemplates = [];
+let currentTemplateId = '';
+
+async function loadMarkdownTemplates() {
+    document.getElementById('markdown-loading').style.display = 'flex';
+    document.getElementById('markdown-error').style.display = 'none';
+    document.getElementById('markdown-container').style.display = 'none';
+    try {
+        const r = await fetch(`/web/api/config/markdown_templates?token=${getToken()}`);
+        const result = await r.json();
+        if (!result.success) throw new Error(result.message);
+        markdownTemplates = result.data.templates || [];
+        renderMarkdownTemplatesList();
+        document.getElementById('markdown-loading').style.display = 'none';
+        document.getElementById('markdown-container').style.display = 'block';
+    } catch (e) {
+        document.getElementById('markdown-loading').style.display = 'none';
+        document.getElementById('markdown-error').style.display = 'flex';
+        document.getElementById('markdown-error-message').textContent = e.message;
+    }
+}
+
+function renderMarkdownTemplatesList() {
+    const container = document.getElementById('markdown-templates-list');
+    if (!markdownTemplates.length) {
+        container.innerHTML = '<div class="empty-templates">暂无Markdown模板</div>';
+        return;
+    }
+    let html = '';
+    markdownTemplates.forEach(t => {
+        html += `<div class="template-item ${currentTemplateId === t.id ? 'active' : ''}" onclick="showTemplateDetail('${t.id}')">
+            <div class="template-item-header">
+                <span class="template-name">模板 ${t.id}</span>
+                <span class="template-param-count">${t.param_count} 参数</span>
+            </div>
+            <div class="template-item-params">${t.params.length ? t.params.join(', ') : '无参数'}</div>
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
+function showTemplateDetail(templateId) {
+    currentTemplateId = templateId;
+    document.querySelectorAll('.template-item').forEach(el => el.classList.remove('active'));
+    document.querySelector(`.template-item[onclick="showTemplateDetail('${templateId}')"]`)?.classList.add('active');
+    
+    const template = markdownTemplates.find(t => t.id === templateId);
+    if (!template) return;
+    
+    document.getElementById('template-detail-title').textContent = `模板 ${templateId} 详情`;
+    
+    let html = `
+        <div class="detail-item">
+            <div class="detail-label">模板ID</div>
+            <div class="detail-value"><code>${template.template_id || template.id}</code></div>
+        </div>
+        <div class="detail-item">
+            <div class="detail-label">参数列表</div>
+            <div class="detail-value">
+                ${template.params.length ? template.params.map(p => `<span class="param-tag">{{'{{'}}.${p}{{'}}'}}</span>`).join(' ') : '<span class="no-params">无参数</span>'}
+            </div>
+        </div>
+        <div class="detail-item">
+            <div class="detail-label">原始模板内容</div>
+            <div class="detail-value template-content"><code>${escapeHtml(template.raw_content || '未提供')}</code></div>
+        </div>
+        <div class="detail-item">
+            <div class="detail-label">使用示例</div>
+            <div class="detail-value">
+                <pre class="usage-example">event.reply_markdown("${templateId}", (${template.params.map(p => `"${p}值"`).join(', ')}))</pre>
+            </div>
+        </div>
+    `;
+    document.getElementById('template-detail-content').innerHTML = html;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 </script>
 
 <style>
@@ -468,6 +575,7 @@ function showToast(msg, type = 'success') {
 .mode-tab.active { background: var(--theme-gradient); color: #fff; }
 .mode-hint { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: #f0f7ff; border-radius: 6px; font-size: 0.8rem; color: #3b82f6; }
 .mode-hint.warning { background: #fef3c7; color: #d97706; }
+.mode-hint.info { background: #e0f2fe; color: #0284c7; }
 
 .config-content { background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(102, 126, 234, 0.1); overflow: hidden; }
 .loading-state, .error-state { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 3rem; color: #999; }
@@ -538,6 +646,36 @@ function showToast(msg, type = 'success') {
 .toast-msg.error { background: #fee2e2; color: #dc2626; }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
+/* Markdown模板样式 */
+.markdown-templates-wrapper { display: flex; min-height: 500px; }
+.templates-list-section { width: 280px; border-right: 1px solid #f0f0f0; padding: 1rem; flex-shrink: 0; }
+.templates-header { font-weight: 600; color: #333; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid #f0f0f0; padding-bottom: 0.75rem; }
+.templates-list { display: flex; flex-direction: column; gap: 8px; max-height: 450px; overflow-y: auto; }
+.template-item { background: #f8f9ff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 0.75rem 1rem; cursor: pointer; transition: all 0.2s; }
+.template-item:hover { border-color: var(--primary-color, #5865F2); background: #f0f4ff; }
+.template-item.active { background: var(--theme-gradient); border-color: transparent; }
+.template-item.active .template-name, .template-item.active .template-item-params { color: #fff; }
+.template-item.active .template-param-count { background: rgba(255,255,255,0.2); color: #fff; }
+.template-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.template-name { font-weight: 600; color: #333; font-size: 0.9rem; }
+.template-param-count { background: rgba(88, 101, 242, 0.1); color: var(--primary-color, #5865F2); padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; }
+.template-item-params { font-size: 0.8rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.empty-templates { text-align: center; padding: 2rem; color: #999; }
+
+.template-detail-section { flex: 1; padding: 1rem 1.25rem; min-width: 0; }
+.detail-header { font-weight: 600; color: #333; padding-bottom: 0.75rem; margin-bottom: 1rem; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 0.5rem; }
+.detail-content { display: flex; flex-direction: column; gap: 1rem; }
+.empty-detail { text-align: center; padding: 3rem; color: #999; }
+.detail-item { background: #f8f9ff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 0.75rem 1rem; }
+.detail-label { font-weight: 600; color: #666; font-size: 0.8rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px; }
+.detail-value { color: #333; font-size: 0.9rem; }
+.detail-value code { background: #e8e8e8; padding: 2px 8px; border-radius: 4px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; }
+.param-tag { display: inline-block; background: var(--theme-gradient); color: #fff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin: 2px 4px 2px 0; font-family: 'Consolas', 'Monaco', monospace; }
+.no-params { color: #999; font-style: italic; }
+.template-content { background: #1e1e1e; padding: 1rem; border-radius: 8px; overflow-x: auto; }
+.template-content code { background: transparent; color: #d4d4d4; display: block; white-space: pre-wrap; word-break: break-all; }
+.usage-example { background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 8px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; margin: 0; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+
 @media (max-width: 768px) {
     .header-content { flex-direction: column; text-align: center; }
     .header-title { flex-direction: column; }
@@ -546,6 +684,9 @@ function showToast(msg, type = 'success') {
     .groups-section { width: 100%; border-right: none; border-bottom: 1px solid #f0f0f0; }
     .groups-list { flex-direction: row; flex-wrap: wrap; }
     .group-item { flex: 0 0 auto; }
+    .markdown-templates-wrapper { flex-direction: column; }
+    .templates-list-section { width: 100%; border-right: none; border-bottom: 1px solid #f0f0f0; }
+    .templates-list { max-height: 200px; }
 }
 </style>
 {% endblock %}

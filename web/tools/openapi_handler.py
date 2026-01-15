@@ -309,40 +309,14 @@ def handle_get_botdata(check_openapi_login_func, openapi_error_response, openapi
 
 def handle_get_notifications(check_openapi_login_func, openapi_error_response, openapi_success_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    # 使用本地bot_api模块获取私信消息
-    res = _bot_api.get_private_messages(
-        uin=user_data.get('uin'),
-        quid=user_data.get('developerId'),
-        ticket=user_data.get('ticket')
-    )
-    
-    # 检查API返回的错误状态，兼容不同的错误字段
+    res = _bot_api.get_private_messages(uin=user_data.get('uin'), quid=user_data.get('developerId'), ticket=user_data.get('ticket'))
     if res.get('code', 0) != 0 or res.get('error'):
-        error_msg = res.get('error', '获取通知消息失败，请检查登录状态')
-        return openapi_error_response(error_msg)
-    
-    messages = res.get('messages', [])
-    
-    processed_messages = []
-    for msg in messages[:20]:
-        processed_messages.append({
-            'content': msg.get('content', ''),
-            'send_time': msg.get('send_time', ''),
-            'type': msg.get('type', ''),
-            'title': msg.get('title', '')
-        })
-    
-    return openapi_success_response({
-        'uin': user_data.get('uin'),
-        'appid': user_data.get('appId'),
-        'messages': processed_messages
-    })
+        return openapi_error_response(res.get('error', '获取通知消息失败'))
+    processed_messages = [{'content': msg.get('content', ''), 'send_time': msg.get('send_time', ''),
+        'type': msg.get('type', ''), 'title': msg.get('title', '')} for msg in res.get('messages', [])[:20]]
+    return openapi_success_response({'uin': user_data.get('uin'), 'appid': user_data.get('appId'), 'messages': processed_messages})
 
 def handle_logout(openapi_success_response):
     user_id = request.get_json().get('user_id', 'web_user')
@@ -351,117 +325,42 @@ def handle_logout(openapi_success_response):
     return openapi_success_response(message='登出成功')
 
 def handle_get_login_status(check_openapi_login_func, openapi_success_response):
-    try:
-        data = request.get_json() or {}
-        user_id = data.get('user_id', 'web_user')
-        user_data = check_openapi_login_func(user_id)
-        if user_data:
-            return openapi_success_response(logged_in=True, uin=user_data.get('uin', ''), appid=user_data.get('appId', ''))
-        else:
-            return openapi_success_response(logged_in=False)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+    data = request.get_json() or {}
+    user_data = check_openapi_login_func(data.get('user_id', 'web_user'))
+    if user_data:
+        return openapi_success_response(logged_in=True, uin=user_data.get('uin', ''), appid=user_data.get('appId', ''))
+    return openapi_success_response(logged_in=False)
 
 def handle_import_templates(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
-    # 使用本地bot_api模块获取消息模板
-    res = _bot_api.get_message_templates(
-        uin=user_data.get('uin'),
-        quid=user_data.get('developerId'),
-        ticket=user_data.get('ticket'),
-        appid=appid_to_use
-    )
-
-    # 修正判断条件，retcode和code只要有一个不为0就提示登录失效
+    appid_to_use = data.get('appid') or user_data.get('appId')
+    res = _bot_api.get_message_templates(uin=user_data.get('uin'), quid=user_data.get('developerId'),
+        ticket=user_data.get('ticket'), appid=appid_to_use)
     if res.get('retcode', 0) != 0 or res.get('code', 0) != 0:
         return openapi_error_response('登录状态失效，请重新登录')
-    else:
-        raw_templates = res.get('data', {}).get('list', [])
-        templates = []
-    for template in raw_templates:
-        processed_template = {
-            'id': template.get('模板id', ''),
-            'name': template.get('模板名称', '未命名'),
-            'type': template.get('模板类型', '未知类型'),
-            'status': template.get('模板状态', '未知状态'),
-            'content': template.get('模板内容', ''),
-            'create_time': template.get('创建时间', ''),
-            'update_time': template.get('更新时间', ''),
-            'raw_data': template
-        }
-        templates.append(processed_template)
-    
+    templates = [{'id': t.get('模板id', ''), 'name': t.get('模板名称', '未命名'), 'type': t.get('模板类型', '未知类型'),
+        'status': t.get('模板状态', '未知状态'), 'content': t.get('模板内容', ''), 'create_time': t.get('创建时间', ''),
+        'update_time': t.get('更新时间', ''), 'raw_data': t} for t in res.get('data', {}).get('list', [])]
     button_templates = [t for t in templates if t.get('type') == '按钮模板']
     markdown_templates = [t for t in templates if t.get('type') == 'markdown模板']
-    
-    try:
-        import_result = _write_templates_to_file(markdown_templates, button_templates)
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'imported_count': import_result['imported_count'],
-                'skipped_count': import_result['skipped_count'],
-                'button_count': import_result['button_count'],
-                'message': import_result['message']
-            }
-        })
-    except Exception as e:
-        return openapi_error_response(f'导入模板失败: {str(e)}')
+    import_result = _write_templates_to_file(markdown_templates, button_templates)
+    return jsonify({'success': True, 'data': {'imported_count': import_result['imported_count'],
+        'skipped_count': import_result['skipped_count'], 'button_count': import_result['button_count'], 'message': import_result['message']}})
 
 def handle_verify_saved_login():
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id', 'web_user')
-        
-        if user_id not in openapi_user_data:
-            return jsonify({
-                'success': True,
-                'valid': False,
-                'message': '没有保存的登录信息'
-            })
-        
-        user_data = openapi_user_data[user_id]
-        
-        if verify_openapi_login(user_data):
-            return jsonify({
-                'success': True,
-                'valid': True,
-                'data': {
-                    'uin': user_data.get('uin'),
-                    'appId': user_data.get('appId'),
-                    'developerId': user_data.get('developerId')
-                },
-                'message': '登录状态有效'
-            })
-        else:
-            if user_id in openapi_user_data:
-                del openapi_user_data[user_id]
-                save_openapi_data()
-            
-            return jsonify({
-                'success': True,
-                'valid': False,
-                'message': '登录状态已失效'
-            })
-            
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'valid': False,
-            'message': f'验证登录状态失败: {str(e)}'
-        })
+    data = request.get_json()
+    user_id = data.get('user_id', 'web_user')
+    if user_id not in openapi_user_data:
+        return jsonify({'success': True, 'valid': False, 'message': '没有保存的登录信息'})
+    user_data = openapi_user_data[user_id]
+    if verify_openapi_login(user_data):
+        return jsonify({'success': True, 'valid': True, 'data': {'uin': user_data.get('uin'),
+            'appId': user_data.get('appId'), 'developerId': user_data.get('developerId')}, 'message': '登录状态有效'})
+    openapi_user_data.pop(user_id, None)
+    save_openapi_data()
+    return jsonify({'success': True, 'valid': False, 'message': '登录状态已失效'})
 
 def handle_get_templates(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
@@ -480,122 +379,39 @@ def handle_get_templates(check_openapi_login_func, openapi_error_response):
 
 def handle_get_template_detail(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    template_id = data.get('id')
-    target_appid = data.get('appid')
-    
-    if not template_id:
+    if not (template_id := data.get('id')):
         return openapi_error_response('缺少模板ID参数')
-    
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
-    # 使用本地bot_api模块获取消息模板列表，然后过滤指定的模板ID
-    res = _bot_api.get_message_templates(
-        uin=user_data.get('uin'),
-        quid=user_data.get('developerId'),
-        ticket=user_data.get('ticket'),
-        appid=appid_to_use
-    )
-    
+    appid_to_use = data.get('appid') or user_data.get('appId')
+    res = _bot_api.get_message_templates(uin=user_data.get('uin'), quid=user_data.get('developerId'),
+        ticket=user_data.get('ticket'), appid=appid_to_use)
     if res.get('retcode') != 0 and res.get('code') != 0:
         return openapi_error_response('登录状态失效，请重新登录')
-    
-    templates = res.get('data', {}).get('list', [])
-    template_detail = None
-    
-    # 找到指定ID的模板
-    for template in templates:
-        if template.get('模板id') == template_id:
-            template_detail = template
-            break
-    
+    template_detail = next((t for t in res.get('data', {}).get('list', []) if t.get('模板id') == template_id), None)
     if not template_detail:
         return openapi_error_response('未找到指定的模板')
-    
-    processed_detail = {
-        'id': template_detail.get('模板id', ''),
-        'name': template_detail.get('模板名称', '未命名'),
-        'type': template_detail.get('模板类型', '未知类型'),
-        'status': template_detail.get('模板状态', '未知状态'),
-        'content': template_detail.get('模板内容', ''),
-        'create_time': template_detail.get('创建时间', ''),
-        'update_time': template_detail.get('更新时间', ''),
-        'raw_data': template_detail
-    }
-    
-    return jsonify({
-        'success': True,
-        'data': {
-            'uin': user_data.get('uin'),
-            'appid': appid_to_use,
-            'template': processed_detail
-        }
-    })
+    return jsonify({'success': True, 'data': {'uin': user_data.get('uin'), 'appid': appid_to_use,
+        'template': {'id': template_detail.get('模板id', ''), 'name': template_detail.get('模板名称', '未命名'),
+            'type': template_detail.get('模板类型', '未知类型'), 'status': template_detail.get('模板状态', '未知状态'),
+            'content': template_detail.get('模板内容', ''), 'create_time': template_detail.get('创建时间', ''),
+            'update_time': template_detail.get('更新时间', ''), 'raw_data': template_detail}}})
 
 def handle_render_button_template():
-    try:
-        data = request.get_json()
-        button_data = data.get('button_data')
-        
-        if not button_data:
-            return jsonify({
-                'success': False,
-                'message': '缺少按钮数据'
-            })
-        
-        try:
-            rows = button_data.get('rows', [])
-            rendered_rows = []
-            
-            for row_idx, row in enumerate(rows[:5]):
-                buttons = row.get('buttons', [])
-                rendered_buttons = []
-                
-                for btn in buttons[:5]:
-                    render_data = btn.get('render_data', {})
-                    action = btn.get('action', {})
-                    
-                    button_info = {
-                        'label': render_data.get('label', 'Button'),
-                        'style': render_data.get('style', 0),
-                        'action_type': action.get('type', 2),
-                        'action_data': action.get('data', ''),
-                        'permission': action.get('permission', {}),
-                        'unsupport_tips': action.get('unsupport_tips', ''),
-                        'reply': action.get('reply', '')
-                    }
-                    rendered_buttons.append(button_info)
-                
-                if rendered_buttons:
-                    rendered_rows.append({
-                        'row_index': row_idx,
-                        'buttons': rendered_buttons
-                    })
-            
-            return jsonify({
-                'success': True,
-                'data': {
-                    'rendered_rows': rendered_rows,
-                    'total_rows': len(rendered_rows),
-                    'max_buttons_per_row': 5
-                }
-            })
-            
-        except Exception as e:
-            return jsonify({
-                'success': False,
-                'message': f'按钮渲染失败: {str(e)}'
-            })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'渲染按钮模板失败: {str(e)}'
-        })
+    data = request.get_json()
+    if not (button_data := data.get('button_data')):
+        return jsonify({'success': False, 'message': '缺少按钮数据'})
+    rendered_rows = []
+    for row_idx, row in enumerate(button_data.get('rows', [])[:5]):
+        rendered_buttons = []
+        for btn in row.get('buttons', [])[:5]:
+            render_data, action = btn.get('render_data', {}), btn.get('action', {})
+            rendered_buttons.append({'label': render_data.get('label', 'Button'), 'style': render_data.get('style', 0),
+                'action_type': action.get('type', 2), 'action_data': action.get('data', ''),
+                'permission': action.get('permission', {}), 'unsupport_tips': action.get('unsupport_tips', ''), 'reply': action.get('reply', '')})
+        if rendered_buttons:
+            rendered_rows.append({'row_index': row_idx, 'buttons': rendered_buttons})
+    return jsonify({'success': True, 'data': {'rendered_rows': rendered_rows, 'total_rows': len(rendered_rows), 'max_buttons_per_row': 5}})
 
 def handle_get_whitelist(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
@@ -615,85 +431,29 @@ def handle_get_whitelist(check_openapi_login_func, openapi_error_response):
 
 def handle_update_whitelist(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    ip_address = data.get('ip', '').strip()
-    action = data.get('action', '').lower()  # 'add' 或 'del'
-    
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    user_id, target_appid = data.get('user_id', 'web_user'), data.get('appid')
+    ip_address, action = data.get('ip', '').strip(), data.get('action', '').lower()
+    if not (user_data := check_openapi_login_func(user_id)):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
+    appid_to_use = target_appid or user_data.get('appId')
     if not appid_to_use:
         return openapi_error_response('缺少AppID参数')
-    
     if not ip_address:
         return openapi_error_response('缺少IP地址参数')
-    
     if action not in ['add', 'del']:
         return openapi_error_response('无效的操作类型，只支持add或del')
-    
-    # IP格式验证
-    ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
-    if not re.match(ip_pattern, ip_address):
+    if not re.match(r'^(\d{1,3}\.){3}\d{1,3}$', ip_address):
         return openapi_error_response('IP地址格式无效')
-    
-    # 检查IP地址范围
-    try:
-        parts = ip_address.split('.')
-        for part in parts:
-            if not (0 <= int(part) <= 255):
-                return openapi_error_response('IP地址范围无效')
-    except ValueError:
-        return openapi_error_response('IP地址格式错误')
-    
-    # 这里需要先创建白名单登录二维码
-    try:
-        # 创建白名单登录二维码
-        qr_result = _bot_api.create_white_login_qr(
-            appid=appid_to_use,
-            uin=user_data.get('uin'),
-            uid=user_data.get('developerId'),
-            ticket=user_data.get('ticket')
-        )
-        
-        if qr_result.get('code', 0) != 0:
-            return openapi_error_response('创建白名单授权失败，请检查登录状态')
-        
-        qrcode = qr_result.get('qrcode', '')
-        if not qrcode:
-            return openapi_error_response('获取白名单授权码失败')
-        
-        # 使用本地bot_api模块更新白名单
-        res = _bot_api.update_white_list(
-            appid=appid_to_use,
-            uin=user_data.get('uin'),
-            uid=user_data.get('developerId'),
-            ticket=user_data.get('ticket'),
-            qrcode=qrcode,
-            ip=ip_address,
-            action=action
-        )
-        
-        # 检查API返回状态
-        if res.get('code', 0) != 0:
-            error_msg = res.get('msg') or f'{"添加" if action == "add" else "删除"}IP失败'
-            return openapi_error_response(error_msg)
-        
-        return jsonify({
-            'success': True,
-            'message': f'IP{"添加" if action == "add" else "删除"}成功',
-            'data': {
-                'ip': ip_address,
-                'action': action,
-                'appid': appid_to_use
-            }
-        })
-        
-    except Exception as e:
-        return openapi_error_response(f'操作失败: {str(e)}')
+    qr_result = _bot_api.create_white_login_qr(appid=appid_to_use, uin=user_data.get('uin'),
+        uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+    if qr_result.get('code', 0) != 0 or not (qrcode := qr_result.get('qrcode', '')):
+        return openapi_error_response('创建白名单授权失败')
+    res = _bot_api.update_white_list(appid=appid_to_use, uin=user_data.get('uin'), uid=user_data.get('developerId'),
+        ticket=user_data.get('ticket'), qrcode=qrcode, ip=ip_address, action=action)
+    if res.get('code', 0) != 0:
+        return openapi_error_response(res.get('msg') or f'{"添加" if action == "add" else "删除"}IP失败')
+    return jsonify({'success': True, 'message': f'IP{"添加" if action == "add" else "删除"}成功',
+        'data': {'ip': ip_address, 'action': action, 'appid': appid_to_use}})
 
 def handle_get_delete_qr(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
@@ -701,293 +461,135 @@ def handle_get_delete_qr(check_openapi_login_func, openapi_error_response):
         return openapi_error_response('未登录，请先登录开放平台')
     if not (appid_to_use := data.get('appid') or user_data.get('appId')):
         return openapi_error_response('缺少AppID参数')
-    try:
-        qr_result = _bot_api.create_white_login_qr(appid=appid_to_use, uin=user_data.get('uin'),
-            uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
-        if qr_result.get('code', 0) != 0:
-            return openapi_error_response('创建授权二维码失败，请检查登录状态')
-        if not (qrcode := qr_result.get('qrcode', '')) or not (qr_url := qr_result.get('url', '')):
-            return openapi_error_response('获取授权二维码失败')
-        return jsonify({'success': True, 'qrcode': qrcode, 'url': qr_url, 'message': '获取授权二维码成功'})
-    except Exception as e:
-        return openapi_error_response(f'获取授权二维码失败: {str(e)}')
+    qr_result = _bot_api.create_white_login_qr(appid=appid_to_use, uin=user_data.get('uin'),
+        uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+    if qr_result.get('code', 0) != 0:
+        return openapi_error_response('创建授权二维码失败')
+    qrcode, qr_url = qr_result.get('qrcode', ''), qr_result.get('url', '')
+    if not qrcode or not qr_url:
+        return openapi_error_response('获取授权二维码失败')
+    return jsonify({'success': True, 'qrcode': qrcode, 'url': qr_url, 'message': '获取授权二维码成功'})
 
 def handle_check_delete_auth(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
     if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-    if not (appid_to_use := data.get('appid') or user_data.get('appId')) or not (qrcode := data.get('qrcode', '')):
+    appid_to_use, qrcode = data.get('appid') or user_data.get('appId'), data.get('qrcode', '')
+    if not appid_to_use or not qrcode:
         return openapi_error_response('缺少必要参数')
-    try:
-        auth_result = _bot_api.verify_qr_auth(appid=appid_to_use, uin=user_data.get('uin'),
-            uid=user_data.get('developerId'), ticket=user_data.get('ticket'), qrcode=qrcode)
-        return jsonify({'success': True, 'authorized': auth_result.get('code', 0) == 0,
-            'message': '授权成功' if auth_result.get('code', 0) == 0 else '等待授权中'})
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': True,
-            'message': f'检查授权状态失败: {str(e)}'
-        })
+    auth_result = _bot_api.verify_qr_auth(appid=appid_to_use, uin=user_data.get('uin'),
+        uid=user_data.get('developerId'), ticket=user_data.get('ticket'), qrcode=qrcode)
+    return jsonify({'success': True, 'authorized': auth_result.get('code', 0) == 0,
+        'message': '授权成功' if auth_result.get('code', 0) == 0 else '等待授权中'})
 
 def handle_execute_delete_ip(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    ip_address = data.get('ip', '').strip()
-    qrcode = data.get('qrcode', '')
-    
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    user_id, target_appid = data.get('user_id', 'web_user'), data.get('appid')
+    ip_address, qrcode = data.get('ip', '').strip(), data.get('qrcode', '')
+    if not (user_data := check_openapi_login_func(user_id)):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
+    appid_to_use = target_appid or user_data.get('appId')
     if not all([appid_to_use, ip_address, qrcode]):
         return openapi_error_response('缺少必要参数')
-    
-    try:
-        # 使用已授权的二维码执行删除操作
-        res = _bot_api.update_white_list(
-            appid=appid_to_use,
-            uin=user_data.get('uin'),
-            uid=user_data.get('developerId'),
-            ticket=user_data.get('ticket'),
-            qrcode=qrcode,
-            ip=ip_address,
-            action='del'
-        )
-        
-        # 检查API返回状态
-        if res.get('code', 0) != 0:
-            error_msg = res.get('msg') or '删除IP失败'
-            return openapi_error_response(error_msg)
-        
-        return jsonify({
-            'success': True,
-            'message': 'IP删除成功',
-            'data': {
-                'ip': ip_address,
-                'appid': appid_to_use
-            }
-        })
-        
-    except Exception as e:
-        return openapi_error_response(f'删除IP失败: {str(e)}')
+    res = _bot_api.update_white_list(appid=appid_to_use, uin=user_data.get('uin'), uid=user_data.get('developerId'),
+        ticket=user_data.get('ticket'), qrcode=qrcode, ip=ip_address, action='del')
+    if res.get('code', 0) != 0:
+        return openapi_error_response(res.get('msg') or '删除IP失败')
+    return jsonify({'success': True, 'message': 'IP删除成功', 'data': {'ip': ip_address, 'appid': appid_to_use}})
 
 def handle_batch_add_whitelist(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    ip_list = data.get('ip_list', [])
-    qrcode = data.get('qrcode', '')
-    
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    user_id, target_appid = data.get('user_id', 'web_user'), data.get('appid')
+    ip_list, qrcode = data.get('ip_list', []), data.get('qrcode', '')
+    if not (user_data := check_openapi_login_func(user_id)):
         return openapi_error_response('未登录，请先登录开放平台')
-    
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-    
+    appid_to_use = target_appid or user_data.get('appId')
     if not all([appid_to_use, ip_list, qrcode]):
         return openapi_error_response('缺少必要参数')
-    
-    try:
-        success_count = 0
-        failed_ips = []
-        
-        for ip in ip_list:
-            try:
-                res = _bot_api.update_white_list(
-                    appid=appid_to_use,
-                    uin=user_data.get('uin'),
-                    uid=user_data.get('developerId'),
-                    ticket=user_data.get('ticket'),
-                    qrcode=qrcode,
-                    ip=ip,
-                    action='add'
-                )
-                
-                if res.get('code', 0) == 0:
-                    success_count += 1
-                else:
-                    failed_ips.append(ip)
-            except:
-                failed_ips.append(ip)
-        
-        return jsonify({
-            'success': True,
-            'message': f'批量添加完成：成功{success_count}个，失败{len(failed_ips)}个',
-            'data': {
-                'success_count': success_count,
-                'failed_count': len(failed_ips),
-                'failed_ips': failed_ips
-            }
-        })
-        
-    except Exception as e:
-        return openapi_error_response(f'批量添加失败: {str(e)}')
+    success_count, failed_ips = 0, []
+    for ip in ip_list:
+        res = _bot_api.update_white_list(appid=appid_to_use, uin=user_data.get('uin'), uid=user_data.get('developerId'),
+            ticket=user_data.get('ticket'), qrcode=qrcode, ip=ip, action='add')
+        if res.get('code', 0) == 0:
+            success_count += 1
+        else:
+            failed_ips.append(ip)
+    return jsonify({'success': True, 'message': f'批量添加完成：成功{success_count}个，失败{len(failed_ips)}个',
+        'data': {'success_count': success_count, 'failed_count': len(failed_ips), 'failed_ips': failed_ips}})
 
 def handle_create_template_qr(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-
-    try:
-        qr_result = _bot_api.create_template_qr(uin=user_data.get('uin'), quid=user_data.get('developerId'), ticket=user_data.get('ticket'))
-        if qr_result.get('code', 0) != 0:
-            return openapi_error_response(f'创建二维码失败: {qr_result.get("msg", "请稍后重试")}')
-
-        qrcode = qr_result.get('data', {}).get('QrCode', '')
-        if not qrcode:
-            return openapi_error_response('获取二维码失败')
-
-        from urllib.parse import quote
-        qq_auth_url = f"https://q.qq.com/qrcode/check?client=qq&code={qrcode}&ticket={user_data.get('ticket')}"
-        qr_image_url = f"https://api.2dcode.biz/v1/create-qr-code?data={quote(qq_auth_url)}"
-
-        return jsonify({'success': True, 'qrcode': qrcode, 'url': qr_image_url, 'message': '二维码创建成功，请扫码授权'})
-
-    except Exception as e:
-        return openapi_error_response(f'创建二维码失败: {str(e)}')
+    qr_result = _bot_api.create_template_qr(uin=user_data.get('uin'), quid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+    if qr_result.get('code', 0) != 0 or not (qrcode := qr_result.get('data', {}).get('QrCode', '')):
+        return openapi_error_response(f'创建二维码失败: {qr_result.get("msg", "请稍后重试")}')
+    from urllib.parse import quote
+    qq_auth_url = f"https://q.qq.com/qrcode/check?client=qq&code={qrcode}&ticket={user_data.get('ticket')}"
+    return jsonify({'success': True, 'qrcode': qrcode, 'url': f"https://api.2dcode.biz/v1/create-qr-code?data={quote(qq_auth_url)}", 'message': '二维码创建成功，请扫码授权'})
 
 def handle_check_template_qr(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    qrcode = data.get('qrcode', '')
-
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-
-    if not qrcode:
+    if not (qrcode := data.get('qrcode', '')):
         return openapi_error_response('缺少二维码参数')
-
-    try:
-        auth_result = _bot_api.verify_qr_auth(uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'), qrcode=qrcode)
-        return jsonify({'success': True, 'authorized': auth_result.get('code', 0) == 0,
-                       'message': '授权成功' if auth_result.get('code', 0) == 0 else '等待授权中'})
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': True, 'message': f'检查授权状态失败: {str(e)}'})
+    auth_result = _bot_api.verify_qr_auth(uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'), qrcode=qrcode)
+    return jsonify({'success': True, 'authorized': auth_result.get('code', 0) == 0,
+        'message': '授权成功' if auth_result.get('code', 0) == 0 else '等待授权中'})
 
 def handle_preview_template(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    template_data = data.get('template_data', {})
-
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-
+    appid_to_use, template_data = data.get('appid') or user_data.get('appId'), data.get('template_data', {})
     if not appid_to_use or not template_data:
         return openapi_error_response('缺少必要参数')
-
-    try:
-        preview_result = _bot_api.preview_template(bot_appid=appid_to_use, template_data=template_data,
-                                                 uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
-        if preview_result.get('retcode', 0) != 0:
-            return openapi_error_response(preview_result.get('msg', '预览失败'))
-
-        preview_text = preview_result.get('data', {}).get('tpl_text', '')
-        return jsonify({'success': True, 'data': {'preview_text': preview_text}, 'message': '预览成功'})
-
-    except Exception as e:
-        return openapi_error_response(f'预览模板失败: {str(e)}')
+    preview_result = _bot_api.preview_template(bot_appid=appid_to_use, template_data=template_data,
+        uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+    if preview_result.get('retcode', 0) != 0:
+        return openapi_error_response(preview_result.get('msg', '预览失败'))
+    return jsonify({'success': True, 'data': {'preview_text': preview_result.get('data', {}).get('tpl_text', '')}, 'message': '预览成功'})
 
 def handle_submit_template(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    template_data = data.get('template_data', {})
-    qrcode = data.get('qrcode', '')
-
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-
+    appid_to_use, template_data, qrcode = data.get('appid') or user_data.get('appId'), data.get('template_data', {}), data.get('qrcode', '')
     if not all([appid_to_use, template_data, qrcode]):
         return openapi_error_response('缺少必要参数')
-
-    try:
-        submit_result = _bot_api.submit_template(bot_appid=appid_to_use, template_data=template_data, qrcode=qrcode,
-                                               uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
-        if submit_result.get('retcode', 0) != 0:
-            return openapi_error_response(submit_result.get('msg', '提交失败'))
-
-        template_id = submit_result.get('data', {}).get('tpl_id', '')
-        return jsonify({'success': True, 'data': {'template_id': template_id}, 'message': '模板提交成功'})
-
-    except Exception as e:
-        return openapi_error_response(f'提交模板失败: {str(e)}')
+    submit_result = _bot_api.submit_template(bot_appid=appid_to_use, template_data=template_data, qrcode=qrcode,
+        uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+    if submit_result.get('retcode', 0) != 0:
+        return openapi_error_response(submit_result.get('msg', '提交失败'))
+    return jsonify({'success': True, 'data': {'template_id': submit_result.get('data', {}).get('tpl_id', '')}, 'message': '模板提交成功'})
 
 def handle_audit_templates(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    tpl_ids = data.get('tpl_ids', [])
-    qrcode = data.get('qrcode', '')
-
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-
+    appid_to_use, tpl_ids, qrcode = data.get('appid') or user_data.get('appId'), data.get('tpl_ids', []), data.get('qrcode', '')
     if not all([appid_to_use, tpl_ids, qrcode]):
         return openapi_error_response('缺少必要参数')
-
-    try:
-        audit_result = _bot_api.audit_templates(bot_appid=appid_to_use, tpl_ids=tpl_ids, qrcode=qrcode,
-                                              uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
-        if audit_result.get('retcode', 0) != 0:
-            return openapi_error_response(audit_result.get('msg', '提审失败'))
-
-        return jsonify({'success': True, 'message': f'成功提审 {len(tpl_ids)} 个模板'})
-
-    except Exception as e:
-        return openapi_error_response(f'提审模板失败: {str(e)}')
+    audit_result = _bot_api.audit_templates(bot_appid=appid_to_use, tpl_ids=tpl_ids, qrcode=qrcode,
+        uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+    if audit_result.get('retcode', 0) != 0:
+        return openapi_error_response(audit_result.get('msg', '提审失败'))
+    return jsonify({'success': True, 'message': f'成功提审 {len(tpl_ids)} 个模板'})
 
 def handle_delete_templates(check_openapi_login_func, openapi_error_response):
     data = request.get_json()
-    user_id = data.get('user_id', 'web_user')
-    target_appid = data.get('appid')
-    tpl_ids = data.get('tpl_ids', [])
-    qrcode = data.get('qrcode', '')
-
-    user_data = check_openapi_login_func(user_id)
-    if not user_data:
+    if not (user_data := check_openapi_login_func(data.get('user_id', 'web_user'))):
         return openapi_error_response('未登录，请先登录开放平台')
-
-    appid_to_use = target_appid if target_appid else user_data.get('appId')
-
+    appid_to_use, tpl_ids, qrcode = data.get('appid') or user_data.get('appId'), data.get('tpl_ids', []), data.get('qrcode', '')
     if not all([appid_to_use, tpl_ids, qrcode]):
         return openapi_error_response('缺少必要参数')
+    delete_result = _bot_api.delete_templates(bot_appid=appid_to_use, tpl_ids=tpl_ids, qrcode=qrcode,
+        uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
+    if delete_result.get('retcode', 0) != 0:
+        return openapi_error_response(delete_result.get('msg', '删除失败'))
+    return jsonify({'success': True, 'message': f'成功删除 {len(tpl_ids)} 个模板'})
 
-    try:
-        delete_result = _bot_api.delete_templates(bot_appid=appid_to_use, tpl_ids=tpl_ids, qrcode=qrcode,
-                                                uin=user_data.get('uin'), uid=user_data.get('developerId'), ticket=user_data.get('ticket'))
-        if delete_result.get('retcode', 0) != 0:
-            return openapi_error_response(delete_result.get('msg', '删除失败'))
-
-        return jsonify({'success': True, 'message': f'成功删除 {len(tpl_ids)} 个模板'})
-
-    except Exception as e:
-        return openapi_error_response(f'删除模板失败: {str(e)}')
-
-# ===== 初始化 =====
-
-# 加载OpenAPI数据
 load_openapi_data()
-
-# 启动清理线程
 start_openapi_cleanup_thread()
 

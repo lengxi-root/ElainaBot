@@ -223,6 +223,79 @@
         <div class="modal-footer" id="detail-footer"></div>
     </div>
 </div>
+
+<!-- 编辑插件弹窗 -->
+<div class="modal-overlay" id="edit-modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5><i class="bi bi-pencil"></i> 修改插件</h5>
+            <button class="modal-close" onclick="closeModal('edit-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="edit-plugin-id">
+            <input type="hidden" id="edit-is-local-upload">
+            <div class="form-group">
+                <label>插件名称</label>
+                <input type="text" class="form-input" id="edit-name" disabled>
+            </div>
+            <div class="form-group">
+                <label>版本号</label>
+                <input type="text" class="form-input" id="edit-version" placeholder="1.0.0">
+            </div>
+            <div class="form-group">
+                <label>插件描述 <span class="required">*</span></label>
+                <textarea class="form-textarea" id="edit-desc" placeholder="简要描述插件的功能和用途..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>分类</label>
+                <select class="form-select" id="edit-category"></select>
+            </div>
+            <!-- 本地上传插件的更新选项 -->
+            <div class="form-group" id="edit-local-upload-group" style="display:none;">
+                <label>更新插件文件 <span class="hint">(可选，不选择则保留原文件)</span></label>
+                <select class="form-select" id="edit-local-plugin">
+                    <option value="">-- 不更新文件 --</option>
+                </select>
+                <div class="info-box" style="margin-top:0.5rem;">
+                    <i class="bi bi-info-circle"></i>
+                    <span>此插件为本地上传，可选择新的本地插件替换</span>
+                </div>
+            </div>
+            <!-- URL 方式的下载链接 -->
+            <div class="form-group" id="edit-url-group">
+                <label>下载链接</label>
+                <div class="download-urls-group">
+                    <div class="url-input-row">
+                        <span class="url-label"><i class="bi bi-github"></i> GitHub</span>
+                        <input type="url" class="form-input" id="edit-url-github" placeholder="https://github.com/...">
+                    </div>
+                    <div class="url-input-row">
+                        <span class="url-label"><i class="bi bi-git"></i> Gitee</span>
+                        <input type="url" class="form-input" id="edit-url-gitee" placeholder="https://gitee.com/...">
+                    </div>
+                    <div class="url-input-row">
+                        <span class="url-label"><i class="bi bi-code-square"></i> GitCode</span>
+                        <input type="url" class="form-input" id="edit-url-gitcode" placeholder="https://gitcode.com/...">
+                    </div>
+                    <div class="url-input-row">
+                        <span class="url-label"><i class="bi bi-link-45deg"></i> 直连</span>
+                        <input type="url" class="form-input" id="edit-url-direct" placeholder="https://..." disabled id="edit-url-direct-display">
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>标签 <span class="hint">(按回车添加，最多5个)</span></label>
+                <div class="tags-input-wrapper" id="edit-tags-wrapper">
+                    <input type="text" class="tags-input" id="edit-tags-input" placeholder="输入标签后按回车...">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn secondary" onclick="closeModal('edit-modal')">取消</button>
+            <button class="modal-btn primary" onclick="savePluginEdit()"><i class="bi bi-check-lg"></i> 保存修改</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_styles %}
@@ -544,7 +617,9 @@ function renderPlugins(plugins) {
         return;
     }
     
-    grid.innerHTML = plugins.map(p => `
+    grid.innerHTML = plugins.map(p => {
+        const isMyPlugin = currentUser && p.user_key === currentUser.user_key;
+        return `
         <div class="plugin-card" onclick="showPluginDetail('${p.id}')">
             <div class="plugin-header">
                 <div class="plugin-title-row">
@@ -564,12 +639,20 @@ function renderPlugins(plugins) {
             </div>
             <div class="plugin-body">
                 <p class="plugin-desc">${escapeHtml(p.description)}</p>
-                <button class="download-btn" onclick="event.stopPropagation();showDownloadOptions('${p.id}')">
-                    <i class="bi bi-download"></i> 下载
-                </button>
+                <div class="plugin-actions">
+                    <button class="download-btn" onclick="event.stopPropagation();showDownloadOptions('${p.id}')">
+                        <i class="bi bi-download"></i> 下载
+                    </button>
+                    ${isMyPlugin ? `<button class="edit-btn" onclick="event.stopPropagation();showEditModal('${p.id}')">
+                        <i class="bi bi-pencil"></i> 修改
+                    </button>
+                    <button class="delete-btn" onclick="event.stopPropagation();confirmDeletePlugin('${p.id}', '${escapeHtml(p.name)}')">
+                        <i class="bi bi-trash"></i>
+                    </button>` : ''}
+                </div>
             </div>
         </div>
-    `).join('');
+    `}).join('');
 }
 
 function getBadge(status) {
@@ -930,6 +1013,265 @@ function resetSubmitForm() {
     renderSubmitTags();
 }
 
+// ==================== 编辑插件 ====================
+let editTags = [];
+
+// 显示编辑弹窗
+async function showEditModal(pluginId) {
+    if (!currentUser) {
+        showToast('请先登录', 'error');
+        return;
+    }
+    
+    // 从后端获取插件详情并验证权限
+    try {
+        const r = await fetch(`/web/api/market/plugin_detail?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ plugin_id: pluginId, user_key: currentUser.user_key })
+        });
+        const result = await r.json();
+        
+        if (!result.success) {
+            showToast(result.message, 'error');
+            return;
+        }
+        
+        if (!result.is_author) {
+            showToast('您不是该插件的作者', 'error');
+            return;
+        }
+        
+        const plugin = result.plugin;
+        
+        // 填充表单
+        document.getElementById('edit-plugin-id').value = pluginId;
+        document.getElementById('edit-name').value = plugin.name;
+        document.getElementById('edit-version').value = plugin.version || '1.0.0';
+        document.getElementById('edit-desc').value = plugin.description;
+        
+        // 填充分类选择
+        const categorySelect = document.getElementById('edit-category');
+        categorySelect.innerHTML = '';
+        categories.forEach(c => {
+            categorySelect.innerHTML += `<option value="${c}" ${c === plugin.category ? 'selected' : ''}>${c}</option>`;
+        });
+        
+        // 检测是否为本地上传的插件（直连地址包含 i.elaina.vin）
+        const urls = plugin.download_urls || {};
+        const directUrl = urls.direct || plugin.download_url || '';
+        const isLocalUpload = directUrl.includes('i.elaina.vin');
+        document.getElementById('edit-is-local-upload').value = isLocalUpload ? '1' : '0';
+        
+        // 根据是否为本地上传显示不同的界面
+        if (isLocalUpload) {
+            document.getElementById('edit-local-upload-group').style.display = 'block';
+            document.getElementById('edit-url-group').style.display = 'none';
+            // 加载本地插件列表
+            await loadEditLocalPlugins();
+        } else {
+            document.getElementById('edit-local-upload-group').style.display = 'none';
+            document.getElementById('edit-url-group').style.display = 'block';
+            // 填充下载链接
+            document.getElementById('edit-url-github').value = urls.github || '';
+            document.getElementById('edit-url-gitee').value = urls.gitee || '';
+            document.getElementById('edit-url-gitcode').value = urls.gitcode || '';
+            document.getElementById('edit-url-direct').value = urls.direct || '';
+        }
+        
+        // 填充标签
+        editTags = plugin.tags || [];
+        renderEditTags();
+        
+        // 初始化标签输入
+        initEditTagsInput();
+        
+        showModal('edit-modal');
+    } catch (e) {
+        showToast('获取插件信息失败: ' + e.message, 'error');
+    }
+}
+
+// 加载编辑时的本地插件列表
+async function loadEditLocalPlugins() {
+    const select = document.getElementById('edit-local-plugin');
+    select.innerHTML = '<option value="">-- 不更新文件 --</option>';
+    
+    try {
+        const r = await fetch(`/web/api/market/local_plugins?token=${getToken()}`);
+        const result = await r.json();
+        if (result.success) {
+            (result.plugins || []).forEach(p => {
+                select.innerHTML += `<option value="${p.path}">${p.display || p.name}</option>`;
+            });
+        }
+    } catch (e) {
+        console.error('加载本地插件列表失败:', e);
+    }
+}
+
+function initEditTagsInput() {
+    const input = document.getElementById('edit-tags-input');
+    // 移除旧的事件监听器
+    const newInput = input.cloneNode(true);
+    input.parentNode.replaceChild(newInput, input);
+    
+    newInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const value = this.value.trim();
+            if (value && !editTags.includes(value) && editTags.length < 5) {
+                editTags.push(value);
+                renderEditTags();
+                this.value = '';
+            }
+        }
+    });
+}
+
+function renderEditTags() {
+    const wrapper = document.getElementById('edit-tags-wrapper');
+    wrapper.querySelectorAll('.tag').forEach(t => t.remove());
+    editTags.forEach((tag, i) => {
+        const el = document.createElement('span');
+        el.className = 'tag';
+        el.innerHTML = `${tag}<i class="bi bi-x" onclick="removeEditTag(${i})"></i>`;
+        wrapper.insertBefore(el, document.getElementById('edit-tags-input'));
+    });
+}
+
+function removeEditTag(index) {
+    editTags.splice(index, 1);
+    renderEditTags();
+}
+
+// 保存插件修改
+async function savePluginEdit() {
+    if (!currentUser) {
+        showToast('请先登录', 'error');
+        return;
+    }
+    
+    const pluginId = document.getElementById('edit-plugin-id').value;
+    const description = document.getElementById('edit-desc').value.trim();
+    const isLocalUpload = document.getElementById('edit-is-local-upload').value === '1';
+    
+    if (!description) {
+        showToast('请填写插件描述', 'error');
+        return;
+    }
+    
+    // 如果是本地上传的插件且选择了新文件，使用上传接口
+    if (isLocalUpload) {
+        const newPluginPath = document.getElementById('edit-local-plugin').value;
+        
+        if (newPluginPath) {
+            // 有选择新文件，使用上传更新接口
+            const data = {
+                plugin_id: pluginId,
+                plugin_path: newPluginPath,
+                name: document.getElementById('edit-name').value,
+                description: description,
+                user_key: currentUser.user_key,
+                version: document.getElementById('edit-version').value.trim() || '1.0.0',
+                category: document.getElementById('edit-category').value || '其他',
+                tags: editTags
+            };
+            
+            try {
+                showToast('正在上传更新...', 'success');
+                const r = await fetch(`/web/api/market/update_local?token=${getToken()}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                const result = await r.json();
+                
+                if (result.success) {
+                    showToast(result.message, 'success');
+                    closeModal('edit-modal');
+                    loadPlugins();
+                } else {
+                    showToast(result.message, 'error');
+                }
+            } catch (e) {
+                showToast('更新失败: ' + e.message, 'error');
+            }
+            return;
+        }
+    }
+    
+    // 普通更新（URL方式或本地上传不更换文件）
+    const download_urls = isLocalUpload ? {} : {
+        github: document.getElementById('edit-url-github').value.trim(),
+        gitee: document.getElementById('edit-url-gitee').value.trim(),
+        gitcode: document.getElementById('edit-url-gitcode').value.trim(),
+        direct: document.getElementById('edit-url-direct').value.trim()
+    };
+    
+    const data = {
+        plugin_id: pluginId,
+        user_key: currentUser.user_key,
+        description: description,
+        version: document.getElementById('edit-version').value.trim() || '1.0.0',
+        category: document.getElementById('edit-category').value || '其他',
+        download_urls: download_urls,
+        tags: editTags
+    };
+    
+    try {
+        const r = await fetch(`/web/api/market/author_update?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            showToast(result.message, 'success');
+            closeModal('edit-modal');
+            loadPlugins();
+        } else {
+            showToast(result.message, 'error');
+        }
+    } catch (e) {
+        showToast('更新失败: ' + e.message, 'error');
+    }
+}
+
+// 确认删除插件
+function confirmDeletePlugin(pluginId, pluginName) {
+    if (!currentUser) {
+        showToast('请先登录', 'error');
+        return;
+    }
+    
+    if (confirm(`确定要删除插件「${pluginName}」吗？此操作不可恢复！`)) {
+        deleteMyPlugin(pluginId);
+    }
+}
+
+// 删除自己的插件
+async function deleteMyPlugin(pluginId) {
+    try {
+        const r = await fetch(`/web/api/market/author_delete?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ plugin_id: pluginId, user_key: currentUser.user_key })
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            showToast('插件已删除', 'success');
+            loadPlugins();
+        } else {
+            showToast(result.message, 'error');
+        }
+    } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+    }
+}
+
 // 待审核
 async function loadPendingCount() {
     try {
@@ -1063,7 +1405,12 @@ function showToast(msg, type = 'success') {
 .plugin-meta span { display: flex; align-items: center; gap: 4px; }
 .plugin-body { padding: 0.75rem 1rem; }
 .plugin-desc { color: #475569; font-size: 0.85rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 0.75rem; }
-.plugin-body .download-btn { width: 100%; justify-content: center; }
+.plugin-actions { display: flex; gap: 0.5rem; }
+.plugin-actions .download-btn { flex: 1; justify-content: center; }
+.edit-btn { background: #f5f5f5; color: #666; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }
+.edit-btn:hover { background: #e8e8e8; border-color: #ccc; }
+.delete-btn { background: #fee2e2; color: #dc2626; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid #fecaca; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.delete-btn:hover { background: #fecaca; border-color: #f87171; }
 .plugin-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .plugin-tag { background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; }
 .download-btn { background: var(--theme-gradient); color: #fff; padding: 0.4rem 0.8rem; border-radius: 6px; border: none; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }

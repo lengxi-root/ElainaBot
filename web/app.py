@@ -153,7 +153,8 @@ from web.tools.ai_plugin_handler import (handle_list_plugins, handle_read_plugin
 from web.tools.plugin_market_handler import (handle_market_submit, handle_market_list, handle_market_pending,
     handle_market_review, handle_market_update_status, handle_market_delete, handle_market_categories,
     handle_market_export, handle_market_download, handle_market_install, handle_market_local_plugins,
-    handle_market_upload_local, handle_market_register, handle_market_login, handle_market_user_info)
+    handle_market_upload_local, handle_market_register, handle_market_login, handle_market_user_info,
+    handle_market_plugin_detail, handle_market_author_update, handle_market_author_delete, handle_market_update_local)
 
 status_routes.set_restart_function(execute_bot_restart)
 check_openapi_login = lambda uid: openapi_user_data.get(uid)
@@ -462,7 +463,6 @@ def get_plugin_folders():
 def upload_plugin():
     return handle_upload_plugin(add_framework_log)
 
-# AI 插件编辑相关路由
 @web.route('/api/ai_plugin/list', methods=['POST'])
 @full_auth
 def ai_list_plugins():
@@ -523,7 +523,6 @@ def ai_get_config():
 def ai_save_config():
     return handle_save_ai_config()
 
-# 插件市场路由
 @web.route('/api/market/submit', methods=['POST'])
 @safe_route
 def market_submit():
@@ -598,6 +597,26 @@ def market_login():
 @safe_route
 def market_user_info():
     return handle_market_user_info()
+
+@web.route('/api/market/plugin_detail', methods=['POST'])
+@safe_route
+def market_plugin_detail():
+    return handle_market_plugin_detail()
+
+@web.route('/api/market/author_update', methods=['POST'])
+@safe_route
+def market_author_update():
+    return handle_market_author_update()
+
+@web.route('/api/market/author_delete', methods=['POST'])
+@safe_route
+def market_author_delete():
+    return handle_market_author_delete()
+
+@web.route('/api/market/update_local', methods=['POST'])
+@safe_route
+def market_update_local():
+    return handle_market_update_local()
 
 @web.route('/openapi/start_login', methods=['POST'])
 @simple_auth
@@ -735,7 +754,6 @@ def get_simple_status():
 @web.route('/api/ssl/status', methods=['GET'])
 @token_auth
 def get_ssl_status():
-    """获取SSL证书状态"""
     try:
         from function.ssl_manager import get_ssl_manager
         from config import SERVER_CONFIG
@@ -743,8 +761,6 @@ def get_ssl_status():
         manager = get_ssl_manager()
         if manager:
             return jsonify({'success': True, **manager.get_status()})
-        
-        # 管理器未初始化，返回配置信息
         return jsonify({
             'success': True,
             'auto_cert': SERVER_CONFIG.get('ssl_auto_cert', False),
@@ -765,14 +781,11 @@ def get_ssl_status():
 @web.route('/api/ssl/renew', methods=['POST'])
 @token_auth
 def ssl_force_renew():
-    """手动续签SSL证书"""
     try:
         from function.ssl_manager import get_ssl_manager, init_ssl_manager
         from config import SERVER_CONFIG
         
         manager = get_ssl_manager()
-        
-        # 如果管理器未初始化，尝试初始化
         if not manager:
             if SERVER_CONFIG.get('ssl_auto_cert'):
                 manager = init_ssl_manager(SERVER_CONFIG)
@@ -783,8 +796,6 @@ def ssl_force_renew():
             return jsonify({'success': False, 'error': 'SSL管理器初始化失败'})
         if not manager.domain:
             return jsonify({'success': False, 'error': '未配置域名'})
-        
-        # 在后台线程执行续签
         def do_renew():
             result = manager.force_renew()
             if result:
@@ -800,7 +811,6 @@ def ssl_force_renew():
 @web.route('/api/ssl/precheck', methods=['POST'])
 @token_auth
 def ssl_precheck():
-    """准备SSL预验证"""
     try:
         from function.ssl_manager import get_ssl_manager, init_ssl_manager
         from config import SERVER_CONFIG
@@ -826,7 +836,6 @@ def ssl_precheck():
 @web.route('/api/ssl/precheck/cancel', methods=['POST'])
 @token_auth
 def ssl_precheck_cancel():
-    """取消SSL预验证"""
     try:
         from function.ssl_manager import get_ssl_manager
         
@@ -841,7 +850,6 @@ def ssl_precheck_cancel():
 @web.route('/api/ssl/renew/confirm', methods=['POST'])
 @token_auth
 def ssl_renew_confirm():
-    """确认SSL续签"""
     try:
         from function.ssl_manager import get_ssl_manager
         

@@ -1,5 +1,3 @@
-"""插件市场 Python 处理器 - 调用 PHP 后端"""
-
 import os
 import re
 import io
@@ -19,7 +17,6 @@ PLUGINS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 
 
 def generate_author_token():
-    """生成作者身份标识"""
     raw = f"{appid}:{ROBOT_QQ}"
     md5_hash = hashlib.md5(raw.encode()).hexdigest()
     token = base64.b64encode(f"{appid}_{md5_hash[:16]}".encode()).decode()
@@ -27,7 +24,6 @@ def generate_author_token():
 
 
 def call_php(action, data=None, params=None, token=None):
-    """调用 PHP 后端"""
     try:
         headers = {}
         if token:
@@ -49,7 +45,6 @@ def call_php(action, data=None, params=None, token=None):
 
 
 def handle_market_submit():
-    """提交插件"""
     data = request.json or {}
     data['author_token'] = generate_author_token()
     data['submit_appid'] = appid
@@ -57,7 +52,6 @@ def handle_market_submit():
 
 
 def handle_market_list():
-    """获取插件列表"""
     params = {k: v for k, v in {
         'category': request.args.get('category', ''),
         'status': request.args.get('status', ''),
@@ -67,46 +61,38 @@ def handle_market_list():
 
 
 def handle_market_pending():
-    """获取待审核列表"""
     token = request.headers.get('X-Admin-Token') or request.args.get('token')
     return jsonify(call_php('pending', token=token))
 
 
 def handle_market_review():
-    """审核插件"""
     token = request.headers.get('X-Admin-Token') or (request.json or {}).get('token')
     return jsonify(call_php('review', request.json or {}, token=token))
 
 
 def handle_market_update_status():
-    """更新插件状态"""
     token = request.headers.get('X-Admin-Token') or (request.json or {}).get('token')
     return jsonify(call_php('update_status', request.json or {}, token=token))
 
 
 def handle_market_delete():
-    """删除插件"""
     token = request.headers.get('X-Admin-Token') or (request.json or {}).get('token')
     return jsonify(call_php('delete', request.json or {}, token=token))
 
 
 def handle_market_categories():
-    """获取分类列表"""
     return jsonify(call_php('categories'))
 
 
 def handle_market_export():
-    """导出插件列表"""
     return jsonify(call_php('export'))
 
 
 def handle_market_download():
-    """记录下载"""
     return jsonify(call_php('download', request.json or {}))
 
 
 def handle_market_install():
-    """下载并安装插件到服务器"""
     data = request.json or {}
     url = data.get('url', '')
     plugin_name = data.get('name', 'unknown_plugin')
@@ -151,7 +137,6 @@ def handle_market_install():
 
 
 def convert_github_url(url):
-    """转换 GitHub URL 为可下载的链接"""
     if 'raw.githubusercontent.com' in url or '/raw/' in url or '/archive/' in url:
         return url
     
@@ -178,7 +163,6 @@ def convert_github_url(url):
 
 
 def install_zip_plugin(content, plugin_name):
-    """安装 zip 压缩包插件（合并到已有目录，不覆盖整个文件夹）"""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
             tmp.write(content)
@@ -237,7 +221,6 @@ def install_zip_plugin(content, plugin_name):
 
 
 def merge_directories(src, dst):
-    """递归合并目录，只覆盖同名文件，不删除已有文件"""
     for item in os.listdir(src):
         s = os.path.join(src, item)
         d = os.path.join(dst, item)
@@ -251,7 +234,6 @@ def merge_directories(src, dst):
 
 
 def install_py_plugin(content, plugin_name, url):
-    """安装单个 py 文件插件"""
     try:
         filename = url.split('/')[-1].split('?')[0]
         if not filename.endswith('.py'):
@@ -268,7 +250,6 @@ def install_py_plugin(content, plugin_name, url):
 
 
 def handle_market_local_plugins():
-    """获取本地插件列表（包含文件夹和单个文件）"""
     try:
         plugins = []
         if not os.path.exists(PLUGINS_DIR):
@@ -312,7 +293,6 @@ def handle_market_local_plugins():
 
 
 def handle_market_upload_local():
-    """上传本地插件到服务器"""
     data = request.json or {}
     plugin_path = data.get('plugin_path', '')
     plugin_name = data.get('name', '')
@@ -359,10 +339,7 @@ def handle_market_upload_local():
         return jsonify({'success': False, 'message': f'上传失败: {str(e)}'})
 
 
-# ==================== 用户系统 ====================
-
 def handle_market_register():
-    """用户注册"""
     data = request.json or {}
     data['robot_qq'] = ROBOT_QQ
     data['appid'] = appid
@@ -370,10 +347,65 @@ def handle_market_register():
 
 
 def handle_market_login():
-    """用户登录"""
     return jsonify(call_php('login', request.json or {}))
 
 
 def handle_market_user_info():
-    """获取用户信息"""
     return jsonify(call_php('user_info', request.json or {}))
+
+
+def handle_market_plugin_detail():
+    return jsonify(call_php('plugin_detail', request.json or {}))
+
+
+def handle_market_author_update():
+    return jsonify(call_php('author_update', request.json or {}))
+
+
+def handle_market_author_delete():
+    return jsonify(call_php('author_delete', request.json or {}))
+
+
+def handle_market_update_local():
+    data = request.json or {}
+    plugin_id = data.get('plugin_id', '')
+    plugin_path = data.get('plugin_path', '')
+    plugin_name = data.get('name', '')
+    description = data.get('description', '')
+    user_key = data.get('user_key', '')
+    version = data.get('version', '1.0.0')
+    category = data.get('category', '其他')
+    tags = data.get('tags', [])
+    
+    if not plugin_id or not plugin_path or not description:
+        return jsonify({'success': False, 'message': '请填写完整的插件信息'})
+    
+    full_path = os.path.join(PLUGINS_DIR, plugin_path)
+    if not os.path.exists(full_path):
+        return jsonify({'success': False, 'message': '插件不存在'})
+    
+    try:
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            if os.path.isdir(full_path):
+                for root, dirs, files in os.walk(full_path):
+                    dirs[:] = [d for d in dirs if not d.startswith('__') and not d.startswith('.')]
+                    for file in files:
+                        if file.startswith('__') or file.startswith('.'):
+                            continue
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, PLUGINS_DIR)
+                        zf.write(file_path, arcname)
+            else:
+                zf.write(full_path, plugin_path)
+        zip_buffer.seek(0)
+        zip_base64 = base64.b64encode(zip_buffer.getvalue()).decode()
+        submit_data = {
+            'plugin_id': plugin_id, 'name': plugin_name, 'description': description,
+            'user_key': user_key, 'version': version, 'category': category, 'tags': tags,
+            'author_token': generate_author_token(), 'submit_appid': appid,
+            'plugin_data': zip_base64, 'plugin_filename': f'{plugin_path}.zip' if os.path.isdir(full_path) else plugin_path
+        }
+        return jsonify(call_php('author_update_local', submit_data))
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'上传失败: {str(e)}'})

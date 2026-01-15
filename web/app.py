@@ -809,6 +809,7 @@ def ssl_renew_confirm():
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+@web.route('/api/message/get_chats', methods=['POST'])
 @simple_auth
 def get_chats():
     return handle_get_chats(LOG_DB_CONFIG, appid)

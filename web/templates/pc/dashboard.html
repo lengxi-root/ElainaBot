@@ -33,6 +33,13 @@
                 <a href="#" id="robot-link" target="_blank" class="meta-item meta-link"><i class="bi bi-box-arrow-up-right"></i>机器人主页</a>
                 <button class="qr-btn" onclick="showRobotQRCode()" title="显示二维码"><i class="bi bi-qr-code"></i></button>
             </div>
+            <!-- 框架运行信息 -->
+            <div class="robot-meta framework-meta">
+                <span class="meta-item"><i class="bi bi-calendar-event"></i>启动 <span id="framework-boot-time">-</span></span>
+                <span class="meta-item"><i class="bi bi-hourglass-split"></i>运行 <span id="framework-uptime">-</span></span>
+                <span class="meta-item"><i class="bi bi-recycle"></i>GC <span id="gc-count">0/0/0</span></span>
+                <span class="meta-item"><i class="bi bi-boxes"></i>对象 <span id="objects-count">0</span></span>
+            </div>
         </div>
         <button class="refresh-btn" onclick="refreshRobotInfo()"><i class="bi bi-arrow-clockwise"></i></button>
     </div>
@@ -94,34 +101,71 @@
             </div>
         </div>
     </div>
-    <div class="info-card">
-        <div class="info-card-header"><i class="bi bi-bar-chart"></i>框架状态</div>
+    <div class="info-card" id="ssl-management-card">
+        <div class="info-card-header"><i class="bi bi-shield-lock"></i>SSL证书管理</div>
         <div class="info-card-body">
-            <div class="framework-stats">
+            <div class="framework-stats ssl-stats">
                 <div class="fw-stat-card primary">
-                    <i class="bi bi-calendar-event"></i>
-                    <div class="fw-stat-label">启动时间</div>
-                    <div class="fw-stat-value" id="framework-boot-time">未知</div>
+                    <i class="bi bi-globe"></i>
+                    <div class="fw-stat-label">域名/IP</div>
+                    <div class="fw-stat-value" id="ssl-domain-card">-</div>
                 </div>
                 <div class="fw-stat-card success">
-                    <i class="bi bi-hourglass-split"></i>
-                    <div class="fw-stat-label">运行时长</div>
-                    <div class="fw-stat-value" id="framework-uptime">0天 0小时</div>
+                    <i class="bi bi-calendar-check"></i>
+                    <div class="fw-stat-label">过期时间</div>
+                    <div class="fw-stat-value" id="ssl-expiry-card">-</div>
                 </div>
                 <div class="fw-stat-card warning">
-                    <i class="bi bi-recycle"></i>
-                    <div class="fw-stat-label">GC计数</div>
-                    <div class="fw-stat-value" id="gc-count">0/0/0</div>
+                    <i class="bi bi-hourglass-split"></i>
+                    <div class="fw-stat-label">剩余天数</div>
+                    <div class="fw-stat-value" id="ssl-remaining-card">-</div>
                 </div>
                 <div class="fw-stat-card danger">
-                    <i class="bi bi-boxes"></i>
-                    <div class="fw-stat-label">对象数量</div>
-                    <div class="fw-stat-value" id="objects-count">0</div>
+                    <i class="bi bi-check-circle"></i>
+                    <div class="fw-stat-label">证书状态</div>
+                    <div class="fw-stat-value" id="ssl-status-card">-</div>
                 </div>
+            </div>
+            
+            <!-- 预验证区域 -->
+            <div class="ssl-precheck-area" id="ssl-precheck-area" style="display: none;">
+                <div class="ssl-precheck-info">
+                    <div class="ssl-precheck-title"><i class="bi bi-shield-check"></i> 验证文件已准备</div>
+                    <div class="ssl-precheck-url">
+                        <span>验证URL:</span>
+                        <a href="#" id="ssl-precheck-url" target="_blank" class="precheck-link"></a>
+                        <button class="copy-btn" onclick="copyPrecheckUrl()" title="复制"><i class="bi bi-clipboard"></i></button>
+                    </div>
+                    <div class="ssl-precheck-hint">请先点击上方链接确认能正常访问，再点击"确认续签"</div>
+                </div>
+                <div class="ssl-precheck-actions">
+                    <button class="ssl-confirm-btn" onclick="confirmRenewSSL()" id="ssl-confirm-btn">
+                        <i class="bi bi-check-lg"></i> 确认续签
+                    </button>
+                    <button class="ssl-cancel-btn" onclick="cancelPrecheck()">
+                        <i class="bi bi-x-lg"></i> 取消
+                    </button>
+                </div>
+            </div>
+            
+            <div class="ssl-actions" id="ssl-actions">
+                <button class="ssl-renew-btn" onclick="precheckSSL()" id="ssl-renew-btn">
+                    <i class="bi bi-arrow-repeat"></i> 手动续签
+                </button>
+                <button class="ssl-refresh-btn" onclick="loadSSLStatus()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新
+                </button>
+            </div>
+            
+            <!-- 未启用SSL时显示 -->
+            <div class="ssl-disabled-hint" id="ssl-disabled-hint" style="display: none;">
+                <i class="bi bi-info-circle"></i>
+                <span>SSL自动证书未启用，请在config.py中配置ssl_auto_cert</span>
             </div>
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block extra_styles %}
@@ -332,6 +376,22 @@
 .meta-link { text-decoration: none; }
 .meta-link:hover { color: #fff; text-decoration: underline; }
 
+.framework-meta {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+}
+
+.framework-meta .meta-item {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.8);
+}
+
+.framework-meta .meta-item span {
+    font-weight: 600;
+    color: #fff;
+}
+
 .qr-btn {
     background: rgba(255,255,255,0.15);
     border: none;
@@ -465,7 +525,188 @@
     .info-row { grid-template-columns: 1fr; }
     .info-item.full { grid-column: span 1; }
     .framework-stats { grid-template-columns: 1fr; }
+    .ssl-status-grid { grid-template-columns: 1fr; }
+    .ssl-actions { flex-direction: column; }
 }
+
+/* SSL证书管理样式 */
+
+.ssl-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.ssl-renew-btn, .ssl-refresh-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.ssl-renew-btn {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #fff;
+}
+
+.ssl-renew-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
+.ssl-renew-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.ssl-refresh-btn {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.ssl-refresh-btn:hover { background: #e2e8f0; }
+
+.ssl-restart-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    animation: pulse-hint 1.5s infinite;
+}
+
+@keyframes pulse-hint {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* 预验证区域样式 */
+.ssl-precheck-area {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+    border: 1px solid #f59e0b;
+}
+
+.ssl-precheck-info { margin-bottom: 12px; }
+
+.ssl-precheck-title {
+    font-weight: 600;
+    color: #92400e;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ssl-precheck-title i { font-size: 1.2rem; }
+
+.ssl-precheck-url {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.ssl-precheck-url span { color: #64748b; font-size: 0.85rem; }
+
+.precheck-link {
+    color: #2563eb;
+    text-decoration: none;
+    word-break: break-all;
+    flex: 1;
+}
+
+.precheck-link:hover { text-decoration: underline; }
+
+.copy-btn {
+    background: #e2e8f0;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    color: #475569;
+    transition: all 0.2s;
+}
+
+.copy-btn:hover { background: #cbd5e1; }
+
+.ssl-precheck-hint {
+    font-size: 0.8rem;
+    color: #92400e;
+}
+
+.ssl-precheck-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.ssl-confirm-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #fff;
+    transition: all 0.2s;
+}
+
+.ssl-confirm-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
+.ssl-confirm-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.ssl-cancel-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f1f5f9;
+    color: #475569;
+    transition: all 0.2s;
+}
+
+.ssl-cancel-btn:hover { background: #e2e8f0; }
+
+/* SSL管理卡片内的样式 */
+#ssl-management-card .info-card-header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+
+#ssl-management-card .ssl-stats { margin-bottom: 16px; }
+
+#ssl-management-card .fw-stat-card.primary i,
+#ssl-management-card .fw-stat-card.primary .fw-stat-value { color: #10b981; }
+
+#ssl-management-card .fw-stat-card.success i,
+#ssl-management-card .fw-stat-card.success .fw-stat-value { color: #10b981; }
+
+#ssl-management-card .fw-stat-card.warning i,
+#ssl-management-card .fw-stat-card.warning .fw-stat-value { color: #f59e0b; }
+
+#ssl-management-card .fw-stat-card.danger i,
+#ssl-management-card .fw-stat-card.danger .fw-stat-value { color: #10b981; }
+
+.ssl-disabled-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
+.ssl-disabled-hint i { font-size: 1.1rem; }
 </style>
 {% endblock %}
 
@@ -474,7 +715,209 @@
 document.addEventListener('DOMContentLoaded', () => {
     loadRobotInfo();
     initSocket('dashboard');
+    loadSSLStatus();
 });
+
+// 获取token
+function getToken() {
+    return new URLSearchParams(window.location.search).get('token') || '';
+}
+
+// 加载SSL状态
+async function loadSSLStatus() {
+    try {
+        const response = await fetch(`/web/api/ssl/status?token=${getToken()}`);
+        const data = await response.json();
+        
+        if (data.success && data.auto_cert) {
+            // 显示SSL管理内容，隐藏未启用提示
+            document.getElementById('ssl-actions').style.display = 'flex';
+            document.getElementById('ssl-disabled-hint').style.display = 'none';
+            
+            document.getElementById('ssl-domain-card').textContent = data.domain || '-';
+            document.getElementById('ssl-expiry-card').textContent = data.expiry ? data.expiry.split(' ')[0] : '未签发';
+            
+            const remaining = data.remaining_days;
+            const remainingEl = document.getElementById('ssl-remaining-card');
+            const statusEl = document.getElementById('ssl-status-card');
+            
+            if (remaining < 0) {
+                remainingEl.textContent = '-';
+                statusEl.textContent = '未签发';
+            } else if (remaining <= 2) {
+                remainingEl.textContent = `${remaining}天`;
+                remainingEl.style.color = '#ef4444';
+                statusEl.textContent = '即将过期';
+                statusEl.style.color = '#ef4444';
+            } else if (remaining <= 7) {
+                remainingEl.textContent = `${remaining}天`;
+                remainingEl.style.color = '#f59e0b';
+                statusEl.textContent = '正常';
+                statusEl.style.color = '#10b981';
+            } else {
+                remainingEl.textContent = `${remaining}天`;
+                remainingEl.style.color = '#10b981';
+                statusEl.textContent = '正常';
+                statusEl.style.color = '#10b981';
+            }
+            
+            if (data.cert_updated) {
+                statusEl.textContent = '需重启';
+                statusEl.style.color = '#f59e0b';
+            } else if (!data.cert_exists) {
+                statusEl.textContent = '未签发';
+                statusEl.style.color = '#64748b';
+            }
+        } else {
+            // SSL未启用，显示提示
+            document.getElementById('ssl-actions').style.display = 'none';
+            document.getElementById('ssl-disabled-hint').style.display = 'flex';
+            document.getElementById('ssl-domain-card').textContent = '-';
+            document.getElementById('ssl-expiry-card').textContent = '-';
+            document.getElementById('ssl-remaining-card').textContent = '-';
+            document.getElementById('ssl-status-card').textContent = '未启用';
+        }
+    } catch (e) {
+        console.error('加载SSL状态失败:', e);
+    }
+}
+
+// 手动续签证书
+async function renewSSLCert() {
+    const btn = document.getElementById('ssl-renew-btn');
+    const originalText = btn.innerHTML;
+    
+    if (!confirm('确定要手动续签SSL证书吗？\n\n续签成功后框架将自动重启以应用新证书。')) {
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 续签中...';
+    
+    try {
+        const response = await fetch(`/web/api/ssl/renew?token=${getToken()}`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('证书续签已开始，成功后将自动重启', 'success');
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> 等待重启...';
+        } else {
+            showToast(data.error || '续签失败', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    } catch (e) {
+        showToast('请求失败: ' + e.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+// 预验证 - 准备验证文件
+let currentPrecheckToken = null;
+
+async function precheckSSL() {
+    const btn = document.getElementById('ssl-renew-btn');
+    const originalText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 准备验证...';
+    
+    try {
+        const response = await fetch(`/web/api/ssl/precheck?token=${getToken()}`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            // 显示预验证区域
+            currentPrecheckToken = data.challenge_token;
+            const precheckUrl = data.verify_url;
+            
+            document.getElementById('ssl-precheck-url').href = precheckUrl;
+            document.getElementById('ssl-precheck-url').textContent = precheckUrl;
+            document.getElementById('ssl-precheck-area').style.display = 'block';
+            document.getElementById('ssl-actions').style.display = 'none';
+            
+            showToast('验证文件已准备，请先测试访问', 'success');
+        } else {
+            showToast(data.error || '准备验证失败', 'error');
+        }
+    } catch (e) {
+        showToast('请求失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+// 复制预验证URL
+function copyPrecheckUrl() {
+    const url = document.getElementById('ssl-precheck-url').href;
+    navigator.clipboard.writeText(url).then(() => {
+        showToast('已复制到剪贴板', 'success');
+    }).catch(() => {
+        showToast('复制失败', 'error');
+    });
+}
+
+// 取消预验证
+async function cancelPrecheck() {
+    try {
+        await fetch(`/web/api/ssl/precheck/cancel?token=${getToken()}`, { method: 'POST' });
+    } catch (e) {}
+    
+    currentPrecheckToken = null;
+    document.getElementById('ssl-precheck-area').style.display = 'none';
+    document.getElementById('ssl-actions').style.display = 'flex';
+}
+
+// 确认续签
+async function confirmRenewSSL() {
+    const btn = document.getElementById('ssl-confirm-btn');
+    const originalText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 续签中...';
+    
+    try {
+        const response = await fetch(`/web/api/ssl/renew/confirm?token=${getToken()}`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('证书续签成功，框架将自动重启', 'success');
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> 等待重启...';
+            document.getElementById('ssl-precheck-area').style.display = 'none';
+        } else {
+            showToast(data.error || '续签失败', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    } catch (e) {
+        showToast('请求失败: ' + e.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+// 显示提示
+function showToast(message, type) {
+    if (typeof Toastify !== 'undefined') {
+        Toastify({
+            text: message,
+            duration: 3000,
+            gravity: 'top',
+            position: 'right',
+            backgroundColor: type === 'success' ? '#10b981' : '#ef4444'
+        }).showToast();
+    } else {
+        alert(message);
+    }
+}
 
 // 更新连接状态样式
 function updateConnectionStatus(status) {

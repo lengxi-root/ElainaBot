@@ -90,7 +90,16 @@ def _load_config_port():
         config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(config)
         if hasattr(config, 'SERVER_CONFIG'):
-            return config.SERVER_CONFIG.get('port', _DEFAULT_PORT)
+            server_config = config.SERVER_CONFIG
+            # 如果启用了SSL自动证书，检查证书是否存在
+            if server_config.get('ssl_auto_cert'):
+                cert_path = os.path.join(_CURRENT_DIR, 'data', 'ssl', 'cert.pem')
+                if os.path.exists(cert_path):
+                    return server_config.get('ssl_port', 8443)
+            # 如果启用了SSL（手动模式）
+            elif server_config.get('ssl_enabled'):
+                return server_config.get('ssl_port', 8443)
+            return server_config.get('port', _DEFAULT_PORT)
     except: pass
     return _DEFAULT_PORT
 

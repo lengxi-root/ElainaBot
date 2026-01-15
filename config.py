@@ -38,6 +38,15 @@ MARKDOWN_AJ_TEMPLATE = {
 SERVER_CONFIG = {
     'host': "0.0.0.0",  # HTTP服务监听地址，0.0.0.0表示监听所有接口
     'port': 5001,  # HTTP服务监听端口号
+    
+    # SSL配置（可选） SSL证书文件路径，data/ssl/cert.pem 私钥文件路径，data/ssl/key.pem，最好使用nginx，需要能访问acme-v02.api.letsencrypt.org
+    'ssl_enabled': False,  # 是否启用SSL/HTTPS
+    'ssl_auto_cert': False,  # 是否启用自动证书申请和续签
+    'ssl_domain': "",  # 域名或IP地址，请输入服务器公网ip，且开放80端口
+    'ssl_email': "",  # 用于证书注册的邮箱地址
+    'ssl_port': 8443,  # HTTPS服务端口,请设置8080 8443 443 80，最好使用8080 8443
+    'ssl_renew_days': 2,  # 证书剩余多少天时自动续签
+    'ssl_check_hour': 12,  # 每天检查证书的小时（0-23）
 }
 
 # WebSocket配置 - 实时通信连接设置

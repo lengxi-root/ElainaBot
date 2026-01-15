@@ -146,22 +146,6 @@ class Database:
         if init_thread.is_alive():
             logger.warning("数据库表初始化超时，将在后台继续")
 
-    def _add_name_column_if_not_exists(self, cursor):
-        cursor.execute(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'name'",
-            (_DATABASE_NAME, _USERS_TABLE)
-        )
-        result = cursor.fetchone()
-        if isinstance(result, dict):
-            column_count = result.get('COUNT(*)', 0)
-        elif isinstance(result, (list, tuple)) and result:
-            column_count = result[0]
-        else:
-            column_count = 0
-        
-        if column_count == 0:
-            cursor.execute(f"ALTER TABLE {_USERS_TABLE} ADD COLUMN name VARCHAR(255) DEFAULT NULL")
-
     def _async_execute(self, func, *args):
         if self._thread_pool:
             self._thread_pool.submit(func, *args)

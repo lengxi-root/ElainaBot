@@ -37,6 +37,7 @@
             <button class="mode-tab active" id="simple-mode-tab" onclick="switchMode('simple')"><i class="bi bi-ui-checks"></i> 简单模式</button>
             <button class="mode-tab" id="advanced-mode-tab" onclick="switchMode('advanced')"><i class="bi bi-code-square"></i> 高级模式</button>
             <button class="mode-tab" id="markdown-mode-tab" onclick="switchMode('markdown')"><i class="bi bi-markdown"></i> Markdown模板</button>
+            <button class="mode-tab" id="msgtpl-mode-tab" onclick="switchMode('msgtpl')"><i class="bi bi-chat-square-text"></i> 消息模板</button>
         </div>
         <div class="mode-hint" id="mode-hint"><i class="bi bi-info-circle"></i><span>点击配置组快速切换，修改后点击"保存配置"，重启框架后生效</span></div>
     </div>
@@ -82,6 +83,29 @@
             </div>
         </div>
     </div>
+
+    <div class="config-content" id="msgtpl-mode" style="display: none;">
+        <div class="loading-state" id="msgtpl-loading"><div class="spinner"></div><span>正在加载消息模板...</span></div>
+        <div class="error-state" id="msgtpl-error" style="display: none;"><i class="bi bi-exclamation-triangle"></i><span id="msgtpl-error-message">加载失败</span><button class="retry-btn" onclick="loadMessageTemplates()">重试</button></div>
+        <div id="msgtpl-container" style="display: none;">
+            <div class="msgtpl-editor-wrapper">
+                <div class="msgtpl-info">
+                    <div class="msgtpl-info-header"><i class="bi bi-info-circle"></i> 消息模板说明</div>
+                    <div class="msgtpl-info-content">
+                        <p>消息模板用于定义机器人的各种回复消息，包括欢迎消息、错误提示、黑名单提示等。</p>
+                        <p>修改后需要重启框架才能生效。请确保Python语法正确。</p>
+                    </div>
+                </div>
+                <div class="msgtpl-editor-section">
+                    <div class="msgtpl-editor-header">
+                        <span><i class="bi bi-code-slash"></i> 编辑消息模板</span>
+                        <button class="save-msgtpl-btn" onclick="saveMessageTemplates()"><i class="bi bi-save"></i> 保存模板</button>
+                    </div>
+                    <div id="msgtpl-editor"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -108,6 +132,7 @@ function switchMode(mode) {
     document.getElementById('simple-mode').style.display = mode === 'simple' ? 'block' : 'none';
     document.getElementById('advanced-mode').style.display = mode === 'advanced' ? 'block' : 'none';
     document.getElementById('markdown-mode').style.display = mode === 'markdown' ? 'block' : 'none';
+    document.getElementById('msgtpl-mode').style.display = mode === 'msgtpl' ? 'block' : 'none';
     const hint = document.getElementById('mode-hint');
     if (mode === 'simple') {
         hint.className = 'mode-hint';
@@ -120,6 +145,10 @@ function switchMode(mode) {
         hint.className = 'mode-hint info';
         hint.innerHTML = '<i class="bi bi-markdown"></i><span>查看已配置的Markdown模板，模板用于发送富文本消息</span>';
         loadMarkdownTemplates();
+    } else if (mode === 'msgtpl') {
+        hint.className = 'mode-hint warning';
+        hint.innerHTML = '<i class="bi bi-chat-square-text"></i><span>编辑消息模板文件，修改欢迎消息、错误提示等，请确保Python语法正确</span>';
+        loadMessageTemplates();
     }
 }
 
@@ -133,11 +162,18 @@ function updateConfigSourceBadge(source, isNew) {
     } else badge.style.display = 'none';
 }
 
+let msgtplEditor = null;
+
 function initCodeMirror() {
     const el = document.getElementById('config-editor');
     if (el && typeof CodeMirror !== 'undefined') {
         codeMirrorEditor = CodeMirror(el, { mode: 'python', theme: 'monokai', lineNumbers: true, lineWrapping: true, indentUnit: 4, tabSize: 4, indentWithTabs: false, matchBrackets: true, autoCloseBrackets: true, styleActiveLine: true, viewportMargin: Infinity });
         codeMirrorEditor.setSize('100%', '600px');
+    }
+    const msgtplEl = document.getElementById('msgtpl-editor');
+    if (msgtplEl && typeof CodeMirror !== 'undefined') {
+        msgtplEditor = CodeMirror(msgtplEl, { mode: 'python', theme: 'monokai', lineNumbers: true, lineWrapping: true, indentUnit: 4, tabSize: 4, indentWithTabs: false, matchBrackets: true, autoCloseBrackets: true, styleActiveLine: true, viewportMargin: Infinity });
+        msgtplEditor.setSize('100%', '550px');
     }
 }
 
@@ -531,6 +567,46 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// 消息模板相关函数
+async function loadMessageTemplates() {
+    document.getElementById('msgtpl-loading').style.display = 'flex';
+    document.getElementById('msgtpl-error').style.display = 'none';
+    document.getElementById('msgtpl-container').style.display = 'none';
+    try {
+        const r = await fetch(`/web/api/config/message_templates?token=${getToken()}`);
+        const result = await r.json();
+        if (!result.success) throw new Error(result.message);
+        if (msgtplEditor) {
+            msgtplEditor.setValue(result.content || '');
+            setTimeout(() => msgtplEditor.refresh(), 50);
+        }
+        document.getElementById('msgtpl-loading').style.display = 'none';
+        document.getElementById('msgtpl-container').style.display = 'block';
+    } catch (e) {
+        document.getElementById('msgtpl-loading').style.display = 'none';
+        document.getElementById('msgtpl-error').style.display = 'flex';
+        document.getElementById('msgtpl-error-message').textContent = e.message;
+    }
+}
+
+async function saveMessageTemplates() {
+    if (!msgtplEditor) return;
+    const content = msgtplEditor.getValue();
+    try {
+        const r = await fetch(`/web/api/config/message_templates?token=${getToken()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+        });
+        const result = await r.json();
+        if (result.success) {
+            showToast('消息模板已保存，重启框架后生效', 'success');
+        } else throw new Error(result.message);
+    } catch (e) {
+        showToast('保存失败: ' + e.message, 'error');
+    }
+}
 </script>
 
 <style>
@@ -687,6 +763,23 @@ function escapeHtml(text) {
     .markdown-templates-wrapper { flex-direction: column; }
     .templates-list-section { width: 100%; border-right: none; border-bottom: 1px solid #f0f0f0; }
     .templates-list { max-height: 200px; }
+    .msgtpl-editor-wrapper { flex-direction: column; }
+    .msgtpl-info { width: 100%; border-right: none; border-bottom: 1px solid #f0f0f0; }
 }
+
+/* 消息模板编辑器样式 */
+.msgtpl-editor-wrapper { display: flex; gap: 1rem; min-height: 550px; }
+.msgtpl-info { width: 280px; flex-shrink: 0; }
+.msgtpl-info-header { font-weight: 600; color: #333; padding: 0.75rem; background: #f8f9fa; border-radius: 8px 8px 0 0; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid #e9ecef; }
+.msgtpl-info-content { padding: 1rem; background: #fff; border: 1px solid #e9ecef; border-top: none; border-radius: 0 0 8px 8px; }
+.msgtpl-info-content p { margin: 0 0 0.75rem; color: #666; font-size: 0.9rem; line-height: 1.6; }
+.msgtpl-info-content p:last-child { margin-bottom: 0; }
+.msgtpl-editor-section { flex: 1; display: flex; flex-direction: column; }
+.msgtpl-editor-header { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; background: #f8f9fa; border-radius: 8px 8px 0 0; border: 1px solid #e9ecef; border-bottom: none; }
+.msgtpl-editor-header span { font-weight: 600; color: #333; display: flex; align-items: center; gap: 0.5rem; }
+.save-msgtpl-btn { padding: 0.5rem 1rem; background: var(--theme-gradient); color: #fff; border: none; border-radius: 6px; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }
+.save-msgtpl-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+#msgtpl-editor { border: 1px solid #e9ecef; border-radius: 0 0 8px 8px; overflow: hidden; }
+#msgtpl-editor .CodeMirror { height: 550px; font-size: 13px; }
 </style>
 {% endblock %}

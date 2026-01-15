@@ -278,3 +278,61 @@ def handle_cancel_pending_config():
         os.remove(_CONFIG_NEW_PATH)
         return jsonify({'success': True, 'message': '已取消待应用的配置'})
     return jsonify(_ERR_NO_PENDING), 404
+
+
+# ============ 消息模板管理 ============
+_MESSAGE_TEMPLATES_PATH = os.path.join(_BASE_DIR, 'core', 'plugin', 'message_templates.py')
+
+def handle_get_message_templates():
+    """获取消息模板文件内容"""
+    if not os.path.exists(_MESSAGE_TEMPLATES_PATH):
+        return jsonify({'success': False, 'message': '消息模板文件不存在'}), 404
+    
+    with open(_MESSAGE_TEMPLATES_PATH, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    return jsonify({'success': True, 'content': content, 'path': _MESSAGE_TEMPLATES_PATH})
+
+
+def handle_save_message_templates():
+    """保存消息模板文件"""
+    data = request.get_json()
+    if not data or 'content' not in data:
+        return jsonify({'success': False, 'message': '缺少模板内容'}), 400
+    
+    try:
+        compile(data['content'], '<string>', 'exec')
+    except SyntaxError as e:
+        return jsonify({'success': False, 'message': f'语法错误: 第{e.lineno}行 - {e.msg}'}), 400
+    
+    with open(_MESSAGE_TEMPLATES_PATH, 'w', encoding='utf-8') as f:
+        f.write(data['content'])
+    
+    return jsonify({'success': True, 'message': '消息模板已保存，重启框架后生效'})
+
+
+def handle_parse_message_templates():
+    """解析消息模板，提取各个模板函数信息"""
+    if not os.path.exists(_MESSAGE_TEMPLATES_PATH):
+        return jsonify({'success': False, 'message': '消息模板文件不存在'}), 404
+    
+    with open(_MESSAGE_TEMPLATES_PATH, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    templates = []
+    # 匹配 def _handle_xxx(event, **kwargs): 格式的函数
+    func_pattern = re.compile(r'def (_handle_\w+)\(event.*?\):\s*\n\s*"""(.+?)"""', re.DOTALL)
+    
+    for match in func_pattern.finditer(content):
+        func_name = match.group(1)
+        docstring = match.group(2).strip()
+        # 提取模板类型名
+        type_name = func_name.replace('_handle_', '')
+        templates.append({
+            'func_name': func_name,
+            'type_name': type_name,
+            'description': docstring,
+            'msg_type': f'MSG_TYPE_{type_name.upper()}'
+        })
+    
+    return jsonify({'success': True, 'templates': templates})

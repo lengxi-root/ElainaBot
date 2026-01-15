@@ -142,7 +142,8 @@ from web.tools.message_handler import (handle_get_chats, handle_get_chat_history
 from web.tools.statistics_handler import (handle_get_statistics, handle_get_statistics_task_status,
     handle_get_all_statistics_tasks, handle_complete_dau, handle_get_user_nickname, handle_get_available_dates)
 from web.tools.config_handler import (handle_get_config, handle_parse_config, handle_update_config_items,
-    handle_save_config, handle_check_pending_config, handle_cancel_pending_config)
+    handle_save_config, handle_check_pending_config, handle_cancel_pending_config,
+    handle_get_message_templates, handle_save_message_templates, handle_parse_message_templates)
 from web.tools.plugin_manager import (handle_toggle_plugin, handle_read_plugin, handle_save_plugin,
     handle_create_plugin, handle_create_plugin_folder, handle_get_plugin_folders, handle_upload_plugin, scan_plugins_internal)
 from web.tools.ai_plugin_handler import (handle_list_plugins, handle_read_plugin as handle_ai_read_plugin,
@@ -409,6 +410,21 @@ def check_pending_config():
 @token_auth
 def cancel_pending_config():
     return handle_cancel_pending_config()
+
+@web.route('/api/config/message_templates', methods=['GET'])
+@token_auth
+def get_message_templates():
+    return handle_get_message_templates()
+
+@web.route('/api/config/message_templates', methods=['POST'])
+@token_auth
+def save_message_templates():
+    return handle_save_message_templates()
+
+@web.route('/api/config/message_templates/parse', methods=['GET'])
+@token_auth
+def parse_message_templates():
+    return handle_parse_message_templates()
 
 @web.route('/api/plugin/toggle', methods=['POST'])
 @full_auth

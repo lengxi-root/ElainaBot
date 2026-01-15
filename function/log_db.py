@@ -52,8 +52,8 @@ _SQL_CREATE_SHARE_TABLE = f"""
 CREATE TABLE IF NOT EXISTS `{_SHARE_TABLE}` (
     `id` bigint(20) NOT NULL AUTO_INCREMENT,
     `openid` varchar(128) NOT NULL COMMENT '分享者openid或自定义callbackData',
-    `referrals` text DEFAULT NULL COMMENT '被邀请用户信息',
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `referrals` mediumtext DEFAULT NULL COMMENT '被邀请用户信息',
+    `created_at` datetime DEFAULT NULL,
     `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_openid` (`openid`),

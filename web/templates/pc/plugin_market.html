@@ -330,6 +330,23 @@
 .stats { color: #666; font-size: 0.85rem; }
 .refresh-btn { padding: 0.5rem 0.75rem; background: #f5f5f5; border: none; border-radius: 8px; cursor: pointer; color: #666; }
 .refresh-btn:hover { background: #e8e8e8; }
+
+/* 预览代码样式 */
+.preview-header { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; background: #f8f9fa; border-radius: 8px; margin-bottom: 0.75rem; }
+.preview-filename { font-weight: 500; color: #333; display: flex; align-items: center; gap: 0.5rem; }
+.preview-size { color: #666; font-size: 0.85rem; }
+.preview-code-wrapper { max-height: 70vh; overflow: auto; border: 1px solid #e0e0e0; border-radius: 8px; background: #1e1e1e; }
+.preview-code { margin: 0; padding: 1rem; font-size: 0.85rem; line-height: 1.6; color: #d4d4d4; white-space: pre; font-family: 'Consolas', 'Monaco', monospace; }
+.preview-files-tabs { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.preview-tab { padding: 0.4rem 0.8rem; background: #f0f0f0; border: none; border-radius: 6px; cursor: pointer; font-size: 0.8rem; transition: all 0.2s; }
+.preview-tab:hover { background: #e0e0e0; }
+.preview-tab.active { background: var(--theme-primary, #5865F2); color: #fff; }
+.preview-file-info { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; background: #f0f0f0; border-radius: 6px 6px 0 0; font-size: 0.85rem; }
+.preview-other-files { margin-top: 1rem; padding: 0.75rem; background: #f8f9fa; border-radius: 8px; }
+.other-files-title { font-weight: 500; color: #666; margin-right: 0.5rem; }
+.other-file { display: inline-block; padding: 0.25rem 0.5rem; background: #e8e8e8; border-radius: 4px; font-size: 0.8rem; margin: 0.25rem; color: #555; }
+.dl-btn-info { background: #17a2b8; color: #fff; border: none; }
+.dl-btn-info:hover { background: #138496; }
 </style>
 {% endblock %}
 
@@ -619,6 +636,8 @@ function renderPlugins(plugins) {
     
     grid.innerHTML = plugins.map(p => {
         const isMyPlugin = currentUser && p.user_key === currentUser.user_key;
+        const urls = p.download_urls || {};
+        const directUrl = urls.direct || (p.repo_type === 'direct' ? p.download_url : '');
         return `
         <div class="plugin-card" onclick="showPluginDetail('${p.id}')">
             <div class="plugin-header">
@@ -643,6 +662,9 @@ function renderPlugins(plugins) {
                     <button class="download-btn" onclick="event.stopPropagation();showDownloadOptions('${p.id}')">
                         <i class="bi bi-download"></i> 下载
                     </button>
+                    ${directUrl ? `<button class="preview-btn" onclick="event.stopPropagation();previewPlugin('${escapeHtml(directUrl)}', '${escapeHtml(p.name)}', false)">
+                        <i class="bi bi-eye"></i> 预览
+                    </button>` : ''}
                     ${isMyPlugin ? `<button class="edit-btn" onclick="event.stopPropagation();showEditModal('${p.id}')">
                         <i class="bi bi-pencil"></i> 修改
                     </button>
@@ -737,25 +759,23 @@ function showDownloadOptions(id) {
             <div class="source-actions">`;
         
         if (isGithub) {
-            // GitHub 链接显示更多选项
             optionsHtml += `
                 <button class="dl-btn dl-btn-primary" onclick="installToServer('${id}', '${escapeHtml(url)}', '${escapeHtml(plugin.name)}', false)">
-                    <i class="bi bi-cloud-download"></i> 安装到服务器
+                    <i class="bi bi-cloud-download"></i> 安装
                 </button>
                 <button class="dl-btn dl-btn-secondary" onclick="installToServer('${id}', '${escapeHtml(url)}', '${escapeHtml(plugin.name)}', true)">
-                    <i class="bi bi-lightning"></i> 加速安装
+                    <i class="bi bi-lightning"></i> 加速
                 </button>
                 <button class="dl-btn dl-btn-outline" onclick="openUrl('${escapeHtml(url)}')">
-                    <i class="bi bi-box-arrow-up-right"></i> 跳转
+                    <i class="bi bi-box-arrow-up-right"></i>
                 </button>`;
         } else {
-            // 其他链接
             optionsHtml += `
                 <button class="dl-btn dl-btn-primary" onclick="installToServer('${id}', '${escapeHtml(url)}', '${escapeHtml(plugin.name)}', false)">
-                    <i class="bi bi-cloud-download"></i> 安装到服务器
+                    <i class="bi bi-cloud-download"></i> 安装
                 </button>
                 <button class="dl-btn dl-btn-outline" onclick="openUrl('${escapeHtml(url)}')">
-                    <i class="bi bi-box-arrow-up-right"></i> 跳转下载
+                    <i class="bi bi-box-arrow-up-right"></i>
                 </button>`;
         }
         
@@ -811,9 +831,100 @@ function recordDownload(id) {
         body: JSON.stringify({ id })
     }).catch(() => {});
 }
-</script>
 
-<script>
+// 预览插件代码
+async function previewPlugin(url, name, useProxy = false) {
+    closeModal('detail-modal');
+    
+    // 显示加载弹窗，使用大弹窗
+    const modalContent = document.querySelector('#detail-modal .modal-content');
+    modalContent.classList.add('modal-preview');
+    document.getElementById('detail-name').textContent = '预览 ' + name;
+    document.getElementById('detail-body').innerHTML = '<div class="loading-state"><div class="spinner"></div><span>正在加载代码...</span></div>';
+    document.getElementById('detail-footer').innerHTML = '<button class="modal-btn secondary" onclick="closePreviewModal()">关闭</button>';
+    showModal('detail-modal');
+    
+    try {
+        const r = await fetch(`/web/api/market/preview?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url, use_proxy: useProxy })
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            let contentHtml = '';
+            
+            if (result.type === 'py') {
+                // 单个 py 文件
+                contentHtml = `
+                    <div class="preview-header">
+                        <span class="preview-filename"><i class="bi bi-file-earmark-code"></i> ${escapeHtml(result.filename)}</span>
+                        <span class="preview-size">${formatSize(result.size)}</span>
+                    </div>
+                    <div class="preview-code-wrapper">
+                        <pre class="preview-code"><code>${escapeHtml(result.content)}</code></pre>
+                    </div>
+                `;
+            } else if (result.type === 'zip') {
+                // zip 压缩包
+                const pyFiles = result.files.filter(f => f.content !== null);
+                const otherFiles = result.files.filter(f => f.content === null);
+                
+                contentHtml = `<div class="preview-header">
+                    <span><i class="bi bi-file-earmark-zip"></i> 压缩包内容 (${result.total} 个文件)</span>
+                </div>`;
+                
+                if (pyFiles.length > 0) {
+                    contentHtml += '<div class="preview-files-tabs">';
+                    pyFiles.forEach((f, i) => {
+                        contentHtml += `<button class="preview-tab ${i === 0 ? 'active' : ''}" onclick="switchPreviewTab(${i})">${escapeHtml(f.name.split('/').pop())}</button>`;
+                    });
+                    contentHtml += '</div>';
+                    
+                    pyFiles.forEach((f, i) => {
+                        contentHtml += `
+                            <div class="preview-tab-content" id="preview-tab-${i}" style="${i === 0 ? '' : 'display:none'}">
+                                <div class="preview-file-info">
+                                    <span class="preview-filename">${escapeHtml(f.name)}</span>
+                                    <span class="preview-size">${formatSize(f.size)}</span>
+                                </div>
+                                <div class="preview-code-wrapper">
+                                    <pre class="preview-code"><code>${escapeHtml(f.content)}</code></pre>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                if (otherFiles.length > 0) {
+                    contentHtml += `<div class="preview-other-files">
+                        <span class="other-files-title">其他文件:</span>
+                        ${otherFiles.map(f => `<span class="other-file">${escapeHtml(f.name)} (${formatSize(f.size)})</span>`).join('')}
+                    </div>`;
+                }
+            }
+            
+            document.getElementById('detail-body').innerHTML = contentHtml;
+        } else {
+            document.getElementById('detail-body').innerHTML = `<div class="empty-state"><i class="bi bi-exclamation-circle"></i><p>${result.message}</p></div>`;
+        }
+    } catch (e) {
+        document.getElementById('detail-body').innerHTML = `<div class="empty-state"><i class="bi bi-wifi-off"></i><p>加载失败: ${e.message}</p></div>`;
+    }
+}
+
+function switchPreviewTab(index) {
+    document.querySelectorAll('.preview-tab').forEach((t, i) => t.classList.toggle('active', i === index));
+    document.querySelectorAll('.preview-tab-content').forEach((c, i) => c.style.display = i === index ? '' : 'none');
+}
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
 // 显示插件详情
 function showPluginDetail(id) {
     const plugin = allPlugins.find(p => p.id === id);
@@ -1352,6 +1463,10 @@ async function reviewPlugin(id, action) {
 // 弹窗控制
 function showModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function closePreviewModal() {
+    document.querySelector('#detail-modal .modal-content').classList.remove('modal-preview');
+    closeModal('detail-modal');
+}
 function showSubmitModal() { showModal('submit-modal'); }
 
 // Toast
@@ -1409,6 +1524,8 @@ function showToast(msg, type = 'success') {
 .plugin-actions .download-btn { flex: 1; justify-content: center; }
 .edit-btn { background: #f5f5f5; color: #666; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }
 .edit-btn:hover { background: #e8e8e8; border-color: #ccc; }
+.preview-btn { background: #e0f2fe; color: #0284c7; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid #bae6fd; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }
+.preview-btn:hover { background: #bae6fd; border-color: #7dd3fc; }
 .delete-btn { background: #fee2e2; color: #dc2626; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid #fecaca; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
 .delete-btn:hover { background: #fecaca; border-color: #f87171; }
 .plugin-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
@@ -1425,7 +1542,8 @@ function showToast(msg, type = 'success') {
 /* 弹窗 */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
 .modal-content { background: #fff; border-radius: 16px; width: 100%; max-width: 520px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
-.modal-content.modal-large { max-width: 700px; }
+.modal-content.modal-large { max-width: 800px; }
+.modal-content.modal-preview { max-width: 900px; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid #f0f0f0; }
 .modal-header h5 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; color: #333; }
 .modal-close { background: none; border: none; font-size: 1.5rem; color: #999; cursor: pointer; line-height: 1; }
@@ -1539,6 +1657,11 @@ function showToast(msg, type = 'success') {
     .search-box { width: 100%; }
     .plugins-grid { grid-template-columns: 1fr; }
     .form-row { grid-template-columns: 1fr; }
+    .modal-content.modal-preview { max-width: 100%; margin: 0.5rem; }
+    .preview-code-wrapper { max-height: 60vh; }
+    .preview-code { font-size: 0.75rem; }
+    .plugin-actions { flex-wrap: wrap; }
+    .preview-btn { flex: 1; justify-content: center; }
 }
 </style>
 {% endblock %}

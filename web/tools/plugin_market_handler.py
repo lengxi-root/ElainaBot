@@ -92,6 +92,69 @@ def handle_market_download():
     return jsonify(call_php('download', request.json or {}))
 
 
+def handle_market_preview():
+    data = request.json or {}
+    url = data.get('url', '')
+    use_proxy = data.get('use_proxy', False)
+    
+    if not url:
+        return jsonify({'success': False, 'message': '缺少下载链接'})
+    
+    url = convert_github_url(url)
+    
+    if use_proxy and ('github.com' in url or 'githubusercontent.com' in url):
+        if 'raw.githubusercontent.com' in url:
+            url = url.replace('https://raw.githubusercontent.com', 'https://ghfast.top/https://raw.githubusercontent.com')
+        elif 'github.com' in url:
+            url = url.replace('https://github.com', 'https://ghfast.top/https://github.com')
+    
+    try:
+        with httpx.Client(timeout=30, verify=False, follow_redirects=True) as client:
+            response = client.get(url)
+            if response.status_code != 200:
+                return jsonify({'success': False, 'message': f'下载失败: HTTP {response.status_code}'})
+            content = response.content
+            content_type = response.headers.get('content-type', '')
+        
+        if content[:100].lower().find(b'<!doctype html') != -1 or content[:100].lower().find(b'<html') != -1:
+            return jsonify({'success': False, 'message': '下载链接无效，请使用 raw 文件链接或仓库压缩包链接'})
+        
+        is_zip = url.endswith('.zip') or 'zip' in content_type or content[:4] == b'PK\x03\x04'
+        is_py = url.endswith('.py') or 'python' in content_type or (b'import ' in content[:500] or b'def ' in content[:500])
+        
+        if is_zip:
+            files = []
+            try:
+                with zipfile.ZipFile(io.BytesIO(content), 'r') as zf:
+                    for name in zf.namelist():
+                        if name.startswith('__') or name.startswith('.') or '/__' in name or '/.' in name:
+                            continue
+                        if name.endswith('.py'):
+                            try:
+                                file_content = zf.read(name).decode('utf-8', errors='replace')
+                                files.append({'name': name, 'content': file_content, 'size': len(file_content)})
+                            except:
+                                pass
+                        elif not name.endswith('/'):
+                            files.append({'name': name, 'content': None, 'size': zf.getinfo(name).file_size})
+            except zipfile.BadZipFile:
+                return jsonify({'success': False, 'message': '无效的压缩包文件'})
+            return jsonify({'success': True, 'type': 'zip', 'files': files, 'total': len(files)})
+        elif is_py:
+            try:
+                code = content.decode('utf-8', errors='replace')
+            except:
+                code = content.decode('gbk', errors='replace')
+            filename = url.split('/')[-1].split('?')[0]
+            return jsonify({'success': True, 'type': 'py', 'filename': filename, 'content': code, 'size': len(code)})
+        else:
+            return jsonify({'success': False, 'message': '不支持的文件类型，仅支持 .py 或 .zip'})
+    except httpx.TimeoutException:
+        return jsonify({'success': False, 'message': '下载超时'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'预览失败: {str(e)}'})
+
+
 def handle_market_install():
     data = request.json or {}
     url = data.get('url', '')

@@ -152,7 +152,7 @@ from web.tools.ai_plugin_handler import (handle_list_plugins, handle_read_plugin
     handle_get_ai_config, handle_save_ai_config)
 from web.tools.plugin_market_handler import (handle_market_submit, handle_market_list, handle_market_pending,
     handle_market_review, handle_market_update_status, handle_market_delete, handle_market_categories,
-    handle_market_export, handle_market_download, handle_market_install, handle_market_local_plugins,
+    handle_market_export, handle_market_download, handle_market_preview, handle_market_install, handle_market_local_plugins,
     handle_market_upload_local, handle_market_register, handle_market_login, handle_market_user_info,
     handle_market_plugin_detail, handle_market_author_update, handle_market_author_delete, handle_market_update_local)
 
@@ -567,6 +567,11 @@ def market_export():
 @safe_route
 def market_download():
     return handle_market_download()
+
+@web.route('/api/market/preview', methods=['POST'])
+@safe_route
+def market_preview():
+    return handle_market_preview()
 
 @web.route('/api/market/install', methods=['POST'])
 @full_auth

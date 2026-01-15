@@ -1,4 +1,4 @@
-import json, logging
+import json, logging, threading, pymysql
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from function.httpx_pool import get_json
@@ -13,6 +13,13 @@ _MEMBERS_TABLE = f"{_TABLE_PREFIX}members"
 _DATABASE_NAME = LOG_DB_CONFIG.get('database', 'log')
 _API_URL_TEMPLATE = f"http://127.0.0.1:65535/api/bot/xx.php?openid={{user_id}}&appid={appid}"
 _NAME_KEYS = ('名字', 'name', 'nickname')
+
+# 数据库连接配置
+_DB_HOST = LOG_DB_CONFIG.get('host', 'localhost')
+_DB_PORT = LOG_DB_CONFIG.get('port', 3306)
+_DB_USER = LOG_DB_CONFIG.get('user', 'root')
+_DB_PASSWORD = LOG_DB_CONFIG.get('password', '')
+_DB_DATABASE = LOG_DB_CONFIG.get('database', '')
 
 _SQL_INSERT_USER = f"INSERT IGNORE INTO {_USERS_TABLE} (user_id) VALUES (%s)"
 _SQL_COUNT_USERS = f"SELECT COUNT(*) AS count FROM {_USERS_TABLE}"
@@ -96,30 +103,46 @@ class Database:
                 pool.release_connection(connection)
 
     def _initialize_tables(self):
-        """在独立线程中初始化表，避免 eventlet 超时"""
-        import threading
-        
+        """在独立线程中用独立连接初始化表，完全绕过 eventlet"""
         def do_init():
             tables_sql = [
-                f"CREATE TABLE IF NOT EXISTS {_USERS_TABLE} (user_id VARCHAR(255) NOT NULL UNIQUE, name VARCHAR(255) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-                f"CREATE TABLE IF NOT EXISTS {_GROUPS_USERS_TABLE} (group_id VARCHAR(255) NOT NULL UNIQUE, users JSON DEFAULT NULL, PRIMARY KEY (group_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-                f"CREATE TABLE IF NOT EXISTS {_MEMBERS_TABLE} (user_id VARCHAR(255) NOT NULL UNIQUE, PRIMARY KEY (user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+                f"CREATE TABLE IF NOT EXISTS {_USERS_TABLE} (user_id VARCHAR(128) NOT NULL UNIQUE, name VARCHAR(255) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+                f"CREATE TABLE IF NOT EXISTS {_GROUPS_USERS_TABLE} (group_id VARCHAR(128) NOT NULL UNIQUE, users MEDIUMTEXT DEFAULT NULL, PRIMARY KEY (group_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+                f"CREATE TABLE IF NOT EXISTS {_MEMBERS_TABLE} (user_id VARCHAR(128) NOT NULL UNIQUE, PRIMARY KEY (user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
             ]
+            conn = None
             try:
-                with self._get_cursor() as (cursor, connection):
-                    if not cursor:
-                        return
-                    for sql in tables_sql:
-                        cursor.execute(sql)
-                    self._add_name_column_if_not_exists(cursor)
-                    connection.commit()
+                # 创建独立连接，不经过连接池
+                conn = pymysql.connect(
+                    host=_DB_HOST, port=_DB_PORT, user=_DB_USER, password=_DB_PASSWORD,
+                    database=_DB_DATABASE, charset='utf8mb4', connect_timeout=10,
+                    read_timeout=30, write_timeout=30, autocommit=False
+                )
+                cursor = conn.cursor()
+                for sql in tables_sql:
+                    cursor.execute(sql)
+                # 检查并添加 name 列
+                cursor.execute(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'name'",
+                    (_DB_DATABASE, _USERS_TABLE)
+                )
+                if cursor.fetchone()[0] == 0:
+                    cursor.execute(f"ALTER TABLE {_USERS_TABLE} ADD COLUMN name VARCHAR(255) DEFAULT NULL")
+                conn.commit()
+                cursor.close()
             except Exception as e:
                 logger.error(f"初始化数据库表失败: {type(e).__name__}: {e}")
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except:
+                        pass
         
-        # 使用原生线程执行，绕过 eventlet
+        # 使用原生线程执行
         init_thread = threading.Thread(target=do_init, daemon=True)
         init_thread.start()
-        init_thread.join(timeout=15)  # 最多等待15秒
+        init_thread.join(timeout=20)
         if init_thread.is_alive():
             logger.warning("数据库表初始化超时，将在后台继续")
 

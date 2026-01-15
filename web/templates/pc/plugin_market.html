@@ -1,501 +1,1197 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>插件市场 - ElainaBot</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        :root { --primary: #7c3aed; --primary-light: #a78bfa; }
-        body { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; color: #e2e8f0; }
-        .navbar { background: rgba(30, 30, 50, 0.95) !important; backdrop-filter: blur(10px); }
-        .card { background: rgba(30, 30, 50, 0.8); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 12px; transition: all 0.3s; }
-        .card:hover { transform: translateY(-5px); border-color: var(--primary); box-shadow: 0 10px 40px rgba(124, 58, 237, 0.2); }
-        .btn-primary { background: var(--primary); border: none; }
-        .btn-primary:hover { background: var(--primary-light); }
-        .badge-official { background: linear-gradient(135deg, #f59e0b, #d97706); }
-        .badge-warning { background: linear-gradient(135deg, #ef4444, #dc2626); }
-        .badge-approved { background: linear-gradient(135deg, #10b981, #059669); }
-        .search-box { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; }
-        .search-box:focus { background: rgba(255,255,255,0.15); border-color: var(--primary); color: #fff; box-shadow: none; }
-        .category-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #e2e8f0; }
-        .category-btn:hover, .category-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
-        .plugin-icon { width: 48px; height: 48px; background: linear-gradient(135deg, var(--primary), var(--primary-light)); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
-        .modal-content { background: #1a1a2e; border: 1px solid rgba(124, 58, 237, 0.3); }
-        .form-control, .form-select { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; }
-        .form-control:focus, .form-select:focus { background: rgba(255,255,255,0.15); border-color: var(--primary); color: #fff; }
-        .repo-icon { font-size: 1.2em; }
-        .download-count { font-size: 0.85em; color: #94a3b8; }
-    </style>
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
-        <div class="container">
-            <a class="navbar-brand" href="#"><i class="bi bi-box-seam me-2"></i>ElainaBot 插件市场</a>
-            <div class="d-flex gap-2">
-                <button class="btn btn-outline-light btn-sm" onclick="showSubmitModal()">
-                    <i class="bi bi-plus-lg me-1"></i>提交插件
-                </button>
-                <button class="btn btn-outline-warning btn-sm" onclick="showAdminModal()" id="adminBtn" style="display:none;">
-                    <i class="bi bi-shield-check me-1"></i>审核管理
-                </button>
-            </div>
-        </div>
-    </nav>
+{% extends "pc/base.html" %}
 
-    <div class="container py-4">
-        <!-- 搜索和筛选 -->
-        <div class="row mb-4">
-            <div class="col-md-6 mb-3 mb-md-0">
-                <div class="input-group">
-                    <span class="input-group-text bg-transparent border-end-0" style="border-color: rgba(255,255,255,0.2);"><i class="bi bi-search text-white"></i></span>
-                    <input type="text" class="form-control search-box border-start-0" placeholder="搜索插件..." id="searchInput" onkeyup="debounceSearch()">
+{% block content %}
+<div class="market-page">
+    <!-- 页面头部 -->
+    <div class="market-header">
+        <div class="header-content">
+            <div class="header-title">
+                <div class="header-icon"><i class="bi bi-shop"></i></div>
+                <div>
+                    <h4>插件市场</h4>
+                    <p>发现、下载和分享 ElainaBot 插件</p>
                 </div>
             </div>
-            <div class="col-md-6">
-                <div class="d-flex gap-2 flex-wrap" id="categoryBtns">
-                    <button class="btn btn-sm category-btn active" data-category="">全部</button>
+            <div class="header-actions">
+                <div id="user-status">
+                    <button class="header-btn" onclick="showLoginModal()">
+                        <i class="bi bi-person"></i> 登录
+                    </button>
                 </div>
-            </div>
-        </div>
-
-        <!-- 插件列表 -->
-        <div class="row g-4" id="pluginList">
-            <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status"></div>
-                <p class="mt-3 text-muted">加载中...</p>
+                <button class="header-btn" onclick="showSubmitModal()">
+                    <i class="bi bi-cloud-upload"></i> 提交插件
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- 提交插件模态框 -->
-    <div class="modal fade" id="submitModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header border-0">
-                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>提交插件</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <!-- 筛选栏 -->
+    <div class="filter-bar">
+        <div class="search-box">
+            <i class="bi bi-search"></i>
+            <input type="text" id="search-input" placeholder="搜索插件名称或描述..." oninput="filterPlugins()">
+        </div>
+        <select class="filter-select" id="category-filter" onchange="filterPlugins()">
+            <option value="">全部分类</option>
+        </select>
+        <span class="stats" id="stats-text">加载中...</span>
+        <button class="refresh-btn" onclick="loadPlugins()"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+
+    <!-- 插件列表 -->
+    <div class="plugins-grid" id="plugins-grid">
+        <div class="loading-state"><div class="spinner"></div><span>加载插件列表...</span></div>
+    </div>
+</div>
+
+<!-- 登录/注册弹窗 -->
+<div class="modal-overlay" id="login-modal" style="display:none;">
+    <div class="modal-content modal-small">
+        <div class="modal-header">
+            <h5><i class="bi bi-person-circle"></i> <span id="auth-title">登录</span></h5>
+            <button class="modal-close" onclick="closeModal('login-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <!-- 登录表单 -->
+            <div id="login-form">
+                <div class="form-group">
+                    <label>QQ号</label>
+                    <input type="text" class="form-input" id="login-qq" placeholder="请输入QQ号">
                 </div>
-                <div class="modal-body">
-                    <form id="submitForm">
-                        <div class="mb-3">
-                            <label class="form-label">插件名称 <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="name" required placeholder="如：天气查询">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">插件描述 <span class="text-danger">*</span></label>
-                            <textarea class="form-control" name="description" rows="3" required placeholder="简要描述插件功能"></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">作者 <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="author" required placeholder="你的名字或昵称">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">版本号</label>
-                            <input type="text" class="form-control" name="version" value="1.0.0" placeholder="1.0.0">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">下载链接 <span class="text-danger">*</span></label>
-                            <input type="url" class="form-control" name="download_url" required placeholder="GitHub/Gitee/GitCode 链接或直链">
-                            <div class="form-text text-muted">支持 GitHub、Gitee、GitCode 仓库链接或 .py/.zip 直链</div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">分类</label>
-                            <select class="form-select" name="category" id="submitCategory"></select>
-                        </div>
-                    </form>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" class="form-input" id="login-password" placeholder="请输入密码">
                 </div>
-                <div class="modal-footer border-0">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" onclick="submitPlugin()">
-                        <i class="bi bi-send me-1"></i>提交
+                <button class="modal-btn primary full-width" onclick="doLogin()">
+                    <i class="bi bi-box-arrow-in-right"></i> 登录
+                </button>
+                <div class="auth-switch">
+                    没有账号？<a href="javascript:void(0)" onclick="switchToRegister()">立即注册</a>
+                </div>
+            </div>
+            <!-- 注册表单 -->
+            <div id="register-form" style="display:none;">
+                <div class="form-group">
+                    <label>QQ号 <span class="required">*</span></label>
+                    <input type="text" class="form-input" id="register-qq" placeholder="请输入QQ号">
+                </div>
+                <div class="form-group">
+                    <label>昵称 <span class="required">*</span></label>
+                    <input type="text" class="form-input" id="register-nickname" placeholder="显示在插件作者处">
+                </div>
+                <div class="form-group">
+                    <label>密码 <span class="required">*</span></label>
+                    <input type="password" class="form-input" id="register-password" placeholder="至少6位">
+                </div>
+                <div class="form-group">
+                    <label>确认密码 <span class="required">*</span></label>
+                    <input type="password" class="form-input" id="register-password2" placeholder="再次输入密码">
+                </div>
+                <button class="modal-btn primary full-width" onclick="doRegister()">
+                    <i class="bi bi-person-plus"></i> 注册
+                </button>
+                <div class="auth-switch">
+                    已有账号？<a href="javascript:void(0)" onclick="switchToLogin()">立即登录</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 提交插件弹窗 -->
+<div class="modal-overlay" id="submit-modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5><i class="bi bi-cloud-upload"></i> 提交新插件</h5>
+            <button class="modal-close" onclick="closeModal('submit-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <!-- 未登录提示 -->
+            <div id="submit-login-tip" class="login-required-tip" style="display:none;">
+                <i class="bi bi-exclamation-circle"></i>
+                <span>请先<a href="javascript:void(0)" onclick="closeModal('submit-modal');showLoginModal()">登录</a>后再提交插件</span>
+            </div>
+            <!-- 已登录用户信息 -->
+            <div id="submit-user-info" class="user-info-bar" style="display:none;">
+                <img id="submit-user-avatar" class="user-avatar" src="" alt="">
+                <div class="user-details">
+                    <span class="user-name" id="submit-user-name"></span>
+                    <span class="user-qq" id="submit-user-qq"></span>
+                </div>
+                <button class="logout-btn" onclick="doLogout()"><i class="bi bi-box-arrow-right"></i> 退出</button>
+            </div>
+            <div class="info-box">
+                <i class="bi bi-info-circle"></i>
+                <span>可选择本地插件上传，或填写下载链接</span>
+            </div>
+            <!-- 上传方式选择 -->
+            <div class="form-group">
+                <label>上传方式</label>
+                <div class="upload-type-tabs">
+                    <button type="button" class="upload-tab active" onclick="switchUploadType('url')">
+                        <i class="bi bi-link-45deg"></i> 填写链接
+                    </button>
+                    <button type="button" class="upload-tab" onclick="switchUploadType('local')">
+                        <i class="bi bi-folder"></i> 选择本地插件
                     </button>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- 管理员模态框 -->
-    <div class="modal fade" id="adminModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header border-0">
-                    <h5 class="modal-title"><i class="bi bi-shield-check me-2"></i>审核管理</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>插件名称 <span class="required">*</span></label>
+                    <input type="text" class="form-input" id="submit-name" placeholder="例如：天气查询">
                 </div>
-                <div class="modal-body">
-                    <ul class="nav nav-tabs mb-3" id="adminTabs">
-                        <li class="nav-item">
-                            <a class="nav-link active" data-bs-toggle="tab" href="#pendingTab">待审核</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" data-bs-toggle="tab" href="#allTab">所有插件</a>
-                        </li>
-                    </ul>
-                    <div class="tab-content">
-                        <div class="tab-pane fade show active" id="pendingTab">
-                            <div id="pendingList"></div>
-                        </div>
-                        <div class="tab-pane fade" id="allTab">
-                            <div id="allPluginsList"></div>
-                        </div>
+                <div class="form-group">
+                    <label>版本号</label>
+                    <input type="text" class="form-input" id="submit-version" placeholder="1.0.0">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>插件描述 <span class="required">*</span></label>
+                <textarea class="form-textarea" id="submit-desc" placeholder="简要描述插件的功能和用途..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>分类</label>
+                <select class="form-select" id="submit-category"></select>
+            </div>
+            <!-- 本地插件选择 -->
+            <div class="form-group" id="local-plugin-group" style="display:none;">
+                <label>选择本地插件 <span class="required">*</span></label>
+                <select class="form-select" id="submit-local-plugin" onchange="onLocalPluginSelect()">
+                    <option value="">-- 请选择插件 --</option>
+                </select>
+            </div>
+            <!-- 下载链接 -->
+            <div class="form-group" id="url-group">
+                <label>下载链接 <span class="hint">(至少填写一个)</span></label>
+                <div class="download-urls-group">
+                    <div class="url-input-row">
+                        <span class="url-label"><i class="bi bi-github"></i> GitHub</span>
+                        <input type="url" class="form-input" id="submit-url-github" placeholder="https://github.com/xxx/xxx/raw/main/plugin.py">
+                    </div>
+                    <div class="url-input-row">
+                        <span class="url-label"><i class="bi bi-git"></i> Gitee</span>
+                        <input type="url" class="form-input" id="submit-url-gitee" placeholder="https://gitee.com/xxx/xxx/raw/main/plugin.py">
+                    </div>
+                    <div class="url-input-row">
+                        <span class="url-label"><i class="bi bi-code-square"></i> GitCode</span>
+                        <input type="url" class="form-input" id="submit-url-gitcode" placeholder="https://gitcode.com/xxx/xxx/raw/main/plugin.py">
+                    </div>
+                    <div class="url-input-row">
+                        <span class="url-label"><i class="bi bi-link-45deg"></i> 直连</span>
+                        <input type="url" class="form-input" id="submit-url-direct" placeholder="https://example.com/plugin.py">
                     </div>
                 </div>
             </div>
+            <div class="form-group">
+                <label>标签 <span class="hint">(按回车添加，最多5个)</span></label>
+                <div class="tags-input-wrapper" id="tags-wrapper">
+                    <input type="text" class="tags-input" id="tags-input" placeholder="输入标签后按回车...">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn secondary" onclick="closeModal('submit-modal')">取消</button>
+            <button class="modal-btn primary" onclick="submitPlugin()"><i class="bi bi-send"></i> 提交审核</button>
         </div>
     </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        const API_BASE = '/web/api/market';
-        let adminToken = localStorage.getItem('market_admin_token') || '';
-        let categories = [];
-        let currentCategory = '';
-        let searchTimeout = null;
+<!-- 待审核弹窗 -->
+<div class="modal-overlay" id="pending-modal" style="display:none;">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h5><i class="bi bi-hourglass-split"></i> 待审核插件</h5>
+            <button class="modal-close" onclick="closeModal('pending-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="pending-list" id="pending-list">
+                <div class="loading-state"><div class="spinner"></div><span>加载中...</span></div>
+            </div>
+        </div>
+    </div>
+</div>
 
-        // 初始化
-        document.addEventListener('DOMContentLoaded', () => {
-            loadCategories();
-            loadPlugins();
-            checkAdmin();
+<!-- 插件详情弹窗 -->
+<div class="modal-overlay" id="detail-modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5><i class="bi bi-puzzle"></i> <span id="detail-name">插件详情</span></h5>
+            <button class="modal-close" onclick="closeModal('detail-modal')">&times;</button>
+        </div>
+        <div class="modal-body" id="detail-body"></div>
+        <div class="modal-footer" id="detail-footer"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_styles %}
+<style>
+.market-page { padding: 1rem; }
+
+/* 头部 */
+.market-header {
+    background: var(--theme-gradient);
+    border-radius: 16px; padding: 1.25rem 1.5rem; margin-bottom: 1rem;
+    box-shadow: 0 10px 30px rgba(88, 101, 242, 0.3);
+}
+.header-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.header-title { display: flex; align-items: center; gap: 1rem; color: #fff; }
+.header-icon { width: 50px; height: 50px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+.header-title h4 { margin: 0; font-size: 1.2rem; font-weight: 600; }
+.header-title p { margin: 4px 0 0; font-size: 0.85rem; opacity: 0.9; }
+.header-actions { display: flex; gap: 0.75rem; }
+.header-btn { padding: 0.6rem 1.2rem; background: rgba(255,255,255,0.2); color: #fff; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; }
+.header-btn:hover { background: rgba(255,255,255,0.3); transform: translateY(-1px); }
+.header-btn.secondary { background: rgba(255,255,255,0.1); }
+.header-btn .badge { background: #ef4444; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; margin-left: 4px; }
+
+/* 筛选栏 */
+.filter-bar { background: #fff; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+.search-box { flex: 1; min-width: 200px; position: relative; }
+.search-box input { width: 100%; padding: 0.6rem 1rem 0.6rem 2.5rem; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 0.9rem; }
+.search-box input:focus { outline: none; border-color: var(--theme-primary, #5865F2); }
+.search-box i { position: absolute; left: 0.9rem; top: 50%; transform: translateY(-50%); color: #999; }
+.filter-select { padding: 0.6rem 1rem; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 0.9rem; cursor: pointer; min-width: 140px; }
+.filter-select:focus { outline: none; border-color: var(--theme-primary, #5865F2); }
+.stats { color: #666; font-size: 0.85rem; }
+.refresh-btn { padding: 0.5rem 0.75rem; background: #f5f5f5; border: none; border-radius: 8px; cursor: pointer; color: #666; }
+.refresh-btn:hover { background: #e8e8e8; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const getToken = () => new URLSearchParams(window.location.search).get('token');
+const ADMIN_TOKEN = 'elaina_market_admin_2024';  // 管理员密钥
+let allPlugins = [];
+let categories = [];
+let submitTags = [];
+let localPlugins = [];
+let currentUploadType = 'url';  // 'url' 或 'local'
+
+// 用户登录状态
+let currentUser = null;
+
+// 初始化
+document.addEventListener('DOMContentLoaded', function() {
+    loadCategories();
+    loadPlugins();
+    initTagsInput();
+    checkLoginStatus();
+});
+
+// ==================== 用户系统 ====================
+
+// 检查登录状态
+function checkLoginStatus() {
+    const savedUser = localStorage.getItem('plugin_market_user');
+    if (savedUser) {
+        try {
+            currentUser = JSON.parse(savedUser);
+            updateUserUI();
+        } catch (e) {
+            localStorage.removeItem('plugin_market_user');
+        }
+    }
+}
+
+// 更新用户界面
+function updateUserUI() {
+    const statusEl = document.getElementById('user-status');
+    const loginTip = document.getElementById('submit-login-tip');
+    const userInfo = document.getElementById('submit-user-info');
+    
+    if (currentUser) {
+        // 已登录
+        statusEl.innerHTML = `
+            <div class="user-logged-in">
+                <img class="header-avatar" src="http://q1.qlogo.cn/g?b=qq&nk=${currentUser.qq}&s=100" alt="">
+                <span>${currentUser.nickname}</span>
+            </div>
+        `;
+        if (loginTip) loginTip.style.display = 'none';
+        if (userInfo) {
+            userInfo.style.display = 'flex';
+            document.getElementById('submit-user-avatar').src = `http://q1.qlogo.cn/g?b=qq&nk=${currentUser.qq}&s=100`;
+            document.getElementById('submit-user-name').textContent = currentUser.nickname;
+            document.getElementById('submit-user-qq').textContent = `QQ: ${currentUser.qq}`;
+        }
+    } else {
+        // 未登录
+        statusEl.innerHTML = `
+            <button class="header-btn" onclick="showLoginModal()">
+                <i class="bi bi-person"></i> 登录
+            </button>
+        `;
+        if (loginTip) loginTip.style.display = 'flex';
+        if (userInfo) userInfo.style.display = 'none';
+    }
+}
+
+// 显示登录弹窗
+function showLoginModal() {
+    switchToLogin();
+    showModal('login-modal');
+}
+
+// 切换到登录表单
+function switchToLogin() {
+    document.getElementById('auth-title').textContent = '登录';
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('register-form').style.display = 'none';
+}
+
+// 切换到注册表单
+function switchToRegister() {
+    document.getElementById('auth-title').textContent = '注册';
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('register-form').style.display = 'block';
+}
+
+// 登录
+async function doLogin() {
+    const qq = document.getElementById('login-qq').value.trim();
+    const password = document.getElementById('login-password').value;
+    
+    if (!qq || !password) {
+        showToast('请输入QQ号和密码', 'error');
+        return;
+    }
+    
+    try {
+        const r = await fetch(`/web/api/market/login?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ qq, password })
         });
+        const result = await r.json();
+        
+        if (result.success) {
+            currentUser = {
+                user_key: result.user_key,
+                nickname: result.nickname,
+                qq: result.qq
+            };
+            localStorage.setItem('plugin_market_user', JSON.stringify(currentUser));
+            updateUserUI();
+            closeModal('login-modal');
+            showToast('登录成功', 'success');
+        } else {
+            showToast(result.message, 'error');
+        }
+    } catch (e) {
+        showToast('登录失败: ' + e.message, 'error');
+    }
+}
 
-        // 检查管理员
-        function checkAdmin() {
-            if (adminToken) {
-                document.getElementById('adminBtn').style.display = 'block';
+// 注册
+async function doRegister() {
+    const qq = document.getElementById('register-qq').value.trim();
+    const nickname = document.getElementById('register-nickname').value.trim();
+    const password = document.getElementById('register-password').value;
+    const password2 = document.getElementById('register-password2').value;
+    
+    if (!qq || !nickname || !password) {
+        showToast('请填写完整信息', 'error');
+        return;
+    }
+    
+    if (!/^\d{5,11}$/.test(qq)) {
+        showToast('QQ号格式不正确', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        showToast('密码至少6位', 'error');
+        return;
+    }
+    
+    if (password !== password2) {
+        showToast('两次密码不一致', 'error');
+        return;
+    }
+    
+    try {
+        const r = await fetch(`/web/api/market/register?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ qq, nickname, password })
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            currentUser = {
+                user_key: result.user_key,
+                nickname: result.nickname,
+                qq: result.qq
+            };
+            localStorage.setItem('plugin_market_user', JSON.stringify(currentUser));
+            updateUserUI();
+            closeModal('login-modal');
+            showToast('注册成功', 'success');
+        } else {
+            showToast(result.message, 'error');
+        }
+    } catch (e) {
+        showToast('注册失败: ' + e.message, 'error');
+    }
+}
+
+// 退出登录
+function doLogout() {
+    currentUser = null;
+    localStorage.removeItem('plugin_market_user');
+    updateUserUI();
+    showToast('已退出登录', 'success');
+}
+
+// 切换上传方式
+function switchUploadType(type) {
+    currentUploadType = type;
+    document.querySelectorAll('.upload-tab').forEach(t => t.classList.remove('active'));
+    event.target.closest('.upload-tab').classList.add('active');
+    
+    document.getElementById('url-group').style.display = type === 'url' ? 'block' : 'none';
+    document.getElementById('local-plugin-group').style.display = type === 'local' ? 'block' : 'none';
+    
+    if (type === 'local' && localPlugins.length === 0) {
+        loadLocalPlugins();
+    }
+}
+
+// 加载本地插件列表
+async function loadLocalPlugins() {
+    const select = document.getElementById('submit-local-plugin');
+    select.innerHTML = '<option value="">加载中...</option>';
+    
+    try {
+        const r = await fetch(`/web/api/market/local_plugins?token=${getToken()}`);
+        const result = await r.json();
+        if (result.success) {
+            localPlugins = result.plugins || [];
+            select.innerHTML = '<option value="">-- 请选择插件（文件夹或单个文件）--</option>';
+            localPlugins.forEach(p => {
+                select.innerHTML += `<option value="${p.path}">${p.display || p.name}</option>`;
+            });
+        } else {
+            select.innerHTML = '<option value="">加载失败</option>';
+        }
+    } catch (e) {
+        select.innerHTML = '<option value="">加载失败</option>';
+    }
+}
+
+// 选择本地插件时自动填充名称
+function onLocalPluginSelect() {
+    const path = document.getElementById('submit-local-plugin').value;
+    if (path) {
+        const plugin = localPlugins.find(p => p.path === path);
+        if (plugin && !document.getElementById('submit-name').value) {
+            // 提取干净的名称（去掉路径和扩展名）
+            let name = plugin.name;
+            if (name.includes('/')) {
+                name = name.split('/').pop();
             }
-            // 双击标题进入管理模式
-            document.querySelector('.navbar-brand').addEventListener('dblclick', () => {
-                const token = prompt('请输入管理员密钥:');
-                if (token) {
-                    adminToken = token;
-                    localStorage.setItem('market_admin_token', token);
-                    document.getElementById('adminBtn').style.display = 'block';
-                }
+            document.getElementById('submit-name').value = name;
+        }
+    }
+}
+
+// 加载分类
+async function loadCategories() {
+    try {
+        const r = await fetch(`/web/api/market/categories?token=${getToken()}`);
+        const result = await r.json();
+        if (result.success) {
+            categories = result.categories;
+            const filterSelect = document.getElementById('category-filter');
+            const submitSelect = document.getElementById('submit-category');
+            categories.forEach(c => {
+                filterSelect.innerHTML += `<option value="${c}">${c}</option>`;
+                submitSelect.innerHTML += `<option value="${c}">${c}</option>`;
             });
         }
+    } catch (e) { console.error('加载分类失败:', e); }
+}
 
-        // 加载分类
-        async function loadCategories() {
-            try {
-                const res = await fetch(`${API_BASE}/categories`);
-                const data = await res.json();
-                if (data.success) {
-                    categories = data.categories;
-                    renderCategories();
-                }
-            } catch (e) {
-                console.error('加载分类失败:', e);
+// 加载插件列表
+async function loadPlugins() {
+    const grid = document.getElementById('plugins-grid');
+    grid.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>加载插件列表...</span></div>';
+    
+    try {
+        const r = await fetch(`/web/api/market/list?token=${getToken()}`);
+        const result = await r.json();
+        if (result.success) {
+            allPlugins = result.plugins || [];
+            renderPlugins(allPlugins);
+        } else {
+            grid.innerHTML = `<div class="empty-state"><i class="bi bi-exclamation-circle"></i><p>${result.message}</p></div>`;
+        }
+    } catch (e) {
+        grid.innerHTML = '<div class="empty-state"><i class="bi bi-wifi-off"></i><p>网络错误，请稍后重试</p></div>';
+    }
+}
+
+// 渲染插件列表
+function renderPlugins(plugins) {
+    const grid = document.getElementById('plugins-grid');
+    document.getElementById('stats-text').textContent = `共 ${plugins.length} 个插件`;
+    
+    if (plugins.length === 0) {
+        grid.innerHTML = '<div class="empty-state"><i class="bi bi-inbox"></i><p>暂无插件</p></div>';
+        return;
+    }
+    
+    grid.innerHTML = plugins.map(p => `
+        <div class="plugin-card" onclick="showPluginDetail('${p.id}')">
+            <div class="plugin-header">
+                <div class="plugin-title-row">
+                    <div class="plugin-author-info">
+                        <img class="author-avatar" src="http://q1.qlogo.cn/g?b=qq&nk=${p.qq || ''}&s=100" alt="avatar" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23ddd%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2250%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2240%22>?</text></svg>'">
+                        <div class="plugin-title-info">
+                            <span class="plugin-name">${escapeHtml(p.name)}</span>
+                            <span class="plugin-author-name">${escapeHtml(p.author)}</span>
+                        </div>
+                    </div>
+                    ${getBadge(p.status)}
+                </div>
+                <div class="plugin-meta">
+                    <span><i class="bi bi-tag"></i> v${escapeHtml(p.version || '1.0.0')}</span>
+                    <span><i class="bi bi-folder"></i> ${escapeHtml(p.category || '其他')}</span>
+                </div>
+            </div>
+            <div class="plugin-body">
+                <p class="plugin-desc">${escapeHtml(p.description)}</p>
+                <button class="download-btn" onclick="event.stopPropagation();showDownloadOptions('${p.id}')">
+                    <i class="bi bi-download"></i> 下载
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function getBadge(status) {
+    switch(status) {
+        case 'official': return '<span class="plugin-badge badge-official"><i class="bi bi-patch-check-fill"></i> 官方</span>';
+        case 'warning': return '<span class="plugin-badge badge-warning"><i class="bi bi-exclamation-triangle"></i> 注意</span>';
+        case 'pending': return '<span class="plugin-badge badge-pending"><i class="bi bi-hourglass-split"></i> 待审核</span>';
+        default: return '<span class="plugin-badge badge-approved"><i class="bi bi-check-circle"></i> 已审核</span>';
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+// 筛选插件
+function filterPlugins() {
+    const search = document.getElementById('search-input').value.toLowerCase();
+    const category = document.getElementById('category-filter').value;
+    
+    let filtered = allPlugins;
+    if (search) {
+        filtered = filtered.filter(p => 
+            p.name.toLowerCase().includes(search) || 
+            p.description.toLowerCase().includes(search)
+        );
+    }
+    if (category) {
+        filtered = filtered.filter(p => p.category === category);
+    }
+    renderPlugins(filtered);
+}
+
+// 下载插件
+function downloadPlugin(id, url) {
+    window.open(url, '_blank');
+    // 记录下载
+    fetch(`/web/api/market/download?token=${getToken()}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id })
+    }).catch(() => {});
+}
+
+// 显示下载选项
+function showDownloadOptions(id) {
+    const plugin = allPlugins.find(p => p.id === id);
+    if (!plugin) return;
+    
+    // 检查是否为待审核插件
+    const isPending = plugin.status === 'pending';
+    
+    const urls = plugin.download_urls || {};
+    // 兼容旧数据
+    if (plugin.download_url && Object.keys(urls).length === 0) {
+        urls[plugin.repo_type || 'direct'] = plugin.download_url;
+    }
+    
+    const urlLabels = {
+        github: '<i class="bi bi-github"></i> GitHub',
+        gitee: '<i class="bi bi-git"></i> Gitee',
+        gitcode: '<i class="bi bi-code-square"></i> GitCode',
+        direct: '<i class="bi bi-link-45deg"></i> 直连'
+    };
+    
+    // 构建下载选项
+    let optionsHtml = '';
+    
+    // 未审核警告
+    if (isPending) {
+        optionsHtml += '<div class="pending-warning"><i class="bi bi-exclamation-triangle-fill"></i> 该插件暂未经过人工审核，请谨慎下载使用！</div>';
+    }
+    
+    optionsHtml += '<div class="download-mode-section"><h6>选择下载方式</h6>';
+    
+    Object.entries(urls).filter(([k, v]) => v).forEach(([type, url]) => {
+        const isGithub = type === 'github' || url.includes('github.com') || url.includes('githubusercontent.com');
+        
+        optionsHtml += `<div class="download-source-item">
+            <div class="source-label">${urlLabels[type] || type}</div>
+            <div class="source-actions">`;
+        
+        if (isGithub) {
+            // GitHub 链接显示更多选项
+            optionsHtml += `
+                <button class="dl-btn dl-btn-primary" onclick="installToServer('${id}', '${escapeHtml(url)}', '${escapeHtml(plugin.name)}', false)">
+                    <i class="bi bi-cloud-download"></i> 安装到服务器
+                </button>
+                <button class="dl-btn dl-btn-secondary" onclick="installToServer('${id}', '${escapeHtml(url)}', '${escapeHtml(plugin.name)}', true)">
+                    <i class="bi bi-lightning"></i> 加速安装
+                </button>
+                <button class="dl-btn dl-btn-outline" onclick="openUrl('${escapeHtml(url)}')">
+                    <i class="bi bi-box-arrow-up-right"></i> 跳转
+                </button>`;
+        } else {
+            // 其他链接
+            optionsHtml += `
+                <button class="dl-btn dl-btn-primary" onclick="installToServer('${id}', '${escapeHtml(url)}', '${escapeHtml(plugin.name)}', false)">
+                    <i class="bi bi-cloud-download"></i> 安装到服务器
+                </button>
+                <button class="dl-btn dl-btn-outline" onclick="openUrl('${escapeHtml(url)}')">
+                    <i class="bi bi-box-arrow-up-right"></i> 跳转下载
+                </button>`;
+        }
+        
+        optionsHtml += `</div></div>`;
+    });
+    
+    optionsHtml += '</div>';
+    optionsHtml += '<div class="download-tip"><i class="bi bi-info-circle"></i> 安装到服务器会自动下载并解压到 plugins 目录，加速安装使用 ghfast.top 代理</div>';
+    
+    document.getElementById('detail-name').textContent = '下载 ' + plugin.name;
+    document.getElementById('detail-body').innerHTML = optionsHtml;
+    document.getElementById('detail-footer').innerHTML = `<button class="modal-btn secondary" onclick="closeModal('detail-modal')">关闭</button>`;
+    showModal('detail-modal');
+}
+
+function openUrl(url) {
+    window.open(url, '_blank');
+}
+
+async function installToServer(id, url, name, useProxy) {
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 安装中...';
+    
+    try {
+        const r = await fetch(`/web/api/market/install?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url, name, use_proxy: useProxy })
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            showToast(result.message, 'success');
+            closeModal('detail-modal');
+            // 记录下载
+            recordDownload(id);
+        } else {
+            showToast(result.message, 'error');
+        }
+    } catch (e) {
+        showToast('安装失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+function recordDownload(id) {
+    fetch(`/web/api/market/download?token=${getToken()}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id })
+    }).catch(() => {});
+}
+</script>
+
+<script>
+// 显示插件详情
+function showPluginDetail(id) {
+    const plugin = allPlugins.find(p => p.id === id);
+    if (!plugin) return;
+    
+    // 检查是否为待审核插件
+    const isPending = plugin.status === 'pending';
+    
+    const urls = plugin.download_urls || {};
+    // 兼容旧数据
+    if (plugin.download_url && Object.keys(urls).length === 0) {
+        urls[plugin.repo_type || 'direct'] = plugin.download_url;
+    }
+    
+    const urlLabels = {
+        github: '<i class="bi bi-github"></i> GitHub',
+        gitee: '<i class="bi bi-git"></i> Gitee',
+        gitcode: '<i class="bi bi-code-square"></i> GitCode',
+        direct: '<i class="bi bi-link-45deg"></i> 直连'
+    };
+    
+    const urlsHtml = Object.entries(urls).filter(([k, v]) => v).map(([type, url]) => 
+        `<a href="${escapeHtml(url)}" target="_blank" class="download-link-item" onclick="recordDownload('${id}')">${urlLabels[type] || type} <span>${escapeHtml(url)}</span></a>`
+    ).join('');
+    
+    // 未审核警告
+    const pendingWarningHtml = isPending ? '<div class="pending-warning"><i class="bi bi-exclamation-triangle-fill"></i> 该插件暂未经过人工审核，请谨慎下载使用！</div>' : '';
+    
+    document.getElementById('detail-name').textContent = plugin.name;
+    document.getElementById('detail-body').innerHTML = `
+        ${pendingWarningHtml}
+        <div class="detail-info">
+            <div class="detail-author-header">
+                <img class="detail-avatar" src="http://q1.qlogo.cn/g?b=qq&nk=${plugin.qq || ''}&s=100" alt="avatar" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23ddd%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2250%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2240%22>?</text></svg>'">
+                <div class="detail-author-info">
+                    <span class="detail-author-name">${escapeHtml(plugin.author)}</span>
+                    <span class="detail-author-qq">QQ: ${escapeHtml(plugin.qq || '未知')}</span>
+                </div>
+                ${getBadge(plugin.status)}
+            </div>
+            <div class="detail-row"><label>版本</label><span>v${escapeHtml(plugin.version || '1.0.0')}</span></div>
+            <div class="detail-row"><label>分类</label><span>${escapeHtml(plugin.category || '其他')}</span></div>
+            <div class="detail-row full"><label>描述</label><p>${escapeHtml(plugin.description)}</p></div>
+            <div class="detail-row full"><label>下载链接</label><div class="download-links-list">${urlsHtml}</div></div>
+            ${plugin.tags && plugin.tags.length ? `<div class="detail-row full"><label>标签</label><div class="plugin-tags">${plugin.tags.map(t => `<span class="plugin-tag">${escapeHtml(t)}</span>`).join('')}</div></div>` : ''}
+        </div>
+    `;
+    document.getElementById('detail-footer').innerHTML = `
+        <button class="modal-btn secondary" onclick="closeModal('detail-modal')">关闭</button>
+        <button class="modal-btn primary" onclick="closeModal('detail-modal');showDownloadOptions('${plugin.id}')"><i class="bi bi-download"></i> 下载安装</button>
+    `;
+    showModal('detail-modal');
+}
+
+// 标签输入
+function initTagsInput() {
+    const input = document.getElementById('tags-input');
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const value = this.value.trim();
+            if (value && !submitTags.includes(value) && submitTags.length < 5) {
+                submitTags.push(value);
+                renderSubmitTags();
+                this.value = '';
             }
         }
+    });
+}
 
-        // 渲染分类按钮
-        function renderCategories() {
-            const container = document.getElementById('categoryBtns');
-            let html = '<button class="btn btn-sm category-btn active" data-category="" onclick="filterCategory(this, \'\')">全部</button>';
-            categories.forEach(cat => {
-                html += `<button class="btn btn-sm category-btn" data-category="${cat}" onclick="filterCategory(this, '${cat}')">${cat}</button>`;
+function renderSubmitTags() {
+    const wrapper = document.getElementById('tags-wrapper');
+    wrapper.querySelectorAll('.tag').forEach(t => t.remove());
+    submitTags.forEach((tag, i) => {
+        const el = document.createElement('span');
+        el.className = 'tag';
+        el.innerHTML = `${tag}<i class="bi bi-x" onclick="removeSubmitTag(${i})"></i>`;
+        wrapper.insertBefore(el, document.getElementById('tags-input'));
+    });
+}
+
+function removeSubmitTag(index) {
+    submitTags.splice(index, 1);
+    renderSubmitTags();
+}
+
+// 提交插件
+async function submitPlugin() {
+    // 检查登录状态
+    if (!currentUser) {
+        showToast('请先登录后再提交插件', 'error');
+        closeModal('submit-modal');
+        showLoginModal();
+        return;
+    }
+    
+    const name = document.getElementById('submit-name').value.trim();
+    const description = document.getElementById('submit-desc').value.trim();
+    
+    // 验证基本信息
+    if (!name || !description) {
+        showToast('请填写插件名称和描述', 'error');
+        return;
+    }
+    
+    // 根据上传方式处理
+    if (currentUploadType === 'local') {
+        // 本地插件上传
+        const pluginPath = document.getElementById('submit-local-plugin').value;
+        if (!pluginPath) {
+            showToast('请选择要上传的本地插件', 'error');
+            return;
+        }
+        
+        const data = {
+            plugin_path: pluginPath,
+            name: name,
+            description: description,
+            user_key: currentUser.user_key,
+            version: document.getElementById('submit-version').value.trim() || '1.0.0',
+            category: document.getElementById('submit-category').value || '其他',
+            tags: submitTags
+        };
+        
+        try {
+            showToast('正在上传插件...', 'success');
+            const r = await fetch(`/web/api/market/upload_local?token=${getToken()}`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
             });
-            container.innerHTML = html;
+            const result = await r.json();
             
-            // 填充提交表单的分类
-            const select = document.getElementById('submitCategory');
-            select.innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            if (result.success) {
+                showToast('插件已提交，等待审核', 'success');
+                closeModal('submit-modal');
+                resetSubmitForm();
+                loadPlugins();
+            } else {
+                showToast(result.message, 'error');
+            }
+        } catch (e) {
+            showToast('上传失败: ' + e.message, 'error');
         }
+    } else {
+        // URL 方式提交
+        const download_urls = {
+            github: document.getElementById('submit-url-github').value.trim(),
+            gitee: document.getElementById('submit-url-gitee').value.trim(),
+            gitcode: document.getElementById('submit-url-gitcode').value.trim(),
+            direct: document.getElementById('submit-url-direct').value.trim()
+        };
+        
+        const validUrls = Object.fromEntries(Object.entries(download_urls).filter(([k, v]) => v));
+        const firstUrl = Object.values(validUrls)[0] || '';
+        
+        if (Object.keys(validUrls).length === 0) {
+            showToast('请至少填写一个下载链接', 'error');
+            return;
+        }
+        
+        const data = {
+            name: name,
+            description: description,
+            user_key: currentUser.user_key,
+            version: document.getElementById('submit-version').value.trim() || '1.0.0',
+            download_urls: validUrls,
+            download_url: firstUrl,
+            category: document.getElementById('submit-category').value || '其他',
+            tags: submitTags
+        };
+        
+        try {
+            const r = await fetch(`/web/api/market/submit?token=${getToken()}`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            const result = await r.json();
+            
+            if (result.success) {
+                showToast('插件已提交，等待审核', 'success');
+                closeModal('submit-modal');
+                resetSubmitForm();
+                loadPlugins();
+            } else {
+                showToast(result.message, 'error');
+            }
+        } catch (e) {
+            showToast('提交失败: ' + e.message, 'error');
+        }
+    }
+}
 
-        // 筛选分类
-        function filterCategory(btn, category) {
-            document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentCategory = category;
+function resetSubmitForm() {
+    ['submit-name', 'submit-desc', 'submit-version', 'submit-url-github', 'submit-url-gitee', 'submit-url-gitcode', 'submit-url-direct'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('submit-local-plugin').value = '';
+    submitTags = [];
+    renderSubmitTags();
+}
+
+// 待审核
+async function loadPendingCount() {
+    try {
+        const r = await fetch(`/web/api/market/pending?token=${getToken()}`, {
+            headers: { 'X-Admin-Token': ADMIN_TOKEN }
+        });
+        const result = await r.json();
+        if (result.success) {
+            document.getElementById('pending-count').textContent = result.total || 0;
+        }
+    } catch (e) {}
+}
+
+async function showPendingModal() {
+    showModal('pending-modal');
+    const list = document.getElementById('pending-list');
+    list.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>加载中...</span></div>';
+    
+    try {
+        const r = await fetch(`/web/api/market/pending?token=${getToken()}`, {
+            headers: { 'X-Admin-Token': ADMIN_TOKEN }
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            if (!result.plugins || result.plugins.length === 0) {
+                list.innerHTML = '<div class="empty-state"><i class="bi bi-inbox"></i><p>暂无待审核插件</p></div>';
+                return;
+            }
+            list.innerHTML = result.plugins.map(p => `
+                <div class="pending-item">
+                    <div class="pending-info">
+                        <div class="pending-name">${escapeHtml(p.name)}</div>
+                        <div class="pending-meta">
+                            <span><i class="bi bi-person"></i> ${escapeHtml(p.author)}</span>
+                            <span><i class="bi bi-clock"></i> ${p.submit_time}</span>
+                        </div>
+                        <div class="pending-desc">${escapeHtml(p.description)}</div>
+                        <div class="pending-url"><a href="${escapeHtml(p.download_url)}" target="_blank">${escapeHtml(p.download_url)}</a></div>
+                    </div>
+                    <div class="pending-actions">
+                        <button class="action-btn approve" onclick="reviewPlugin('${p.id}', 'approve')"><i class="bi bi-check-lg"></i></button>
+                        <button class="action-btn reject" onclick="reviewPlugin('${p.id}', 'reject')"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            list.innerHTML = `<div class="empty-state"><i class="bi bi-lock"></i><p>${result.message}</p></div>`;
+        }
+    } catch (e) {
+        list.innerHTML = '<div class="empty-state"><i class="bi bi-wifi-off"></i><p>加载失败</p></div>';
+    }
+}
+
+async function reviewPlugin(id, action) {
+    const status = action === 'approve' ? (prompt('设置状态 (approved/official/warning):', 'approved') || 'approved') : 'rejected';
+    
+    try {
+        const r = await fetch(`/web/api/market/review?token=${getToken()}`, {
+            method: 'POST', headers: {'Content-Type': 'application/json', 'X-Admin-Token': ADMIN_TOKEN},
+            body: JSON.stringify({ id, action, status })
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            showToast(result.message, 'success');
+            showPendingModal();
             loadPlugins();
+            loadPendingCount();
+        } else {
+            showToast(result.message, 'error');
         }
+    } catch (e) {
+        showToast('操作失败', 'error');
+    }
+}
 
-        // 搜索防抖
-        function debounceSearch() {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(loadPlugins, 300);
-        }
+// 弹窗控制
+function showModal(id) { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function showSubmitModal() { showModal('submit-modal'); }
 
-        // 加载插件列表
-        async function loadPlugins() {
-            const search = document.getElementById('searchInput').value;
-            let url = `${API_BASE}/list?`;
-            if (currentCategory) url += `category=${encodeURIComponent(currentCategory)}&`;
-            if (search) url += `search=${encodeURIComponent(search)}&`;
+// Toast
+function showToast(msg, type = 'success') {
+    const toast = document.createElement('div');
+    toast.className = `toast-msg ${type}`;
+    toast.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-circle'}-fill"></i> ${msg}`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+</script>
 
-            try {
-                const res = await fetch(url);
-                const data = await res.json();
-                if (data.success) {
-                    renderPlugins(data.plugins);
-                }
-            } catch (e) {
-                console.error('加载插件失败:', e);
-                document.getElementById('pluginList').innerHTML = '<div class="col-12 text-center py-5 text-danger">加载失败，请刷新重试</div>';
-            }
-        }
+<style>
+/* 插件网格 */
+.plugins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
 
-        // 渲染插件列表
-        function renderPlugins(plugins) {
-            const container = document.getElementById('pluginList');
-            if (!plugins.length) {
-                container.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="bi bi-inbox fs-1 d-block mb-3"></i>暂无插件</div>';
-                return;
-            }
+/* 用户登录相关 */
+.modal-small { max-width: 380px; }
+.full-width { width: 100%; justify-content: center; }
+.auth-switch { text-align: center; margin-top: 1rem; font-size: 0.85rem; color: #666; }
+.auth-switch a { color: var(--theme-primary, #5865F2); text-decoration: none; }
+.auth-switch a:hover { text-decoration: underline; }
+.user-logged-in { display: flex; align-items: center; gap: 0.5rem; color: #fff; font-size: 0.85rem; }
+.header-avatar { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3); }
+.login-required-tip { background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #92400e; }
+.login-required-tip a { color: var(--theme-primary, #5865F2); font-weight: 500; }
+.user-info-bar { display: flex; align-items: center; gap: 0.75rem; background: #f8f9fa; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
+.user-avatar { width: 40px; height: 40px; border-radius: 50%; border: 2px solid #e0e0e0; }
+.user-details { flex: 1; display: flex; flex-direction: column; }
+.user-name { font-weight: 600; color: #333; }
+.user-qq { font-size: 0.8rem; color: #888; }
+.logout-btn { background: none; border: 1px solid #ddd; border-radius: 6px; padding: 0.4rem 0.75rem; font-size: 0.8rem; color: #666; cursor: pointer; display: flex; align-items: center; gap: 0.3rem; }
+.logout-btn:hover { background: #f5f5f5; border-color: #ccc; }
 
-            container.innerHTML = plugins.map(p => `
-                <div class="col-md-6 col-lg-4">
-                    <div class="card h-100 p-3">
-                        <div class="d-flex align-items-start mb-3">
-                            <div class="plugin-icon me-3">
-                                ${getRepoIcon(p.repo_type)}
-                            </div>
-                            <div class="flex-grow-1">
-                                <h6 class="mb-1">${escapeHtml(p.name)} 
-                                    ${getStatusBadge(p.status)}
-                                </h6>
-                                <small class="text-muted">by ${escapeHtml(p.author)} · v${p.version}</small>
-                            </div>
-                        </div>
-                        <p class="text-muted small mb-3 flex-grow-1">${escapeHtml(p.description)}</p>
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="badge bg-secondary">${p.category}</span>
-                            <div>
-                                <span class="download-count me-2"><i class="bi bi-download"></i> ${p.downloads || 0}</span>
-                                <button class="btn btn-sm btn-primary" onclick="downloadPlugin('${p.id}', '${escapeHtml(p.download_url)}')">
-                                    <i class="bi bi-download"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
+/* 插件卡片 */
+.plugin-card { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.06); transition: all 0.3s; border: 1px solid #e8e8e8; cursor: pointer; }
+.plugin-card:hover { transform: translateY(-4px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
+.plugin-header { padding: 1rem 1rem 0.75rem; border-bottom: 1px solid #f5f5f5; }
+.plugin-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.5rem; }
+.plugin-author-info { display: flex; align-items: center; gap: 0.6rem; }
+.author-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid #f0f0f0; }
+.plugin-title-info { display: flex; flex-direction: column; }
+.plugin-author-name { font-size: 0.75rem; color: #888; }
+.plugin-name { font-size: 1rem; font-weight: 600; color: #1e293b; }
+.plugin-badge { padding: 3px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.badge-official { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #fff; }
+.badge-approved { background: #dcfce7; color: #166534; }
+.badge-warning { background: #fee2e2; color: #991b1b; }
+.badge-pending { background: #fef3c7; color: #92400e; }
+.plugin-meta { display: flex; gap: 1rem; font-size: 0.75rem; color: #64748b; }
+.plugin-meta span { display: flex; align-items: center; gap: 4px; }
+.plugin-body { padding: 0.75rem 1rem; }
+.plugin-desc { color: #475569; font-size: 0.85rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 0.75rem; }
+.plugin-body .download-btn { width: 100%; justify-content: center; }
+.plugin-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.plugin-tag { background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; }
+.download-btn { background: var(--theme-gradient); color: #fff; padding: 0.4rem 0.8rem; border-radius: 6px; border: none; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }
+.download-btn:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(88, 101, 242, 0.4); }
 
-        // 获取仓库图标
-        function getRepoIcon(type) {
-            const icons = {
-                github: '<i class="bi bi-github"></i>',
-                gitee: '<i class="bi bi-git"></i>',
-                gitcode: '<i class="bi bi-code-square"></i>',
-                direct: '<i class="bi bi-link-45deg"></i>'
-            };
-            return icons[type] || icons.direct;
-        }
+/* 上传方式切换 */
+.upload-type-tabs { display: flex; gap: 0.5rem; }
+.upload-tab { flex: 1; padding: 0.6rem 1rem; border: 1px solid #e0e0e0; background: #fff; border-radius: 8px; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; gap: 0.4rem; transition: all 0.2s; color: #666; }
+.upload-tab:hover { border-color: var(--theme-primary, #5865F2); color: var(--theme-primary, #5865F2); }
+.upload-tab.active { background: var(--theme-gradient); color: #fff; border-color: transparent; }
 
-        // 获取状态徽章
-        function getStatusBadge(status) {
-            const badges = {
-                official: '<span class="badge badge-official ms-1"><i class="bi bi-patch-check-fill"></i> 官方</span>',
-                warning: '<span class="badge badge-warning ms-1"><i class="bi bi-exclamation-triangle-fill"></i> 风险</span>',
-                approved: ''
-            };
-            return badges[status] || '';
-        }
+/* 弹窗 */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+.modal-content { background: #fff; border-radius: 16px; width: 100%; max-width: 520px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+.modal-content.modal-large { max-width: 700px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid #f0f0f0; }
+.modal-header h5 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; color: #333; }
+.modal-close { background: none; border: none; font-size: 1.5rem; color: #999; cursor: pointer; line-height: 1; }
+.modal-close:hover { color: #333; }
+.modal-body { padding: 1.25rem; overflow-y: auto; flex: 1; }
+.modal-footer { padding: 1rem 1.25rem; border-top: 1px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.75rem; }
+.modal-btn { padding: 0.6rem 1.25rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; border: none; }
+.modal-btn.primary { background: var(--theme-gradient); color: #fff; }
+.modal-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(88, 101, 242, 0.4); }
+.modal-btn.secondary { background: #f5f5f5; color: #666; }
+.modal-btn.secondary:hover { background: #e8e8e8; }
 
-        // 下载插件
-        async function downloadPlugin(id, url) {
-            try {
-                await fetch(`${API_BASE}/download`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id })
-                });
-            } catch (e) {}
-            window.open(url, '_blank');
-        }
+/* 表单 */
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.form-group { margin-bottom: 1rem; }
+.form-group label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.4rem; font-weight: 500; }
+.form-group label .required { color: #ef4444; }
+.form-group label .hint { font-weight: 400; color: #999; font-size: 0.75rem; }
+.form-input, .form-select, .form-textarea { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 0.9rem; transition: border-color 0.2s; }
+.form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--theme-primary, #5865F2); }
+.form-textarea { resize: vertical; min-height: 80px; }
+.info-box { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem; font-size: 0.8rem; color: #0369a1; }
 
-        // 显示提交模态框
-        function showSubmitModal() {
-            new bootstrap.Modal(document.getElementById('submitModal')).show();
-        }
+/* 标签输入 */
+.tags-input-wrapper { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0.75rem; border: 1px solid #e0e0e0; border-radius: 8px; min-height: 42px; align-items: center; }
+.tags-input-wrapper:focus-within { border-color: var(--theme-primary, #5865F2); }
+.tag { display: inline-flex; align-items: center; gap: 4px; background: var(--theme-gradient); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; }
+.tag i { cursor: pointer; opacity: 0.8; }
+.tag i:hover { opacity: 1; }
+.tags-input { border: none; outline: none; flex: 1; min-width: 100px; font-size: 0.9rem; }
 
-        // 提交插件
-        async function submitPlugin() {
-            const form = document.getElementById('submitForm');
-            const formData = new FormData(form);
-            const data = Object.fromEntries(formData.entries());
+/* 多下载链接 */
+.download-urls-group { display: flex; flex-direction: column; gap: 0.5rem; }
+.url-input-row { display: flex; align-items: center; gap: 0.5rem; }
+.url-label { min-width: 80px; font-size: 0.8rem; color: #666; display: flex; align-items: center; gap: 4px; }
+.url-input-row .form-input { flex: 1; }
+.download-options { display: flex; flex-direction: column; gap: 0.5rem; }
+.download-option { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; background: #f8f9fa; border-radius: 8px; color: #333; text-decoration: none; transition: all 0.2s; }
+.download-option:hover { background: var(--theme-gradient); color: #fff; }
+.download-links-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.download-link-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: #f8f9fa; border-radius: 6px; color: #333; text-decoration: none; font-size: 0.85rem; }
+.download-link-item:hover { background: #e9ecef; }
+.download-link-item span { color: #666; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-            try {
-                const res = await fetch(`${API_BASE}/submit`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                const result = await res.json();
-                if (result.success) {
-                    alert('提交成功！等待审核');
-                    bootstrap.Modal.getInstance(document.getElementById('submitModal')).hide();
-                    form.reset();
-                } else {
-                    alert('提交失败: ' + result.message);
-                }
-            } catch (e) {
-                alert('提交失败: ' + e.message);
-            }
-        }
+/* 下载模式选择 */
+.download-mode-section h6 { margin: 0 0 0.75rem; color: #333; font-size: 0.9rem; }
+.download-source-item { background: #f8f9fa; border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; }
+.source-label { font-weight: 500; color: #333; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; }
+.source-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.dl-btn { padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; border: none; transition: all 0.2s; }
+.dl-btn-primary { background: var(--theme-gradient); color: #fff; }
+.dl-btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+.dl-btn-secondary { background: #10b981; color: #fff; }
+.dl-btn-secondary:hover { background: #059669; }
+.dl-btn-outline { background: #fff; color: #666; border: 1px solid #ddd; }
+.dl-btn-outline:hover { background: #f5f5f5; border-color: #ccc; }
+.dl-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.download-tip { margin-top: 1rem; padding: 0.6rem 0.75rem; background: #f0f9ff; border-radius: 6px; font-size: 0.75rem; color: #0369a1; display: flex; align-items: center; gap: 0.4rem; }
 
-        // 显示管理模态框
-        async function showAdminModal() {
-            const modal = new bootstrap.Modal(document.getElementById('adminModal'));
-            modal.show();
-            await loadPendingPlugins();
-            await loadAllPluginsAdmin();
-        }
+/* 未审核警告 */
+.pending-warning { background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #92400e; }
+.pending-warning i { font-size: 1.1rem; color: #f59e0b; }
 
-        // 加载待审核插件
-        async function loadPendingPlugins() {
-            try {
-                const res = await fetch(`${API_BASE}/pending`, {
-                    headers: { 'X-Admin-Token': adminToken }
-                });
-                const data = await res.json();
-                if (data.success) {
-                    renderPendingPlugins(data.plugins);
-                } else {
-                    document.getElementById('pendingList').innerHTML = `<div class="alert alert-danger">${data.message}</div>`;
-                }
-            } catch (e) {
-                document.getElementById('pendingList').innerHTML = '<div class="alert alert-danger">加载失败</div>';
-            }
-        }
+/* 待审核列表 */
+.pending-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 1rem; border: 1px solid #e8e8e8; border-radius: 10px; margin-bottom: 0.75rem; gap: 1rem; }
+.pending-info { flex: 1; min-width: 0; }
+.pending-name { font-weight: 600; color: #333; margin-bottom: 0.4rem; }
+.pending-meta { display: flex; gap: 1rem; font-size: 0.75rem; color: #999; margin-bottom: 0.4rem; }
+.pending-meta span { display: flex; align-items: center; gap: 4px; }
+.pending-desc { font-size: 0.85rem; color: #666; margin-bottom: 0.4rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pending-url { font-size: 0.75rem; }
+.pending-url a { color: var(--theme-primary, #5865F2); word-break: break-all; }
+.pending-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.action-btn { width: 36px; height: 36px; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; transition: all 0.2s; }
+.action-btn.approve { background: #dcfce7; color: #166534; }
+.action-btn.approve:hover { background: #bbf7d0; }
+.action-btn.reject { background: #fee2e2; color: #991b1b; }
+.action-btn.reject:hover { background: #fecaca; }
 
-        // 渲染待审核列表
-        function renderPendingPlugins(plugins) {
-            const container = document.getElementById('pendingList');
-            if (!plugins.length) {
-                container.innerHTML = '<div class="text-center text-muted py-4">暂无待审核插件</div>';
-                return;
-            }
-            container.innerHTML = plugins.map(p => `
-                <div class="card mb-2 p-3">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <h6 class="mb-1">${escapeHtml(p.name)}</h6>
-                            <small class="text-muted">by ${escapeHtml(p.author)} · ${p.submit_time}</small>
-                            <p class="small mb-2 mt-2">${escapeHtml(p.description)}</p>
-                            <a href="${escapeHtml(p.download_url)}" target="_blank" class="small">${escapeHtml(p.download_url)}</a>
-                        </div>
-                        <div class="btn-group-vertical">
-                            <button class="btn btn-sm btn-success" onclick="reviewPlugin('${p.id}', 'approve', 'approved')">通过</button>
-                            <button class="btn btn-sm btn-warning" onclick="reviewPlugin('${p.id}', 'approve', 'official')">官方</button>
-                            <button class="btn btn-sm btn-danger" onclick="reviewPlugin('${p.id}', 'reject')">拒绝</button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
+/* 详情 */
+.detail-info { display: flex; flex-direction: column; gap: 0.75rem; }
+.detail-author-header { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid #f0f0f0; margin-bottom: 0.5rem; }
+.detail-avatar { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 2px solid #f0f0f0; }
+.detail-author-info { flex: 1; display: flex; flex-direction: column; }
+.detail-author-name { font-weight: 600; color: #333; }
+.detail-author-qq { font-size: 0.8rem; color: #888; }
+.detail-row { display: flex; gap: 1rem; }
+.detail-row.full { flex-direction: column; gap: 0.4rem; }
+.detail-row label { font-size: 0.8rem; color: #999; min-width: 60px; }
+.detail-row span, .detail-row p, .detail-row a { font-size: 0.9rem; color: #333; margin: 0; }
+.detail-row a { color: var(--theme-primary, #5865F2); word-break: break-all; }
 
-        // 审核插件
-        async function reviewPlugin(id, action, status = 'approved') {
-            try {
-                const res = await fetch(`${API_BASE}/review`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
-                    body: JSON.stringify({ id, action, status })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    await loadPendingPlugins();
-                    await loadAllPluginsAdmin();
-                    loadPlugins();
-                } else {
-                    alert(data.message);
-                }
-            } catch (e) {
-                alert('操作失败: ' + e.message);
-            }
-        }
+/* 状态 */
+.loading-state, .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; color: #999; gap: 0.75rem; grid-column: 1 / -1; }
+.spinner { width: 32px; height: 32px; border: 3px solid #f0f0f0; border-top-color: var(--theme-primary, #5865F2); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state i { font-size: 2.5rem; opacity: 0.5; }
 
-        // 加载所有插件（管理）
-        async function loadAllPluginsAdmin() {
-            try {
-                const res = await fetch(`${API_BASE}/list`);
-                const data = await res.json();
-                if (data.success) {
-                    renderAllPluginsAdmin(data.plugins);
-                }
-            } catch (e) {
-                document.getElementById('allPluginsList').innerHTML = '<div class="alert alert-danger">加载失败</div>';
-            }
-        }
+/* Toast */
+.toast-msg { position: fixed; top: 20px; right: 20px; padding: 0.75rem 1.25rem; background: #fff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 0.5rem; z-index: 10000; animation: slideIn 0.3s ease; font-size: 0.9rem; }
+.toast-msg.success { border-left: 3px solid #10b981; }
+.toast-msg.success i { color: #10b981; }
+.toast-msg.error { border-left: 3px solid #ef4444; }
+.toast-msg.error i { color: #ef4444; }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-        // 渲染所有插件（管理）
-        function renderAllPluginsAdmin(plugins) {
-            const container = document.getElementById('allPluginsList');
-            if (!plugins.length) {
-                container.innerHTML = '<div class="text-center text-muted py-4">暂无插件</div>';
-                return;
-            }
-            container.innerHTML = plugins.map(p => `
-                <div class="card mb-2 p-3">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <span class="fw-bold">${escapeHtml(p.name)}</span>
-                            ${getStatusBadge(p.status)}
-                            <small class="text-muted ms-2">by ${escapeHtml(p.author)}</small>
-                        </div>
-                        <div class="btn-group">
-                            <button class="btn btn-sm btn-outline-success" onclick="updateStatus('${p.id}', 'approved')" ${p.status === 'approved' ? 'disabled' : ''}>正常</button>
-                            <button class="btn btn-sm btn-outline-warning" onclick="updateStatus('${p.id}', 'official')" ${p.status === 'official' ? 'disabled' : ''}>官方</button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="updateStatus('${p.id}', 'warning')" ${p.status === 'warning' ? 'disabled' : ''}>风险</button>
-                            <button class="btn btn-sm btn-danger" onclick="deletePlugin('${p.id}')"><i class="bi bi-trash"></i></button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // 更新状态
-        async function updateStatus(id, status) {
-            try {
-                const res = await fetch(`${API_BASE}/update_status`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
-                    body: JSON.stringify({ id, status })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    await loadAllPluginsAdmin();
-                    loadPlugins();
-                } else {
-                    alert(data.message);
-                }
-            } catch (e) {
-                alert('操作失败: ' + e.message);
-            }
-        }
-
-        // 删除插件
-        async function deletePlugin(id) {
-            if (!confirm('确定删除此插件？')) return;
-            try {
-                const res = await fetch(`${API_BASE}/delete`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
-                    body: JSON.stringify({ id })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    await loadAllPluginsAdmin();
-                    loadPlugins();
-                } else {
-                    alert(data.message);
-                }
-            } catch (e) {
-                alert('操作失败: ' + e.message);
-            }
-        }
-
-        // HTML转义
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text || '';
-            return div.innerHTML;
-        }
-    </script>
-</body>
-</html>
+@media (max-width: 768px) {
+    .header-content { flex-direction: column; text-align: center; }
+    .header-actions { width: 100%; justify-content: center; }
+    .filter-bar { flex-direction: column; }
+    .search-box { width: 100%; }
+    .plugins-grid { grid-template-columns: 1fr; }
+    .form-row { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock %}

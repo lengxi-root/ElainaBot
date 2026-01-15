@@ -152,7 +152,8 @@ from web.tools.ai_plugin_handler import (handle_list_plugins, handle_read_plugin
     handle_get_ai_config, handle_save_ai_config)
 from web.tools.plugin_market_handler import (handle_market_submit, handle_market_list, handle_market_pending,
     handle_market_review, handle_market_update_status, handle_market_delete, handle_market_categories,
-    handle_market_export, handle_market_download)
+    handle_market_export, handle_market_download, handle_market_install, handle_market_local_plugins,
+    handle_market_upload_local, handle_market_register, handle_market_login, handle_market_user_info)
 
 status_routes.set_restart_function(execute_bot_restart)
 check_openapi_login = lambda uid: openapi_user_data.get(uid)
@@ -567,6 +568,36 @@ def market_export():
 @safe_route
 def market_download():
     return handle_market_download()
+
+@web.route('/api/market/install', methods=['POST'])
+@full_auth
+def market_install():
+    return handle_market_install()
+
+@web.route('/api/market/local_plugins', methods=['GET'])
+@full_auth
+def market_local_plugins():
+    return handle_market_local_plugins()
+
+@web.route('/api/market/upload_local', methods=['POST'])
+@full_auth
+def market_upload_local():
+    return handle_market_upload_local()
+
+@web.route('/api/market/register', methods=['POST'])
+@safe_route
+def market_register():
+    return handle_market_register()
+
+@web.route('/api/market/login', methods=['POST'])
+@safe_route
+def market_login():
+    return handle_market_login()
+
+@web.route('/api/market/user_info', methods=['POST'])
+@safe_route
+def market_user_info():
+    return handle_market_user_info()
 
 @web.route('/openapi/start_login', methods=['POST'])
 @simple_auth

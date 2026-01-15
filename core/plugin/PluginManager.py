@@ -113,7 +113,7 @@ class PluginManager:
     def _get_event_info(event):
         return (
             getattr(event, 'user_id', ''),
-            getattr(event, 'group_id', _DEFAULT_GROUP_ID),
+            getattr(event, 'group_id', None) or _DEFAULT_GROUP_ID,
             getattr(event, 'content', '')
         )
     
@@ -1168,7 +1168,7 @@ class PluginManager:
                     text_content = "[非文本内容]"
                 
                 user_id = getattr(event, 'user_id', '')
-                group_id = getattr(event, 'group_id', _DEFAULT_GROUP_ID)
+                group_id = getattr(event, 'group_id', None) or _DEFAULT_GROUP_ID
                 
                 # 获取最后发送的payload
                 raw_message = ''

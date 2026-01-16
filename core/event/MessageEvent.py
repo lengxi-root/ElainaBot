@@ -547,7 +547,6 @@ class MessageEvent:
 
         keys_list = [k.strip() for k in MARKDOWN_AJ_TEMPLATE['keys'].split(',')] if ',' in MARKDOWN_AJ_TEMPLATE['keys'] else list(MARKDOWN_AJ_TEMPLATE['keys'])
         params = [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
-        params.extend([{"key": keys_list[i], "values": ["\u200B"]} for i in range(len(params), len(keys_list))])
 
         return params
 

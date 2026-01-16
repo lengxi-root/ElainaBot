@@ -336,7 +336,8 @@ class FrameworkUpdater:
             return None
     
     def apply_config_diff(self, missing_items):
-        """将缺失的配置项追加到 config.py"""
+        """将缺失的配置项追加到 config.py，包括字典内的新增键"""
+        import re
         try:
             config_path = self.base_dir / "config.py"
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -347,24 +348,66 @@ class FrameworkUpdater:
             with open(backup_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            additions = ['\n# ===== 自动补全的配置项 =====']
-            dict_hints = []
+            # 分类处理
+            var_additions = []
+            dict_additions = []
+            dict_key_items = {}  # {dict_name: [(key, value), ...]}
+            
             for item in missing_items:
                 if item['type'] == 'var':
-                    additions.append(f"{item['name']} = {item['value']}")
+                    var_additions.append(f"{item['name']} = {item['value']}")
                 elif item['type'] == 'dict':
-                    additions.append(f"{item['name']} = {item['value']}")
+                    dict_additions.append(f"{item['name']} = {item['value']}")
                 elif item['type'] == 'dict_key':
-                    dict_hints.append(f"# {item['dict']}['{item['key']}'] = {item['value']}")
+                    dict_name = item['dict']
+                    if dict_name not in dict_key_items:
+                        dict_key_items[dict_name] = []
+                    dict_key_items[dict_name].append((item['key'], item['value']))
             
-            if dict_hints:
-                additions.append('\n# ===== 字典内缺失的键（请手动添加）=====')
-                additions.extend(dict_hints)
+            # 处理字典内新增键：找到字典定义，在最后一个键值对后插入
+            for dict_name, keys in dict_key_items.items():
+                # 匹配字典定义，支持多行
+                pattern = rf'({dict_name}\s*=\s*\{{)'
+                match = re.search(pattern, content)
+                if match:
+                    # 找到字典的结束位置
+                    start = match.end()
+                    brace_count = 1
+                    pos = start
+                    while pos < len(content) and brace_count > 0:
+                        if content[pos] == '{':
+                            brace_count += 1
+                        elif content[pos] == '}':
+                            brace_count -= 1
+                        pos += 1
+                    
+                    # pos 现在指向 } 后面，我们要在 } 前插入新键
+                    end_brace_pos = pos - 1
+                    
+                    # 构建要插入的内容
+                    insert_lines = []
+                    for key, value in keys:
+                        insert_lines.append(f"    '{key}': {value},")
+                    insert_content = '\n' + '\n'.join(insert_lines) + '\n'
+                    
+                    # 检查 } 前是否有逗号，没有则添加
+                    before_brace = content[:end_brace_pos].rstrip()
+                    if before_brace and not before_brace.endswith(',') and not before_brace.endswith('{'):
+                        # 找到最后一个非空白字符位置
+                        last_char_pos = len(before_brace)
+                        content = content[:last_char_pos] + ',' + content[last_char_pos:end_brace_pos] + insert_content + content[end_brace_pos:]
+                    else:
+                        content = content[:end_brace_pos] + insert_content + content[end_brace_pos:]
             
-            new_content = content.rstrip() + '\n' + '\n'.join(additions) + '\n'
+            # 追加新变量和新字典
+            if var_additions or dict_additions:
+                additions = ['\n# ===== 自动补全的配置项 =====']
+                additions.extend(var_additions)
+                additions.extend(dict_additions)
+                content = content.rstrip() + '\n' + '\n'.join(additions) + '\n'
             
             with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(new_content)
+                f.write(content)
             
             return {'success': True, 'count': len(missing_items)}
         except Exception as e:

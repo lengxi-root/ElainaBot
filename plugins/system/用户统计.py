@@ -161,7 +161,8 @@ class system_plugin(Plugin):
             r'黑名单查看': {'handler': 'view_blacklist', 'owner_only': True},
             r'黑名单帮助': {'handler': 'show_blacklist_help', 'owner_only': True},
             r'^群黑名单添加 +(?:(.+?) +)?([A-Z0-9]{20,})$': {'handler': 'add_group_blacklist', 'owner_only': True},
-            r'群黑名单删除 *([a-zA-Z0-9]+)': {'handler': 'remove_group_blacklist', 'owner_only': True}
+            r'群黑名单删除 *([a-zA-Z0-9]+)': {'handler': 'remove_group_blacklist', 'owner_only': True},
+            r'^设置沙盒$': {'handler': 'set_sandbox_group', 'owner_only': True},
         }
     
     @staticmethod
@@ -1008,4 +1009,58 @@ class system_plugin(Plugin):
         
         event.reply(f"已移除群组 {group_id}\n原因: {reason}\n{sync_status}")
     
+    @staticmethod
+    def set_sandbox_group(event):
+        """设置当前群为沙盒群（只能设置一个，设置新的会自动取消旧的）"""
+        if not event.is_group:
+            return event.reply("❌ 此指令只能在群聊中使用")
+        
+        group_id = str(event.group_id)
+        
+        # 确保 data 目录存在
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        data_dir = os.path.join(base_dir, 'data')
+        os.makedirs(data_dir, exist_ok=True)
+        
+        sandbox_file = os.path.join(data_dir, 'sandbox.json')
+        
+        try:
+            # 读取现有配置
+            if os.path.exists(sandbox_file):
+                with open(sandbox_file, 'r', encoding='utf-8') as f:
+                    sandbox_data = json.load(f)
+            else:
+                sandbox_data = {}
+            
+            old_group = sandbox_data.get('sandbox_group', '')
+            
+            # 检查是否已经是当前群
+            if old_group == group_id:
+                event.reply(f"✅ 群组 {group_id} 已经是沙盒群了")
+                return
+            
+            # 设置新的沙盒群（会自动覆盖旧的）
+            sandbox_data['sandbox_group'] = group_id
+            
+            # 写入文件
+            with open(sandbox_file, 'w', encoding='utf-8') as f:
+                json.dump(sandbox_data, f, ensure_ascii=False, indent=2)
+            
+            message_parts = [f"✅ 已将群组 {group_id} 设置为沙盒群"]
+            
+            if old_group and old_group != group_id:
+                message_parts.append(f"📝 已自动取消群组 {old_group} 的沙盒模式")
+            
+            message_parts.extend([
+                "✅ 配置已生效",
+                "",
+                "💡 此群的消息将通过沙盒API发送",
+                "💡 只能设置一个沙盒群，设置新的会自动取消旧的"
+            ])
+            
+            message = "\n".join(message_parts)
+            event.reply(message)
+                
+        except Exception as e:
+            event.reply(f"❌ 设置失败: {str(e)}")
  

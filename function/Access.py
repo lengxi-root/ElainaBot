@@ -63,8 +63,15 @@ def BOT凭证():
 threading.Thread(target=定时更新Token, daemon=True).start()
 
 def is_sandbox_group(group_id):
-    """检查是否为沙盒群（无论沙盒模式是否开启，只要在列表中就返回True）"""
-    # 从 data/sandbox.json 读取沙盒群列表
+    """检查是否为沙盒群
+    - 如果 SANDBOX_MODE = True，所有群都是沙盒群
+    - 如果 SANDBOX_MODE = False，只有 data/sandbox.json 中设置的群是沙盒群
+    """
+    # 如果开启了沙盒模式，所有群都使用沙盒 API
+    if SANDBOX_MODE:
+        return True
+    
+    # 否则只检查是否在沙盒群列表中（只会有一个群）
     try:
         import os
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -75,8 +82,8 @@ def is_sandbox_group(group_id):
         
         with open(sandbox_file, 'r', encoding='utf-8') as f:
             sandbox_data = json.load(f)
-            sandbox_groups = sandbox_data.get('sandbox_groups', [])
-            return str(group_id) in [str(g) for g in sandbox_groups]
+            sandbox_group = sandbox_data.get('sandbox_group', '')  # 改为单个群ID
+            return str(group_id) == str(sandbox_group) if sandbox_group else False
     except:
         return False
 

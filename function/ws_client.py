@@ -340,6 +340,28 @@ class QQBotWSManager:
         token = BOT凭证()
         if not token:
             return None
+        
+        # 检查是否启用沙盒模式
+        try:
+            from config import SANDBOX_MODE
+            if SANDBOX_MODE:
+                sandbox_gateway = 'https://sandbox.api.sgroup.qq.com/gateway/bot'
+                headers = {"Authorization": f"QQBot {token}", "Content-Type": "application/json"}
+                for attempt in range(3):
+                    try:
+                        resp = requests.get(sandbox_gateway, headers=headers, timeout=30)
+                        if resp.status_code == 200:
+                            url = resp.json().get('url')
+                            if url:
+                                return url
+                    except:
+                        pass
+                    if attempt < 2:
+                        time.sleep(3 + attempt)
+        except ImportError:
+            pass
+        
+        # 使用正式环境网关
         headers = {"Authorization": f"QQBot {token}", "Content-Type": "application/json"}
         for attempt in range(3):
             try:

@@ -5,10 +5,16 @@ import json, requests, os, sys, time, threading
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import appid, secret
 
+try:
+    from config import SANDBOX_MODE
+except ImportError:
+    SANDBOX_MODE = False
+
 _token_info = {'access_token': None, 'expires_in': 0, 'last_update': 0}
 _session = requests.Session()
 _TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
 _API_BASE = "https://api.sgroup.qq.com"
+_SANDBOX_API_BASE = "https://sandbox.api.sgroup.qq.com"
 _DEFAULT_HEADERS = {'Content-Type': 'application/json'}
 _TOKEN_PAYLOAD = {"appId": appid, "clientSecret": secret}
 _TOKEN_REFRESH_BUFFER = 60
@@ -56,8 +62,34 @@ def BOT凭证():
 
 threading.Thread(target=定时更新Token, daemon=True).start()
 
-def BOTAPI(Address, method, json_data):
-    return curl(f"{_API_BASE}{Address}", method, 
+def is_sandbox_group(group_id):
+    """检查是否为沙盒群（无论沙盒模式是否开启，只要在列表中就返回True）"""
+    # 从 data/sandbox.json 读取沙盒群列表
+    try:
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sandbox_file = os.path.join(base_dir, 'data', 'sandbox.json')
+        
+        if not os.path.exists(sandbox_file):
+            return False
+        
+        with open(sandbox_file, 'r', encoding='utf-8') as f:
+            sandbox_data = json.load(f)
+            sandbox_groups = sandbox_data.get('sandbox_groups', [])
+            return str(group_id) in [str(g) for g in sandbox_groups]
+    except:
+        return False
+
+def get_api_base(group_id=None):
+    """根据群ID获取API基础地址"""
+    if group_id and is_sandbox_group(group_id):
+        return _SANDBOX_API_BASE
+    return _API_BASE
+
+def BOTAPI(Address, method, json_data, group_id=None):
+    """发送API请求，支持沙盒模式"""
+    api_base = get_api_base(group_id)
+    return curl(f"{api_base}{Address}", method, 
                 {"Authorization": f"QQBot {BOT凭证()}", 'Content-Type': 'application/json'}, json_data)
 
 def Json(content):

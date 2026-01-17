@@ -21,7 +21,8 @@ GROUP_BLACKLIST_ENABLED = True  # 群黑名单功能开关，开启后黑名单�
 ENABLE_WELCOME_MESSAGE = False                    # 是否启用入群欢迎消息功能
 ENABLE_NEW_USER_WELCOME = False                   # 是否启用新用户首次交互欢迎
 ENABLE_FRIEND_ADD_MESSAGE = False                 # 是否启用添加好友自动发送消息功能
-SAVE_RAW_MESSAGE_TO_DB = False                   # 是否将消息的原始内容存储到数据库中,开启后可能会数据库硬盘占用略微上涨
+SAVE_RAW_MESSAGE_TO_DB = False                    #消息的原始内容存储到数据库,硬盘占用略微上涨
+SANDBOX_MODE = False  # 是否启用沙盒模式，需要在对应群发送 设置沙盒群 
 
 # 用户ID反转模式配置（可选） - 控制user_id和union_openid的使用
 USE_UNION_ID_FOR_GROUP = False  # 群聊/私聊ID反转模式：True时user_id使用union_openid，union_openid使用原user_id；若union_openid为空则使用原user_id

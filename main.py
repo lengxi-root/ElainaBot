@@ -503,12 +503,6 @@ wsgi_app = initialize_app()
 def signal_handler(signum, frame):
     if _dau_available:
         stop_dau_analytics()
-    # 停止SSL管理器
-    try:
-        from function.ssl_manager import stop_ssl_manager
-        stop_ssl_manager()
-    except:
-        pass
     sys.exit(0)
 
 def start_main_process():
@@ -522,117 +516,18 @@ def start_main_process():
     host = SERVER_CONFIG.get('host', '0.0.0.0')
     port = SERVER_CONFIG.get('port', 5001)
     
-    # SSL配置
-    ssl_enabled = SERVER_CONFIG.get('ssl_enabled', False)
-    ssl_auto_cert = SERVER_CONFIG.get('ssl_auto_cert', False)
-    
-    # SSL证书固定路径
-    ssl_cert = os.path.join(os.path.dirname(__file__), 'data', 'ssl', 'cert.pem')
-    ssl_key = os.path.join(os.path.dirname(__file__), 'data', 'ssl', 'key.pem')
-    
-    ssl_context = None
-    use_ssl = False
-    
-    # 自动证书模式
-    if ssl_auto_cert:
-        try:
-            from function.ssl_manager import init_ssl_manager, start_ssl_manager, get_ssl_manager
-            
-            ssl_manager = init_ssl_manager(SERVER_CONFIG)
-            start_ssl_manager()
-            
-            # 检查证书是否存在
-            if os.path.exists(ssl_cert) and os.path.exists(ssl_key):
-                # 证书存在，使用SSL端口
-                port = SERVER_CONFIG.get('ssl_port', 8443)
-                use_ssl = True
-                logger.info(f"🔐 SSL自动证书模式已启用")
-                status = ssl_manager.get_status()
-                if status['remaining_days'] >= 0:
-                    logger.info(f"📜 证书剩余有效期: {status['remaining_days']} 天")
-                # 输出事件回调地址
-                ssl_domain = SERVER_CONFIG.get('ssl_domain', '')
-                if ssl_domain:
-                    from config import appid as bot_appid
-                    logger.info(f"📡 事件回调地址: https://{ssl_domain}:{port}/?appid={bot_appid}")
-            else:
-                # 证书不存在，使用HTTP端口启动，等待用户通过面板申请证书
-                logger.warning("⚠️ SSL证书尚未生成，先以HTTP模式启动")
-                logger.info(f"💡 请访问Web面板手动申请证书，申请成功后将自动重启为HTTPS模式")
-                # 保持使用config中的port（HTTP端口）
-                
-        except ImportError as e:
-            logger.error(f"❌ SSL管理器导入失败: {e}")
-        except Exception as e:
-            logger.error(f"❌ SSL自动证书初始化失败: {e}")
-    
-    # 手动证书模式（使用固定路径的证书）
-    elif ssl_enabled:
-        # 检查SSL文件是否存在
-        if not os.path.exists(ssl_cert):
-            logger.error(f"❌ SSL证书文件不存在: {ssl_cert}")
-            logger.info("💡 请先通过ssl_auto_cert申请证书，或手动将证书放到data/ssl/目录")
-            sys.exit(1)
-        if not os.path.exists(ssl_key):
-            logger.error(f"❌ SSL私钥文件不存在: {ssl_key}")
-            sys.exit(1)
-        
-        # 检查SSL文件读取权限
-        try:
-            with open(ssl_cert, 'r') as f:
-                pass
-        except PermissionError:
-            logger.error(f"❌ 无权限读取SSL证书文件: {ssl_cert}")
-            logger.error("💡 请使用管理员权限运行，或将证书文件移动到有权限访问的目录")
-            sys.exit(1)
-        except Exception as e:
-            logger.error(f"❌ 读取SSL证书文件失败: {e}")
-            sys.exit(1)
-        
-        try:
-            with open(ssl_key, 'r') as f:
-                pass
-        except PermissionError:
-            logger.error(f"❌ 无权限读取SSL私钥文件: {ssl_key}")
-            logger.error("💡 请使用管理员权限运行，或将私钥文件移动到有权限访问的目录")
-            sys.exit(1)
-        except Exception as e:
-            logger.error(f"❌ 读取SSL私钥文件失败: {e}")
-            sys.exit(1)
-        
-        use_ssl = True
-    
-    # 加载SSL证书
-    if use_ssl and ssl_cert and ssl_key:
-        import ssl
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        try:
-            ssl_context.load_cert_chain(ssl_cert, ssl_key)
-        except ssl.SSLError as e:
-            logger.error(f"❌ SSL证书加载失败: {e}")
-            logger.error("💡 请检查证书和私钥文件是否匹配，格式是否正确")
-            sys.exit(1)
-        except PermissionError:
-            logger.error(f"❌ 无权限加载SSL证书，请使用更高权限启动程序")
-            sys.exit(1)
-    
     logger.info(f"🚀 主框架启动成功！")
-    protocol = "https" if use_ssl else "http"
-    logger.info(f"📡 服务器地址: {protocol}://{host}:{port}")
+    logger.info(f"📡 服务器地址: http://{host}:{port}")
     if _web_available:
         web_token = WEB_CONFIG.get('access_token', '')
         display_host = 'localhost' if host == '0.0.0.0' else host
-        web_url = f"{protocol}://{display_host}:{port}/web/"
+        web_url = f"http://{display_host}:{port}/web/"
         if web_token:
             web_url += f"?token={web_token}"
         logger.info(f"🌐 Web管理面板: {web_url}")
     logger.info(f"⚡ 系统就绪，等待消息处理...")
     
-    # 根据是否启用SSL选择不同的启动方式
     listener = eventlet.listen((host, port))
-    if use_ssl and ssl_cert and ssl_key:
-        listener = eventlet.wrap_ssl(listener, certfile=ssl_cert, keyfile=ssl_key, server_side=True)
-    
     wsgi.server(listener, app, log=None, log_output=False, keepalive=True, socket_timeout=30)
 
 if __name__ == "__main__":

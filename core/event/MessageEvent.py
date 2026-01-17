@@ -537,6 +537,16 @@ class MessageEvent:
     def _split_markdown_to_params(self, text):
         from config import MARKDOWN_AJ_TEMPLATE
         import uuid
+        
+        # 处理转义字符：将字面量 \r \n \t 转换为实际的控制字符
+        if '\\r' in text:
+            text = text.replace('\\r', '\r')
+        if '\\n' in text:
+            text = text.replace('\\n', '\n')
+        if '\\t' in text:
+            text = text.replace('\\t', '\t')
+        
+        # 统一使用 \r 作为换行符
         text = text.replace('\n', '\r')
         delimiter = str(uuid.uuid4())
 
@@ -547,6 +557,7 @@ class MessageEvent:
 
         keys_list = [k.strip() for k in MARKDOWN_AJ_TEMPLATE['keys'].split(',')] if ',' in MARKDOWN_AJ_TEMPLATE['keys'] else list(MARKDOWN_AJ_TEMPLATE['keys'])
         params = [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
+        params.extend([{"key": keys_list[i], "values": ["\u200B"]} for i in range(len(params), len(keys_list))])
 
         return params
 
@@ -691,13 +702,17 @@ class MessageEvent:
             return None
         try:
             endpoint = self._get_endpoint('recall').replace('{message_id}', str(message_id))
-            return BOTAPI(endpoint, "DELETE", None)
+            group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
+            return BOTAPI(endpoint, "DELETE", None, group_id=group_id)
         except:
             return None
 
     def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info=""):
+        # 获取群ID用于判断是否使用沙盒API
+        group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
+        
         for retry_count in range(2):
-            response = BOTAPI(endpoint, "POST", Json(payload))
+            response = BOTAPI(endpoint, "POST", Json(payload), group_id=group_id)
             resp_obj = self._parse_response(response)
             if resp_obj and all(k in resp_obj for k in ("message", "code", "trace_id")):
                 error_code = resp_obj.get('code')
@@ -987,7 +1002,8 @@ class MessageEvent:
     def upload_media(self, file_bytes, file_type):
         endpoint = f"/v2/groups/{self.group_id}/files" if self.is_group else f"/v2/users/{self.user_id}/files"
         req_data = {"srv_send_msg": False, "file_type": file_type, "file_data": base64.b64encode(file_bytes).decode()}
-        resp = BOTAPI(endpoint, "POST", Json(req_data))
+        group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
+        resp = BOTAPI(endpoint, "POST", Json(req_data), group_id=group_id)
         if isinstance(resp, str):
             try:
                 resp = json.loads(resp)

@@ -296,7 +296,7 @@ def create_app():
             global _message_executor
             if _message_executor is None:
                 from concurrent.futures import ThreadPoolExecutor
-                _message_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="MsgHandler")
+                _message_executor = ThreadPoolExecutor(max_workers=100, thread_name_prefix="MsgHandler")
             http_ctx = {
                 'path': request.path,
                 'method': request.method,
@@ -368,7 +368,7 @@ async def handle_ws_message(raw_data):
     global _message_executor
     if _message_executor is None:
         from concurrent.futures import ThreadPoolExecutor
-        _message_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="MsgHandler")
+        _message_executor = ThreadPoolExecutor(max_workers=100, thread_name_prefix="MsgHandler")
     _message_executor.submit(process_message_event, raw_data)
 
 async def create_websocket_client():

@@ -67,71 +67,389 @@ INITIAL_CONFIG_HTML = '''<!DOCTYPE html>
     <link rel="stylesheet" href="/web/static/css/vendor/codemirror.min.css">
     <link rel="stylesheet" href="/web/static/css/vendor/codemirror-monokai.min.css">
     <style>
-        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
-        .wizard-container { max-width: 1200px; margin: 0 auto; }
-        .wizard-header { background: white; border-radius: 12px; padding: 30px; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-        .wizard-header h1 { color: #667eea; margin: 0; }
-        .wizard-header p { color: #718096; margin-top: 10px; margin-bottom: 0; }
-        .config-card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-        #config-editor { min-height: 500px; border: 2px solid #e2e8f0; border-radius: 8px; }
-        #config-editor .CodeMirror { height: auto; min-height: 500px; font-family: 'Consolas', 'Monaco', monospace; font-size: 14px; }
-        #config-editor .CodeMirror-scroll { min-height: 500px; }
-        .config-actions { display: flex; gap: 12px; align-items: center; }
+        :root {
+            --theme-gradient: linear-gradient(135deg, #5865F2 0%, #7289DA 100%);
+            --theme-primary: #5865F2;
+            --theme-secondary: #7289DA;
+        }
+        
+        body { 
+            background: var(--theme-gradient);
+            min-height: 100vh; 
+            padding: 20px; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        
+        .wizard-container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+        
+        /* 头部卡片 */
+        .wizard-header { 
+            background: white; 
+            border-radius: 16px; 
+            padding: 32px; 
+            margin-bottom: 24px; 
+            box-shadow: 0 10px 30px rgba(88, 101, 242, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .wizard-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--theme-gradient);
+        }
+        
+        .wizard-header h1 { 
+            color: var(--theme-primary);
+            margin: 0; 
+            font-weight: 700;
+            font-size: 1.75rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .wizard-header h1 i {
+            font-size: 1.5rem;
+        }
+        
+        .wizard-header p { 
+            color: #64748b;
+            margin-top: 12px; 
+            margin-bottom: 0; 
+            font-size: 1rem;
+        }
+        
+        /* 配置卡片 */
+        .config-card { 
+            background: white; 
+            border-radius: 16px; 
+            padding: 32px; 
+            box-shadow: 0 10px 30px rgba(88, 101, 242, 0.2);
+        }
+        
+        /* 提示框 */
+        .alert-wizard { 
+            border-radius: 12px; 
+            border: none; 
+            border-left: 4px solid var(--theme-primary);
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+            padding: 16px 20px;
+            margin-bottom: 24px;
+        }
+        
+        .alert-wizard i {
+            color: var(--theme-primary);
+            font-size: 1.1rem;
+            margin-right: 8px;
+        }
+        
+        /* 标签页 */
+        .nav-tabs {
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .nav-tabs .nav-link {
+            border: none;
+            color: #64748b;
+            padding: 12px 24px;
+            font-weight: 500;
+            transition: all 0.2s;
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .nav-tabs .nav-link:hover {
+            color: var(--theme-primary);
+            background: #f8fafc;
+        }
+        
+        .nav-tabs .nav-link.active {
+            color: var(--theme-primary);
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+            border-bottom: 3px solid var(--theme-primary);
+        }
+        
+        .nav-tabs .nav-link i {
+            margin-right: 6px;
+        }
+        
+        /* 操作按钮 */
+        .config-actions { 
+            display: flex; 
+            gap: 12px; 
+            align-items: center; 
+        }
+        
         .btn-config-action { 
             white-space: nowrap; 
-            padding: 8px 16px; 
+            padding: 10px 20px; 
             font-weight: 500;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            font-size: 0.9rem;
         }
+        
         .btn-config-action:hover { 
             transform: translateY(-2px); 
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
         }
-        .btn-config-action i { margin-right: 6px; }
+        
+        .btn-config-action i { 
+            margin-right: 6px; 
+        }
+        
         .btn-finish { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; 
+            background: var(--theme-gradient) !important; 
             border: none !important; 
             color: white !important; 
             font-weight: 600 !important; 
         }
+        
         .btn-finish:hover { 
-            background: linear-gradient(135deg, #7c8ef5 0%, #8a5bb5 100%) !important;
-            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4) !important;
+            box-shadow: 0 6px 20px rgba(88, 101, 242, 0.4) !important;
         }
-        @media (max-width: 768px) {
-            .d-flex.justify-content-between { flex-direction: column; align-items: flex-start !important; gap: 10px; }
-            .config-actions { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
-            .btn-config-action { flex: 1 1 auto; min-width: fit-content; }
+        
+        /* 配置组 */
+        .config-groups-section { 
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border-radius: 12px; 
+            padding: 20px; 
+            margin-bottom: 16px;
         }
-        .alert-wizard { border-radius: 8px; border: none; border-left: 4px solid #667eea; }
-        .config-groups-section { background: #f8f9fa; border-radius: 8px; padding: 15px; }
-        .config-groups-header { font-weight: 600; color: #495057; margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
-        .config-groups { display: flex; gap: 10px; flex-wrap: wrap; }
-        .group-btn { padding: 10px 20px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; }
-        .group-btn:hover { border-color: #667eea; color: #667eea; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2); }
-        .group-btn.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-color: #667eea; box-shadow: 0 3px 12px rgba(102, 126, 234, 0.4); }
-        .config-item { border-bottom: 1px solid #f0f0f0; padding: 15px 0; }
-        .config-item:last-child { border-bottom: none; }
-        .config-item:has(.config-label-with-switch) { padding: 12px 0; }
-        .config-label { font-weight: 600; color: #2d3748; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
-        .config-label .label-name { flex-shrink: 0; font-size: 0.95rem; color: #667eea; }
-        .config-label .label-comment { font-size: 0.85rem; color: #718096; font-weight: 400; flex: 1; }
-        .config-label-with-switch { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-        .config-label-text { flex: 1; display: flex; align-items: center; gap: 10px; }
-        .config-label-text .label-name { flex-shrink: 0; font-size: 0.95rem; color: #667eea; font-weight: 600; }
-        .config-label-text .label-comment { font-size: 0.85rem; color: #718096; font-weight: 400; flex: 1; }
-        .form-control { border: 2px solid #e2e8f0; border-radius: 8px; padding: 10px; }
-        .form-control:focus { border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
-        .form-check { display: flex; align-items: center; gap: 10px; margin-bottom: 0; padding-left: 0; }
-        .form-check-input { cursor: pointer; width: 3rem; height: 1.5rem; border: 2px solid #cbd5e0; margin: 0; flex-shrink: 0; }
-        .form-check-input:checked { background-color: #667eea; border-color: #667eea; }
-        .form-check-label { cursor: pointer; font-weight: 500; color: #4a5568; margin: 0; white-space: nowrap; flex-shrink: 0; }
-        textarea.form-control { resize: vertical; min-height: 80px; }
+        
+        .config-groups-header { 
+            font-weight: 600; 
+            color: #1e293b;
+            margin-bottom: 16px; 
+            font-size: 1rem;
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+        }
+        
+        .config-groups { 
+            display: flex; 
+            gap: 12px; 
+            flex-wrap: wrap; 
+        }
+        
+        .group-btn { 
+            padding: 12px 24px; 
+            border: 2px solid #e2e8f0; 
+            border-radius: 10px; 
+            background: white; 
+            cursor: pointer; 
+            transition: all 0.3s; 
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #475569;
+        }
+        
+        .group-btn:hover { 
+            border-color: var(--theme-primary);
+            color: var(--theme-primary);
+            transform: translateY(-2px); 
+            box-shadow: 0 4px 12px rgba(88, 101, 242, 0.2); 
+        }
+        
+        .group-btn.active { 
+            background: var(--theme-gradient);
+            color: white; 
+            border-color: transparent;
+            box-shadow: 0 4px 16px rgba(88, 101, 242, 0.4); 
+        }
+        
+        /* 配置项 */
+        .config-item { 
+            border-bottom: 1px solid #f0f0f0; 
+            padding: 20px 0; 
+        }
+        
+        .config-item:last-child { 
+            border-bottom: none; 
+        }
+        
+        .config-item:has(.config-label-with-switch) { 
+            padding: 16px 0; 
+        }
+        
+        .config-label { 
+            font-weight: 600; 
+            color: #1e293b;
+            margin-bottom: 10px; 
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+        }
+        
+        .config-label .label-name { 
+            flex-shrink: 0; 
+            font-size: 1rem;
+            color: var(--theme-primary);
+        }
+        
+        .config-label .label-comment { 
+            font-size: 0.875rem;
+            color: #64748b;
+            font-weight: 400; 
+            flex: 1; 
+        }
+        
+        .config-label-with-switch { 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            gap: 20px; 
+        }
+        
+        .config-label-text { 
+            flex: 1; 
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+        }
+        
+        .config-label-text .label-name { 
+            flex-shrink: 0; 
+            font-size: 1rem;
+            color: var(--theme-primary);
+            font-weight: 600; 
+        }
+        
+        .config-label-text .label-comment { 
+            font-size: 0.875rem;
+            color: #64748b;
+            font-weight: 400; 
+            flex: 1; 
+        }
+        
+        /* 表单控件 */
+        .form-control { 
+            border: 2px solid #e2e8f0; 
+            border-radius: 10px; 
+            padding: 12px 16px;
+            transition: all 0.2s;
+            font-size: 0.95rem;
+        }
+        
+        .form-control:focus { 
+            border-color: var(--theme-primary);
+            box-shadow: 0 0 0 4px rgba(88, 101, 242, 0.1);
+            outline: none;
+        }
+        
+        .form-check { 
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+            margin-bottom: 0; 
+            padding-left: 0; 
+        }
+        
+        .form-check-input { 
+            cursor: pointer; 
+            width: 3rem; 
+            height: 1.5rem; 
+            border: 2px solid #cbd5e0; 
+            margin: 0; 
+            flex-shrink: 0; 
+        }
+        
+        .form-check-input:checked { 
+            background-color: var(--theme-primary);
+            border-color: var(--theme-primary);
+        }
+        
+        .form-check-label { 
+            cursor: pointer; 
+            font-weight: 500; 
+            color: #475569;
+            margin: 0; 
+            white-space: nowrap; 
+            flex-shrink: 0; 
+        }
+        
+        textarea.form-control { 
+            resize: vertical; 
+            min-height: 100px; 
+        }
+        
+        /* 代码编辑器 */
+        #config-editor { 
+            min-height: 500px; 
+            border: 2px solid #e2e8f0; 
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        #config-editor .CodeMirror { 
+            height: auto; 
+            min-height: 500px; 
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px; 
+        }
+        
+        #config-editor .CodeMirror-scroll { 
+            min-height: 500px; 
+        }
+        
+        /* 响应式 */
         @media (max-width: 768px) {
-            .config-label-with-switch { flex-direction: column; align-items: flex-start; gap: 10px; }
-            .config-label-text { width: 100%; }
-            .form-check { align-self: flex-end; }
+            body {
+                padding: 12px;
+            }
+            
+            .wizard-header {
+                padding: 24px;
+            }
+            
+            .wizard-header h1 {
+                font-size: 1.5rem;
+            }
+            
+            .config-card {
+                padding: 20px;
+            }
+            
+            .d-flex.justify-content-between { 
+                flex-direction: column; 
+                align-items: flex-start !important; 
+                gap: 12px; 
+            }
+            
+            .config-actions { 
+                width: 100%; 
+                display: flex; 
+                flex-wrap: wrap; 
+                gap: 8px; 
+            }
+            
+            .btn-config-action { 
+                flex: 1 1 auto; 
+                min-width: fit-content; 
+            }
+            
+            .config-label-with-switch { 
+                flex-direction: column; 
+                align-items: flex-start; 
+                gap: 12px; 
+            }
+            
+            .config-label-text { 
+                width: 100%; 
+            }
+            
+            .form-check { 
+                align-self: flex-end; 
+            }
         }
     </style>
 </head>

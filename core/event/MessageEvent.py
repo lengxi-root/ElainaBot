@@ -538,13 +538,11 @@ class MessageEvent:
         from config import MARKDOWN_AJ_TEMPLATE
         import uuid
         
-        # 处理转义字符：将字面量 \r \n \t 转换为实际的控制字符
+        # 处理转义字符：将字面量 \r \n 转换为实际的控制字符
         if '\\r' in text:
             text = text.replace('\\r', '\r')
         if '\\n' in text:
             text = text.replace('\\n', '\n')
-        if '\\t' in text:
-            text = text.replace('\\t', '\t')
         
         # 统一使用 \r 作为换行符
         text = text.replace('\n', '\r')
@@ -556,8 +554,8 @@ class MessageEvent:
         parts = text.split(delimiter) if delimiter in text else [text]
 
         keys_list = [k.strip() for k in MARKDOWN_AJ_TEMPLATE['keys'].split(',')] if ',' in MARKDOWN_AJ_TEMPLATE['keys'] else list(MARKDOWN_AJ_TEMPLATE['keys'])
+        # 只写入实际使用的参数，不填充空参数
         params = [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
-        params.extend([{"key": keys_list[i], "values": ["\u200B"]} for i in range(len(params), len(keys_list))])
 
         return params
 

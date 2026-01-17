@@ -75,7 +75,7 @@ _plugin_gc_interval = 30
 _last_quick_check_time = 0
 _plugins_loaded = False
 _last_cache_cleanup = 0
-_plugin_executor = ThreadPoolExecutor(max_workers=300, thread_name_prefix="PluginWorker")
+_plugin_executor = ThreadPoolExecutor(max_workers=100, thread_name_prefix="PluginWorker")
 
 _SOFT_TIMEOUT = 3.0
 _HARD_TIMEOUT = 300.0
@@ -1026,7 +1026,8 @@ class PluginManager:
             'reply_video': getattr(event, 'reply_video', None),
             'reply_ark': getattr(event, 'reply_ark', None),
             'reply_markdown': getattr(event, 'reply_markdown', None),
-            'reply_md': getattr(event, 'reply_md', None)
+            'reply_md': getattr(event, 'reply_md', None),
+            'reply_markdown_aj': getattr(event, 'reply_markdown_aj', None)
         }
         
         is_first_reply = [True]
@@ -1159,7 +1160,8 @@ class PluginManager:
                     'reply_video': lambda a, k: f"[视频] {a[1] if len(a) > 1 else k.get('content', '')}".strip(),
                     'reply_ark': lambda a, k: f"[ARK] {a[0] if a else k.get('template_id', '')}",
                     'reply_markdown': lambda a, k: f"[MD] {a[0] if a else k.get('template', '')}",
-                    'reply_md': lambda a, k: f"[MD] {a[0] if a else k.get('template', '')}"
+                    'reply_md': lambda a, k: f"[MD] {a[0] if a else k.get('template', '')}",
+                    'reply_markdown_aj': lambda a, k: f"[MD_AJ] {a[0] if a else k.get('text', '')}"
                 }
                 
                 extractor = content_extractors.get(method_name)

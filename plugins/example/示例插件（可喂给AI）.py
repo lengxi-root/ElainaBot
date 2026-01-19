@@ -14,8 +14,20 @@ class media_plugin(Plugin):
     # ==================== Web面板示例 ====================
     @classmethod
     def get_web_routes(cls):
-        return {'path': 'web-example', 'menu_name': 'Web示例', 'menu_icon': 'bi-star', 'handler': 'render_page', 'priority': 50,
-                'api_routes': [{'path': '/api/web_example/counter', 'methods': ['GET', 'POST'], 'handler': 'api_counter', 'require_auth': True}]}
+        return {
+            'path': 'web-example', 
+            'menu_name': 'Web示例', 
+            'menu_icon': 'bi-star', 
+            'handler': 'render_page', 
+            'priority': 50,
+            # CSP域名配置示例 - 允许插件加载外部资源
+            'csp_domains': {
+                'img-src': ['example.com', '*.example.com'],  # 允许加载example.com的图片
+            },
+            'api_routes': [
+                {'path': '/api/web_example/counter', 'methods': ['GET', 'POST'], 'handler': 'api_counter', 'require_auth': True}
+            ]
+        }
     
     @classmethod
     def api_counter(cls, data):
@@ -275,15 +287,20 @@ class media_plugin(Plugin):
       #  "102321943_1752737844"               # keyboard_id - 按钮模板ID
       #)  # 参数：模板名称, (参数列表)
 
-
+    #aj模板 伪原生（自动拆分）
     @staticmethod
     def test_markdown_aj(e):
         e.reply_markdown_aj("![伊蕾娜 #30px #30px](https://gchat.qpic.cn/qmeetpic/0/0-0-52C851D5FB926BC645528EB4AB462B3D/0)ElainaBot 测试")
 
+    #ark23
     @staticmethod
     def send_ark23(e): e.reply_ark(23, ("列表卡片示例", "ElainaBot", [['功能1: 图片'], ['功能2: 语音'], ['功能3: 视频', 'https://i.elaina.vin/api/']]))
+
+    #ark24
     @staticmethod
     def send_ark24(e): e.reply_ark(24, ("功能强大的QQ机器人", "机器人信息", "ElainaBot", "支持插件化开发", "https://gchat.qpic.cn/qmeetpic/0/0-0-52C851D5FB926BC645528EB4AB462B3D/0", "https://i.elaina.vin/api/", "QQ Bot"))
+
+    #ark37
     @staticmethod
     def send_ark37(e): e.reply_ark(37, ("系统通知", "状态更新", "新功能上线", "https://gchat.qpic.cn/qmeetpic/0/0-0-52C851D5FB926BC645528EB4AB462B3D/0", "https://i.elaina.vin/api/"))
 
@@ -339,7 +356,7 @@ class media_plugin(Plugin):
         from function.log_db import get_wakeup_users, get_wakeup_stage_name
         users = get_wakeup_users()
         if not users: return e.reply("📊 当前没有可召回用户")
-        e.reply(f"� 开始召回 {len(users)} 位用户...")
+        e.reply(f"开始召回 {len(users)} 位用户...")
         ok, fail, res = 0, 0, []
         for u in users:
             s, r = e.send_wakeup(u['openid'], f"📢 好久不见！已 {u['days']} 天了")

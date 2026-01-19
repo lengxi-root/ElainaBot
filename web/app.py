@@ -20,12 +20,54 @@ _COOKIE_SECRET = 'elaina_cookie_secret_key_2024_v1'
 _SESSION_DAYS = 7
 _SESSION_MAX_AGE = 604800
 
-_SECURITY_HEADERS = (
+# 基础CSP配置
+_BASE_CSP = {
+    'default-src': ["'self'"],
+    'script-src': ["'self'", "'unsafe-inline'", "cdn.jsdelivr.net", "cdnjs.cloudflare.com"],
+    'style-src': ["'self'", "'unsafe-inline'", "cdn.jsdelivr.net", "cdnjs.cloudflare.com"],
+    'font-src': ["'self'", "cdn.jsdelivr.net", "cdnjs.cloudflare.com"],
+    'img-src': ["'self'", "data:", "*.myqcloud.com", "thirdqq.qlogo.cn", "*.qlogo.cn", "http://*.qlogo.cn", "*.nt.qq.com.cn", "api.2dcode.biz"],
+    'connect-src': ["'self'", "i.elaina.vin"]
+}
+
+_SECURITY_HEADERS_BASE = (
     ('X-Content-Type-Options', 'nosniff'), ('X-Frame-Options', 'DENY'), ('X-XSS-Protection', '1; mode=block'),
-    ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net cdnjs.cloudflare.com; font-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; img-src 'self' data: *.myqcloud.com thirdqq.qlogo.cn *.qlogo.cn http://*.qlogo.cn *.nt.qq.com.cn api.2dcode.biz; connect-src 'self' i.elaina.vin"),
     ('Referrer-Policy', 'strict-origin-when-cross-origin'), ('Permissions-Policy', 'geolocation=(), microphone=(), camera=()'),
     ('Strict-Transport-Security', 'max-age=0'), ('Cache-Control', 'no-cache, no-store, must-revalidate'), ('Pragma', 'no-cache'), ('Expires', '0')
 )
+
+def _build_csp_header():
+    """构建动态CSP头，包含插件注册的域名"""
+    try:
+        from core.plugin.PluginManager import PluginManager
+        plugin_csp = PluginManager.get_csp_domains()
+        
+        # 合并基础CSP和插件CSP
+        merged_csp = {}
+        for directive, domains in _BASE_CSP.items():
+            merged_csp[directive] = set(domains)
+        
+        for directive, domains in plugin_csp.items():
+            if directive not in merged_csp:
+                merged_csp[directive] = set()
+            merged_csp[directive].update(domains)
+        
+        # 构建CSP字符串
+        csp_parts = []
+        for directive, domains in merged_csp.items():
+            csp_parts.append(f"{directive} {' '.join(sorted(domains))}")
+        
+        return '; '.join(csp_parts)
+    except Exception as e:
+        logger.error(f"构建CSP头失败: {e}")
+        # 降级到基础CSP
+        csp_parts = [f"{directive} {' '.join(domains)}" for directive, domains in _BASE_CSP.items()]
+        return '; '.join(csp_parts)
+
+def _get_security_headers():
+    """获取包含动态CSP的安全头"""
+    csp_header = _build_csp_header()
+    return _SECURITY_HEADERS_BASE + (('Content-Security-Policy', csp_header),)
 
 web = Blueprint('web', __name__, template_folder='templates', static_folder='static')
 socketio = None
@@ -198,7 +240,7 @@ def index():
     from core.plugin.PluginManager import PluginManager
     response = make_response(render_template('index.html', prefix=PREFIX, ROBOT_QQ=ROBOT_QQ, appid=appid,
         WEBSOCKET_CONFIG=WEBSOCKET_CONFIG, web_interface=WEB_CONFIG, plugin_routes=PluginManager.get_web_routes()))
-    for h, v in _SECURITY_HEADERS:
+    for h, v in _get_security_headers():
         response.headers[h] = v
     return response
 

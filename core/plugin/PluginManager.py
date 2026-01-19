@@ -107,6 +107,7 @@ class PluginManager:
     _handler_patterns_cache = {}
     _web_routes = {}
     _api_routes = {}
+    _csp_domains = {}  # 存储插件的CSP域名配置
     _exclude_patterns_cache = None
 
     @staticmethod
@@ -763,6 +764,18 @@ class PluginManager:
                         }
                         add_framework_log(f"插件 {plugin_class.__name__} 注册Web路由: {route_path}")
                         
+                        # 收集CSP域名配置
+                        csp_domains = web_route_info.get('csp_domains', {})
+                        if csp_domains and isinstance(csp_domains, dict):
+                            for directive, domains in csp_domains.items():
+                                if directive not in cls._csp_domains:
+                                    cls._csp_domains[directive] = set()
+                                if isinstance(domains, (list, tuple, set)):
+                                    cls._csp_domains[directive].update(domains)
+                                elif isinstance(domains, str):
+                                    cls._csp_domains[directive].add(domains)
+                            add_framework_log(f"插件 {plugin_class.__name__} 注册CSP域名: {csp_domains}")
+                        
                         api_routes = web_route_info.get('api_routes', [])
                         if api_routes and isinstance(api_routes, list):
                             for api_route in api_routes:
@@ -1241,6 +1254,11 @@ class PluginManager:
     def get_web_routes(cls):
         sorted_routes = sorted(cls._web_routes.items(), key=lambda x: x[1].get('priority', 100))
         return {path: info for path, info in sorted_routes}
+    
+    @classmethod
+    def get_csp_domains(cls):
+        """获取所有插件注册的CSP域名配置"""
+        return {directive: list(domains) for directive, domains in cls._csp_domains.items()}
     
     @classmethod
     def get_api_routes(cls):

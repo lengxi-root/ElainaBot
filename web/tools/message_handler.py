@@ -268,6 +268,10 @@ def handle_send_message(LOG_DB_CONFIG, add_sent_message_to_db):
                 try:
                     from web.app import add_plugin_log
                     add_plugin_log(display_content, user_id=chat_id if chat_type == 'user' else '', group_id=chat_id if chat_type == 'group' else 'c2c', plugin_name='WebPanel')
+
+                    # 将发送的消息保存到数据库，让聊天历史能够获取到
+                    from function.log_db import add_sent_message_to_db
+                    add_sent_message_to_db(chat_type, chat_id, display_content, raw_message=display_content, timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 except:
                     pass
                 

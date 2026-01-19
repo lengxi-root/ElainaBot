@@ -647,7 +647,7 @@ function sendMessage() {
             const msgId = data.data.message_id;
             const isError = msgId && /消息发送失败|code:|错误|失败/.test(msgId);
             if (isError) showSendStatus('发送失败: ' + getApiErrorMessage(msgId), false);
-            else { clearCurrentInputs(); appendMessage(getDisplayContent(sendData), true, data.data.timestamp); showSendStatus('消息发送成功', true); setTimeout(refreshChatHistory, 200); }
+            else { clearCurrentInputs(); showSendStatus('消息发送成功', true); setTimeout(refreshChatHistory, 200); }
         } else showSendStatus('发送失败: ' + data.message, false);
     }).catch(e => { showSendStatus('网络错误', false); console.error('Error:', e); })
     .finally(() => { currentSendMethod = originalSendMethod; document.getElementById('send-method').value = originalSendMethod; changeSendMethod(); resetSendButtons(); });
@@ -708,13 +708,6 @@ function resetSendButtons() {
     });
 }
 
-const appendMessage = (content, isSelf, timestamp) => {
-    const area = document.getElementById('message-area');
-    const avatarHtml = isSelf ? getAvatarHtml(true, '', '') : `<div class="chat-avatar-placeholder me-2">U</div>`;
-    const timeHtml = `<span class="small text-muted ms-2">${formatTimeWithoutYear(timestamp)}</span>`;
-    area.insertAdjacentHTML('beforeend', `<div class="message-bubble ${isSelf ? 'self' : 'other'}"><div class="d-flex ${isSelf ? 'justify-content-end' : ''}">${!isSelf ? avatarHtml : ''}<div class="message-content"><div class="small text-muted mb-1">${timeHtml}</div>${content}</div>${isSelf ? avatarHtml : ''}</div></div>`);
-    area.scrollTop = area.scrollHeight;
-};
 
 const getApiErrorMessage = (msg) => {
     if (!msg) return '未知错误';

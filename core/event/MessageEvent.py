@@ -1150,15 +1150,23 @@ class MessageEvent:
     def record_last_message_id(self):
         if self.message_type in self._MSG_TYPES_NO_RECORD:
             return False
-        message_id_to_record = self.message_id if self.message_type in self._MSG_TYPES_NEED_MSG_ID else self.get('id') if self.message_type in self._MSG_TYPES_NEED_EVENT_ID or self.message_type == self.FRIEND_ADD else None
+        # 判断ID类型：msg_id 或 event_id
+        if self.message_type in self._MSG_TYPES_NEED_MSG_ID:
+            message_id_to_record = self.message_id
+            id_type = 'msg'
+        elif self.message_type in self._MSG_TYPES_NEED_EVENT_ID or self.message_type == self.FRIEND_ADD:
+            message_id_to_record = self.get('id')
+            id_type = 'event'
+        else:
+            return False
         if not message_id_to_record:
             return False
         if self.is_group and self.group_id:
-            return record_last_message_id('group', self.group_id, message_id_to_record)
+            return record_last_message_id('group', self.group_id, message_id_to_record, id_type)
         elif self.is_private and self.user_id:
-            return record_last_message_id('user', self.user_id, message_id_to_record)
+            return record_last_message_id('user', self.user_id, message_id_to_record, id_type)
         elif self.message_type == self.CHANNEL_MESSAGE and self.group_id:
-            return record_last_message_id('channel', self.group_id, message_id_to_record)
+            return record_last_message_id('channel', self.group_id, message_id_to_record, id_type)
         return False
 
     def _log_error(self, msg, tb=None, resp_obj=None, send_payload=None, raw_message=None):

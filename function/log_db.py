@@ -319,13 +319,13 @@ class LogDatabaseManager:
                 `group_count_change` = `group_count_change` + VALUES(`group_count_change`), `friend_add_count` = `friend_add_count` + VALUES(`friend_add_count`),
                 `friend_remove_count` = `friend_remove_count` + VALUES(`friend_remove_count`), `friend_count_change` = `friend_count_change` + VALUES(`friend_count_change`),
                 `message_stats_detail` = VALUES(`message_stats_detail`), `user_stats_detail` = VALUES(`user_stats_detail`), `command_stats_detail` = VALUES(`command_stats_detail`)""",
-            'id': "INSERT INTO `{table_name}` (chat_type, chat_id, last_message_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE last_message_id = VALUES(last_message_id), timestamp = CURRENT_TIMESTAMP",
+            'id': "INSERT INTO `{table_name}` (chat_type, chat_id, last_message_id, id_type) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE last_message_id = VALUES(last_message_id), id_type = VALUES(id_type), timestamp = CURRENT_TIMESTAMP",
             'default': "INSERT INTO `{table_name}` (timestamp, content) VALUES (%s, %s)"
         }
         self._field_extractors = {
             'message': lambda l: (l.get('timestamp'), l.get('type', 'received'), l.get('user_id', '未知用户' if l.get('type', 'received') == 'received' else ''), l.get('group_id', 'c2c'), l.get('content', ''), l.get('raw_message', ''), l.get('plugin_name', '')),
             'error': lambda l: (l.get('timestamp'), l.get('content'), l.get('traceback', ''), l.get('resp_obj', ''), l.get('send_payload', ''), l.get('raw_message', '')),
-            'id': lambda l: (l.get('chat_type'), l.get('chat_id'), l.get('last_message_id')),
+            'id': lambda l: (l.get('chat_type'), l.get('chat_id'), l.get('last_message_id'), l.get('id_type', 'msg')),
             'default': lambda l: (l.get('timestamp'), l.get('content'))
         }
 
@@ -339,7 +339,7 @@ class LogDatabaseManager:
                 `group_leave_count` int(11) DEFAULT 0, `group_count_change` int(11) DEFAULT 0, `friend_add_count` int(11) DEFAULT 0,
                 `friend_remove_count` int(11) DEFAULT 0, `friend_count_change` int(11) DEFAULT 0, `message_stats_detail` json,
                 `user_stats_detail` json, `command_stats_detail` json,""", 'dau'),
-            'id': ('special', "`chat_type` varchar(10) NOT NULL, `chat_id` varchar(255) NOT NULL, `last_message_id` varchar(255) NOT NULL, PRIMARY KEY (`chat_type`, `chat_id`),", 'id'),
+            'id': ('special', "`chat_type` varchar(10) NOT NULL, `chat_id` varchar(255) NOT NULL, `last_message_id` varchar(255) NOT NULL, `id_type` varchar(10) NOT NULL DEFAULT 'msg', PRIMARY KEY (`chat_type`, `chat_id`),", 'id'),
             'default': ('standard', "`content` text NOT NULL,", 'standard')
         }
 
@@ -408,8 +408,19 @@ class LogDatabaseManager:
             with self._with_cursor() as (cursor, conn):
                 cursor.execute(_TABLE_EXISTS_SQL, (table_name,))
                 if cursor.fetchone().get('count', 0) > 0:
-                    self.tables_created.add(table_name)
-                    return True
+                    # id表需检查是否有id_type字段，缺少则删除重建
+                    if log_type == 'id':
+                        cursor.execute("SELECT COUNT(*) as count FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = %s AND column_name = 'id_type'", (table_name,))
+                        if cursor.fetchone().get('count', 0) == 0:
+                            logger.info(f"ID表缺少id_type字段，删除重建...")
+                            cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
+                            conn.commit()
+                        else:
+                            self.tables_created.add(table_name)
+                            return True
+                    else:
+                        self.tables_created.add(table_name)
+                        return True
                 cursor.execute(self._get_create_table_sql(table_name, log_type))
                 if log_type not in _NON_DAILY_TYPES:
                     cursor.execute(f"CREATE INDEX idx_{table_name}_time ON {table_name} (timestamp)")
@@ -430,11 +441,11 @@ class LogDatabaseManager:
             self._save_log_type_to_db(log_type)
         return True
     
-    def update_id_cache(self, chat_type, chat_id, message_id):
+    def update_id_cache(self, chat_type, chat_id, message_id, id_type='msg'):
         if not message_id:
             return False
         with self.id_cache_lock:
-            self.id_cache[(chat_type, chat_id)] = message_id
+            self.id_cache[(chat_type, chat_id)] = {'message_id': message_id, 'id_type': id_type}
         return True
     
     def _save_id_cache_to_db(self):
@@ -445,8 +456,13 @@ class LogDatabaseManager:
             self.id_cache.clear()
         if not cache:
             return
-        for (chat_type, chat_id), msg_id in cache.items():
-            self.log_queues['id'].put({'chat_type': chat_type, 'chat_id': chat_id, 'last_message_id': msg_id})
+        for (chat_type, chat_id), id_info in cache.items():
+            self.log_queues['id'].put({
+                'chat_type': chat_type, 
+                'chat_id': chat_id, 
+                'last_message_id': id_info['message_id'],
+                'id_type': id_info['id_type']
+            })
         self._save_log_type_to_db('id')
     
     def _periodic_save(self):
@@ -655,8 +671,8 @@ def save_complete_dau_data(d):
     logger.info(f"保存DAU数据: date={log_data['date']}, active_users={log_data['active_users']}, total_messages={log_data['total_messages']}")
     return add_log_to_db('dau', log_data)
 
-def record_last_message_id(chat_type, chat_id, message_id):
-    return log_db_manager.update_id_cache(chat_type, chat_id, message_id)
+def record_last_message_id(chat_type, chat_id, message_id, id_type='msg'):
+    return log_db_manager.update_id_cache(chat_type, chat_id, message_id, id_type)
 
 _CHAT_MAP = {'group': lambda cid: ('ZFC2G', cid), 'user': lambda cid: (cid, 'ZFC2C')}
 

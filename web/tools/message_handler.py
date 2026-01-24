@@ -206,46 +206,38 @@ def handle_send_message(LOG_DB_CONFIG, add_sent_message_to_db):
             cursor = conn.cursor(DictCursor)
             prefix, id_table = LOG_DB_CONFIG.get('table_prefix', 'Mlog_'), f"{LOG_DB_CONFIG.get('table_prefix', 'Mlog_')}id"
             
-            cursor.execute(f"SELECT last_message_id, timestamp FROM {id_table} WHERE chat_type = %s AND chat_id = %s", (chat_type, chat_id))
+            cursor.execute(f"SELECT last_message_id, id_type, timestamp FROM {id_table} WHERE chat_type = %s AND chat_id = %s", (chat_type, chat_id))
             if not (result := cursor.fetchone()):
                 return jsonify({'success': False, 'message': 'ID记录不存在'})
             
-            mock_raw = {'d': {'id': result['last_message_id'], 'author': {'id': '2218872014'}, 'content': '', 'timestamp': result['timestamp'].isoformat()},
-                        'id': result['last_message_id'], 't': 'C2C_MESSAGE_CREATE' if chat_type == 'user' else 'GROUP_AT_MESSAGE_CREATE'}
-            if chat_type == 'group':
-                mock_raw['d']['group_id'] = chat_id
+            msg_id, ts = result['last_message_id'], result['timestamp'].isoformat()
+            if result['id_type'] == 'event':
+                d = {'group_openid': chat_id, 'group_member_openid': '2218872014', 'chat_type': 1} if chat_type == 'group' else {'user_openid': chat_id, 'chat_type': 2}
+                mock_raw = {'d': {**d, 'content': '', 'timestamp': ts}, 'id': msg_id, 't': 'INTERACTION_CREATE'}
             else:
-                mock_raw['d']['author']['id'] = chat_id
+                d = {'id': msg_id, 'author': {'id': chat_id if chat_type == 'user' else '2218872014'}, 'content': '', 'timestamp': ts}
+                if chat_type == 'group': d['group_id'] = chat_id
+                mock_raw = {'d': d, 'id': msg_id, 't': 'C2C_MESSAGE_CREATE' if chat_type == 'user' else 'GROUP_AT_MESSAGE_CREATE'}
             
             from core.event.MessageEvent import MessageEvent
             event = MessageEvent(mock_raw, skip_recording=True)
             
-            message_id, display_content = None, ''
-            
-            if send_method == 'text':
+            # 发送消息
+            if send_method in ('text', 'markdown'):
                 if not (content := data.get('content', '').strip()):
                     return jsonify({'success': False, 'message': '请输入消息内容'})
-                message_id, display_content = event.reply(content, use_markdown=False), content
-            elif send_method == 'markdown':
-                if not (content := data.get('content', '').strip()):
-                    return jsonify({'success': False, 'message': '请输入Markdown内容'})
-                message_id, display_content = event.reply(content, use_markdown=True), content
+                message_id, display_content = event.reply(content, use_markdown=(send_method == 'markdown')), content
             elif send_method == 'template_markdown':
                 if not (template := data.get('template')) or not (params := data.get('params', [])):
                     return jsonify({'success': False, 'message': '请选择模板并输入参数'})
                 message_id, display_content = event.reply_markdown(template, tuple(params), data.get('keyboard_id')), f'[模板消息: {template}]'
-            elif send_method == 'image':
-                if not (url := data.get('image_url', '').strip()):
-                    return jsonify({'success': False, 'message': '请输入图片URL'})
-                message_id, display_content = event.reply_image(url, data.get('image_text', '').strip()), f'[图片消息: {data.get("image_text", "") or "图片"}]'
-            elif send_method == 'voice':
-                if not (url := data.get('voice_url', '').strip()):
-                    return jsonify({'success': False, 'message': '请输入语音文件URL'})
-                message_id, display_content = event.reply_voice(url), '[语音消息]'
-            elif send_method == 'video':
-                if not (url := data.get('video_url', '').strip()):
-                    return jsonify({'success': False, 'message': '请输入视频文件URL'})
-                message_id, display_content = event.reply_video(url), '[视频消息]'
+            elif send_method in ('image', 'voice', 'video'):
+                url_key, err_msg = {'image': ('image_url', '图片'), 'voice': ('voice_url', '语音文件'), 'video': ('video_url', '视频文件')}[send_method]
+                if not (url := data.get(url_key, '').strip()):
+                    return jsonify({'success': False, 'message': f'请输入{err_msg}URL'})
+                func = {'image': lambda: event.reply_image(url, data.get('image_text', '').strip()), 'voice': lambda: event.reply_voice(url), 'video': lambda: event.reply_video(url)}[send_method]
+                display = f'[图片消息: {data.get("image_text", "") or "图片"}]' if send_method == 'image' else f'[{err_msg}消息]'
+                message_id, display_content = func(), display
             elif send_method == 'ark':
                 if not (ark_type := data.get('ark_type')) or not (ark_params := data.get('ark_params', [])):
                     return jsonify({'success': False, 'message': '请选择ARK卡片类型并输入参数'})
@@ -253,30 +245,25 @@ def handle_send_message(LOG_DB_CONFIG, add_sent_message_to_db):
             else:
                 return jsonify({'success': False, 'message': '不支持的发送方法'})
             
-            if message_id is not None:
-                msg_str = str(message_id)
-                if msg_str.startswith('{') and msg_str.endswith('}'):
-                    try:
-                        import json
-                        err = json.loads(msg_str)
-                        if err.get('error'):
-                            api_err = err.get('message', '') + (f", code:{err['code']}" if err.get('code') else '')
-                            return jsonify({'success': False, 'message': api_err or "发送失败: 未知错误"})
-                    except:
-                        pass
-                
+            if message_id is None:
+                return jsonify({'success': False, 'message': '消息发送失败，可能是权限不足或其他限制'})
+            
+            msg_str = str(message_id)
+            if msg_str.startswith('{') and msg_str.endswith('}'):
                 try:
-                    from web.app import add_plugin_log
-                    add_plugin_log(display_content, user_id=chat_id if chat_type == 'user' else '', group_id=chat_id if chat_type == 'group' else 'c2c', plugin_name='WebPanel')
-
-                    # 将发送的消息保存到数据库，让聊天历史能够获取到
-                    from function.log_db import add_sent_message_to_db
-                    add_sent_message_to_db(chat_type, chat_id, display_content, raw_message=display_content, timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-                except:
-                    pass
-                
-                return jsonify({'success': True, 'message': '消息发送成功', 'data': {'message_id': message_id, 'content': display_content, 'timestamp': datetime.now().strftime('%H:%M:%S'), 'send_method': send_method}})
-            return jsonify({'success': False, 'message': '消息发送失败，可能是权限不足或其他限制'})
+                    import json
+                    if (err := json.loads(msg_str)).get('error'):
+                        return jsonify({'success': False, 'message': err.get('message', '') + (f", code:{err['code']}" if err.get('code') else '') or "发送失败"})
+                except: pass
+            
+            try:
+                from web.app import add_plugin_log
+                from function.log_db import add_sent_message_to_db
+                add_plugin_log(display_content, user_id=chat_id if chat_type == 'user' else '', group_id=chat_id if chat_type == 'group' else 'c2c', plugin_name='WebPanel')
+                add_sent_message_to_db(chat_type, chat_id, display_content, raw_message=display_content, timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            except: pass
+            
+            return jsonify({'success': True, 'message': '消息发送成功', 'data': {'message_id': message_id, 'content': display_content, 'timestamp': datetime.now().strftime('%H:%M:%S'), 'send_method': send_method}})
         finally:
             cursor.close()
             pool.release_connection(conn)
@@ -308,38 +295,15 @@ def handle_get_markdown_templates():
         return jsonify({'success': False, 'message': f'获取模板列表失败: {e}'})
 
 def handle_get_markdown_templates_detail():
-    """获取Markdown模板详细信息，包含原始模板内容"""
     try:
-        from core.event.markdown_templates import get_all_templates, MARKDOWN_TEMPLATES
+        from core.event.markdown_templates import get_all_templates
         import re
-        
-        templates = []
-        # 读取源文件获取注释中的原始模板内容
         raw_contents = {}
         try:
-            _ensure_path()
-            template_file = os.path.join(_PROJECT_ROOT, 'core', 'event', 'markdown_templates.py')
-            if os.path.exists(template_file):
-                with open(template_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                # 匹配模板定义和其后的注释
-                pattern = r'"(\d+)":\s*\{[^}]+\},?\s*#\s*原始模板内容:\s*(.+?)(?=\n|$)'
-                matches = re.findall(pattern, content)
-                for tid, raw in matches:
+            with open(os.path.join(_PROJECT_ROOT, 'core', 'event', 'markdown_templates.py'), 'r', encoding='utf-8') as f:
+                for tid, raw in re.findall(r'"(\d+)":\s*\{[^}]+\},?\s*#\s*原始模板内容:\s*(.+?)(?=\n|$)', f.read()):
                     raw_contents[tid] = raw.strip()
-        except:
-            pass
-        
-        for tid, info in get_all_templates().items():
-            templates.append({
-                'id': tid,
-                'name': f'模板{tid}',
-                'template_id': info.get('id', ''),
-                'params': info.get('params', []),
-                'param_count': len(info.get('params', [])),
-                'raw_content': raw_contents.get(tid, '未提供原始模板内容')
-            })
-        
-        return jsonify({'success': True, 'data': {'templates': templates}})
+        except: pass
+        return jsonify({'success': True, 'data': {'templates': [{'id': tid, 'name': f'模板{tid}', 'template_id': info.get('id', ''), 'params': info.get('params', []), 'param_count': len(info.get('params', [])), 'raw_content': raw_contents.get(tid, '未提供')} for tid, info in get_all_templates().items()]}})
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取模板详情失败: {e}'})

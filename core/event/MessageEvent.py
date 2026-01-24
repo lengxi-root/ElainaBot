@@ -705,23 +705,38 @@ class MessageEvent:
         except:
             return None
 
+    # 缓存 PluginManager 引用，避免每次发送消息时导入
+    _plugin_manager = None
+    
+    @classmethod
+    def _get_plugin_manager(cls):
+        """延迟获取 PluginManager，缓存引用"""
+        if cls._plugin_manager is None:
+            try:
+                from core.plugin.PluginManager import PluginManager
+                cls._plugin_manager = PluginManager
+            except:
+                pass
+        return cls._plugin_manager
+    
     def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info=""):
-        # 调用消息拦截器
-        try:
-            from core.plugin.PluginManager import PluginManager
-            message_info = {
-                'event': self,
-                'send_type': content_type,
-                'payload': payload,
-                'endpoint': endpoint
-            }
-            result = PluginManager.call_message_interceptors(message_info)
-            if result is None:
-                return None  # 消息被拦截
-            # 使用可能被修改的payload
-            payload = result.get('payload', payload)
-        except Exception:
-            pass  # 拦截器调用失败不影响发送
+        # 调用消息拦截器 - 仅在有拦截器时执行
+        pm = self._get_plugin_manager()
+        if pm and pm.has_message_interceptors():
+            try:
+                message_info = {
+                    'event': self,
+                    'send_type': content_type,
+                    'payload': payload,
+                    'endpoint': endpoint
+                }
+                result = pm.call_message_interceptors(message_info)
+                if result is None:
+                    return None  # 消息被拦截
+                # 使用可能被修改的payload
+                payload = result.get('payload', payload)
+            except Exception:
+                pass  # 拦截器调用失败不影响发送
         
         # 获取群ID用于判断是否使用沙盒API
         group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None

@@ -110,6 +110,7 @@ class PluginManager:
     _csp_domains = {}  # 存储插件的CSP域名配置
     _exclude_patterns_cache = None
     _message_interceptors = []  # 消息拦截器列表
+    _interceptors_enabled = False  # 拦截器开关（初始化时确定，注册/注销时更新）
 
     @staticmethod
     def _get_event_info(event):
@@ -801,6 +802,7 @@ class PluginManager:
     def register_message_interceptor(cls, interceptor_func, priority=100, plugin_class=None):
         cls._message_interceptors.append({'func': interceptor_func, 'priority': priority, 'plugin_class': plugin_class})
         cls._message_interceptors.sort(key=lambda x: x['priority'])
+        cls._interceptors_enabled = True  # 启用拦截器
         add_framework_log(f"注册消息拦截器: {interceptor_func.__name__} (优先级: {priority})")
         return True
     
@@ -814,6 +816,8 @@ class PluginManager:
         removed = original_count - len(cls._message_interceptors)
         if removed:
             add_framework_log(f"注销了 {removed} 个消息拦截器")
+        # 更新开关状态
+        cls._interceptors_enabled = len(cls._message_interceptors) > 0
         return removed
     
     @classmethod
@@ -821,7 +825,16 @@ class PluginManager:
         return cls._message_interceptors.copy()
     
     @classmethod
+    def has_message_interceptors(cls):
+        """快速检查是否有消息拦截器（使用缓存标志，O(1)操作）"""
+        return cls._interceptors_enabled
+    
+    @classmethod
     def call_message_interceptors(cls, message_info):
+        # 快速检查：使用缓存标志判断
+        if not cls._interceptors_enabled:
+            return message_info
+        
         for interceptor in cls._message_interceptors:
             try:
                 result = interceptor['func'](message_info)

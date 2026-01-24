@@ -188,15 +188,13 @@ from web.tools.config_handler import (handle_get_config, handle_parse_config, ha
     handle_get_message_templates, handle_save_message_templates, handle_parse_message_templates)
 from web.tools.plugin_manager import (handle_toggle_plugin, handle_read_plugin, handle_save_plugin,
     handle_create_plugin, handle_create_plugin_folder, handle_get_plugin_folders, handle_upload_plugin, scan_plugins_internal)
-from web.tools.ai_plugin_handler import (handle_list_plugins, handle_read_plugin as handle_ai_read_plugin,
-    handle_ai_create_plugin, handle_ai_modify_plugin, handle_ai_add_feature, handle_ai_fix_plugin,
-    handle_save_ai_plugin, handle_search_plugins, handle_get_plugin_template, handle_get_ai_models,
-    handle_get_ai_config, handle_save_ai_config)
 from web.tools.plugin_market_handler import (handle_market_submit, handle_market_list, handle_market_pending,
     handle_market_review, handle_market_update_status, handle_market_delete, handle_market_categories,
     handle_market_export, handle_market_download, handle_market_preview, handle_market_install, handle_market_local_plugins,
     handle_market_upload_local, handle_market_register, handle_market_login, handle_market_user_info,
-    handle_market_plugin_detail, handle_market_author_update, handle_market_author_delete, handle_market_update_local)
+    handle_market_plugin_detail, handle_market_author_update, handle_market_author_delete, handle_market_update_local,
+    handle_market_get_source, handle_market_save_source, handle_local_plugin_read, handle_local_plugin_save,
+    handle_market_upload_direct, handle_market_update_plugin_code)
 
 status_routes.set_restart_function(execute_bot_restart)
 check_openapi_login = lambda uid: openapi_user_data.get(uid)
@@ -243,11 +241,6 @@ def index():
     for h, v in _get_security_headers():
         response.headers[h] = v
     return response
-
-@web.route('/ai_plugins')
-@full_auth
-def ai_plugins_page():
-    return render_template('pc/ai_plugins.html')
 
 @web.route('/plugin_market')
 @full_auth
@@ -505,66 +498,6 @@ def get_plugin_folders():
 def upload_plugin():
     return handle_upload_plugin(add_framework_log)
 
-@web.route('/api/ai_plugin/list', methods=['POST'])
-@full_auth
-def ai_list_plugins():
-    return handle_list_plugins()
-
-@web.route('/api/ai_plugin/read', methods=['POST'])
-@full_auth
-def ai_read_plugin():
-    return handle_ai_read_plugin()
-
-@web.route('/api/ai_plugin/create', methods=['POST'])
-@full_auth
-def ai_create_plugin():
-    return handle_ai_create_plugin()
-
-@web.route('/api/ai_plugin/modify', methods=['POST'])
-@full_auth
-def ai_modify_plugin():
-    return handle_ai_modify_plugin()
-
-@web.route('/api/ai_plugin/add_feature', methods=['POST'])
-@full_auth
-def ai_add_feature():
-    return handle_ai_add_feature()
-
-@web.route('/api/ai_plugin/fix', methods=['POST'])
-@full_auth
-def ai_fix_plugin():
-    return handle_ai_fix_plugin()
-
-@web.route('/api/ai_plugin/save', methods=['POST'])
-@full_auth
-def ai_save_plugin():
-    return handle_save_ai_plugin()
-
-@web.route('/api/ai_plugin/search', methods=['POST'])
-@full_auth
-def ai_search_plugins():
-    return handle_search_plugins()
-
-@web.route('/api/ai_plugin/template', methods=['GET'])
-@full_auth
-def ai_get_template():
-    return handle_get_plugin_template()
-
-@web.route('/api/ai_plugin/models', methods=['GET'])
-@full_auth
-def ai_get_models():
-    return handle_get_ai_models()
-
-@web.route('/api/ai_plugin/config', methods=['GET'])
-@full_auth
-def ai_get_config():
-    return handle_get_ai_config()
-
-@web.route('/api/ai_plugin/config', methods=['POST'])
-@full_auth
-def ai_save_config():
-    return handle_save_ai_config()
-
 @web.route('/api/market/submit', methods=['POST'])
 @safe_route
 def market_submit():
@@ -664,6 +597,36 @@ def market_author_delete():
 @safe_route
 def market_update_local():
     return handle_market_update_local()
+
+@web.route('/api/market/get_source', methods=['POST'])
+@safe_route
+def market_get_source():
+    return handle_market_get_source()
+
+@web.route('/api/market/save_source', methods=['POST'])
+@safe_route
+def market_save_source():
+    return handle_market_save_source()
+
+@web.route('/api/market/local_read', methods=['POST'])
+@safe_route
+def market_local_read():
+    return handle_local_plugin_read()
+
+@web.route('/api/market/local_save', methods=['POST'])
+@safe_route
+def market_local_save():
+    return handle_local_plugin_save()
+
+@web.route('/api/market/upload_direct', methods=['POST'])
+@safe_route
+def market_upload_direct():
+    return handle_market_upload_direct()
+
+@web.route('/api/market/update_plugin_code', methods=['POST'])
+@safe_route
+def market_update_plugin_code():
+    return handle_market_update_plugin_code()
 
 @web.route('/openapi/start_login', methods=['POST'])
 @simple_auth

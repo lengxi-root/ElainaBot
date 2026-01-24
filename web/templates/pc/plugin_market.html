@@ -132,9 +132,15 @@
                         <i class="bi bi-link-45deg"></i> 填写链接
                     </button>
                     <button type="button" class="upload-tab" onclick="switchUploadType('local')">
-                        <i class="bi bi-folder"></i> 选择本地插件
+                        <i class="bi bi-folder"></i> 服务器插件
+                    </button>
+                    <button type="button" class="upload-tab" onclick="switchUploadType('upload')">
+                        <i class="bi bi-file-earmark-code"></i> 上传py文件
                     </button>
                 </div>
+                <small class="form-hint" style="color:#666;margin-top:0.5rem;display:block;">
+                    <i class="bi bi-info-circle"></i> 插件组（多文件）请上传到 GitHub 后填写链接
+                </small>
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -154,12 +160,33 @@
                 <label>分类</label>
                 <select class="form-select" id="submit-category"></select>
             </div>
-            <!-- 本地插件选择 -->
+            <!-- 本地插件选择（服务器上的插件） -->
             <div class="form-group" id="local-plugin-group" style="display:none;">
-                <label>选择本地插件 <span class="required">*</span></label>
+                <label>选择服务器插件 <span class="required">*</span></label>
                 <select class="form-select" id="submit-local-plugin" onchange="onLocalPluginSelect()">
                     <option value="">-- 请选择插件 --</option>
                 </select>
+            </div>
+            <!-- 直接上传单个py文件 -->
+            <div class="form-group" id="upload-file-group" style="display:none;">
+                <label>上传插件文件 <span class="required">*</span></label>
+                <div class="upload-drop-zone" id="upload-drop-zone">
+                    <i class="bi bi-file-earmark-code"></i>
+                    <p>拖拽 .py 文件到此处</p>
+                    <div class="upload-btns">
+                        <button type="button" class="upload-select-btn" onclick="document.getElementById('upload-file-input').click()">
+                            <i class="bi bi-file-earmark-code"></i> 选择 .py 文件
+                        </button>
+                    </div>
+                    <input type="file" id="upload-file-input" style="display:none;" accept=".py" onchange="handleSingleFileSelect(event)">
+                    <small>仅支持单个 .py 文件，插件组请使用 GitHub 链接</small>
+                </div>
+                <div id="upload-file-info" style="display:none;margin-top:0.75rem;padding:0.75rem;background:#f0f9ff;border-radius:8px;border:1px solid #bae6fd;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <span id="upload-file-name" style="color:#0369a1;font-weight:500;"><i class="bi bi-file-earmark-code"></i> </span>
+                        <button onclick="clearUploadedFile()" style="background:none;border:none;color:#ef4444;cursor:pointer;"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                </div>
             </div>
             <!-- 下载链接 -->
             <div class="form-group" id="url-group">
@@ -221,6 +248,30 @@
         </div>
         <div class="modal-body" id="detail-body"></div>
         <div class="modal-footer" id="detail-footer"></div>
+    </div>
+</div>
+
+<!-- 代码编辑器弹窗 -->
+<div class="modal-overlay" id="code-editor-modal" style="display:none;">
+    <div class="modal-content modal-large" style="max-width:95vw;height:90vh;">
+        <div class="modal-header">
+            <h5><i class="bi bi-code-slash"></i> <span id="code-editor-title">预览/编辑插件</span></h5>
+            <div class="code-editor-actions">
+                <select class="form-select form-select-sm" id="code-file-select" style="width:auto;display:none;" onchange="switchCodeFile()"></select>
+                <button class="modal-btn secondary" onclick="closeCodeEditor()">关闭</button>
+                <button class="modal-btn primary" onclick="saveCode()"><i class="bi bi-check-lg"></i> 保存</button>
+            </div>
+        </div>
+        <div class="modal-body" style="padding:0;flex:1;display:flex;flex-direction:column;overflow:hidden;">
+            <div id="code-editor-loading" class="loading-state" style="flex:1;"><div class="spinner"></div><span>加载中...</span></div>
+            <div id="code-editor-container" style="flex:1;display:none;overflow:hidden;">
+                <textarea id="code-textarea" style="width:100%;height:100%;font-family:'Consolas','Monaco',monospace;font-size:13px;line-height:1.5;padding:12px;border:none;resize:none;background:#1e1e1e;color:#d4d4d4;"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer" style="border-top:1px solid #e0e0e0;padding:8px 16px;">
+            <span id="code-editor-status" style="flex:1;font-size:0.8rem;color:#666;"></span>
+            <span id="code-file-info" style="font-size:0.8rem;color:#888;"></span>
+        </div>
     </div>
 </div>
 
@@ -369,6 +420,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadPlugins();
     initTagsInput();
     checkLoginStatus();
+    initUploadDropZone();
 });
 
 // ==================== 用户系统 ====================
@@ -544,10 +596,93 @@ function switchUploadType(type) {
     
     document.getElementById('url-group').style.display = type === 'url' ? 'block' : 'none';
     document.getElementById('local-plugin-group').style.display = type === 'local' ? 'block' : 'none';
+    document.getElementById('upload-file-group').style.display = type === 'upload' ? 'block' : 'none';
     
     if (type === 'local' && localPlugins.length === 0) {
         loadLocalPlugins();
     }
+}
+
+// ==================== 单文件上传功能 ====================
+let uploadedFile = null;  // 用于存储选择的单个文件
+
+// 初始化拖放区域
+function initUploadDropZone() {
+    const dropZone = document.getElementById('upload-drop-zone');
+    if (!dropZone) return;
+    
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+    
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            const file = files[0];
+            if (!file.name.endsWith('.py')) {
+                showToast('只支持 .py 文件，插件组请使用 GitHub 链接', 'error');
+                return;
+            }
+            setUploadedFile(file);
+        }
+    });
+}
+
+// 处理单文件选择
+function handleSingleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    if (!file.name.endsWith('.py')) {
+        showToast('只支持 .py 文件', 'error');
+        event.target.value = '';
+        return;
+    }
+    
+    setUploadedFile(file);
+    event.target.value = '';
+}
+
+// 设置上传的文件
+function setUploadedFile(file) {
+    uploadedFile = file;
+    const infoEl = document.getElementById('upload-file-info');
+    const nameEl = document.getElementById('upload-file-name');
+    infoEl.style.display = 'block';
+    nameEl.innerHTML = `<i class="bi bi-file-earmark-code"></i> ${escapeHtml(file.name)} (${formatSize(file.size)})`;
+    
+    // 自动填充插件名称
+    if (!document.getElementById('submit-name').value) {
+        document.getElementById('submit-name').value = file.name.replace('.py', '');
+    }
+}
+
+// 清空已选择的文件
+function clearUploadedFile() {
+    uploadedFile = null;
+    document.getElementById('upload-file-info').style.display = 'none';
+}
+
+// 读取文件为Base64
+function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64 = reader.result.split(',')[1];  // 去掉 data:... 前缀
+            resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
 }
 
 // 加载本地插件列表
@@ -662,9 +797,13 @@ function renderPlugins(plugins) {
                     <button class="download-btn" onclick="event.stopPropagation();showDownloadOptions('${p.id}')">
                         <i class="bi bi-download"></i> 下载
                     </button>
-                    ${directUrl ? `<button class="preview-btn" onclick="event.stopPropagation();previewPlugin('${escapeHtml(directUrl)}', '${escapeHtml(p.name)}', false)">
-                        <i class="bi bi-eye"></i> 预览
-                    </button>` : ''}
+                    ${directUrl ? (directUrl.includes('i.elaina.vin') && isMyPlugin ? 
+                        `<button class="preview-btn" onclick="event.stopPropagation();openCodeEditor('${p.id}', '${escapeHtml(p.name)}', '${escapeHtml(directUrl)}')">
+                            <i class="bi bi-code-slash"></i> 预览/编辑
+                        </button>` : 
+                        `<button class="preview-btn" onclick="event.stopPropagation();previewPlugin('${escapeHtml(directUrl)}', '${escapeHtml(p.name)}', false)">
+                            <i class="bi bi-eye"></i> 预览
+                        </button>`) : ''}
                     ${isMyPlugin ? `<button class="edit-btn" onclick="event.stopPropagation();showEditModal('${p.id}')">
                         <i class="bi bi-pencil"></i> 修改
                     </button>
@@ -1031,8 +1170,50 @@ async function submitPlugin() {
     }
     
     // 根据上传方式处理
-    if (currentUploadType === 'local') {
-        // 本地插件上传
+    if (currentUploadType === 'upload') {
+        // 上传单个py文件
+        if (!uploadedFile) {
+            showToast('请选择要上传的 .py 文件', 'error');
+            return;
+        }
+        
+        try {
+            showToast('正在读取文件...', 'success');
+            
+            // 读取文件内容为base64
+            const fileContent = await readFileAsBase64(uploadedFile);
+            
+            showToast('正在上传插件...', 'success');
+            const data = {
+                name: name,
+                description: description,
+                user_key: currentUser.user_key,
+                version: document.getElementById('submit-version').value.trim() || '1.0.0',
+                category: document.getElementById('submit-category').value || '其他',
+                tags: submitTags,
+                plugin_data: fileContent,
+                plugin_filename: uploadedFile.name
+            };
+            
+            const r = await fetch(`/web/api/market/upload_direct?token=${getToken()}`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            const result = await r.json();
+            
+            if (result.success) {
+                showToast('插件已提交，等待审核', 'success');
+                closeModal('submit-modal');
+                resetSubmitForm();
+                loadPlugins();
+            } else {
+                showToast(result.message, 'error');
+            }
+        } catch (e) {
+            showToast('上传失败: ' + e.message, 'error');
+        }
+    } else if (currentUploadType === 'local') {
+        // 服务器上的本地插件上传
         const pluginPath = document.getElementById('submit-local-plugin').value;
         if (!pluginPath) {
             showToast('请选择要上传的本地插件', 'error');
@@ -1122,6 +1303,7 @@ function resetSubmitForm() {
     document.getElementById('submit-local-plugin').value = '';
     submitTags = [];
     renderSubmitTags();
+    clearUploadedFile();
 }
 
 // ==================== 编辑插件 ====================
@@ -1460,6 +1642,206 @@ async function reviewPlugin(id, action) {
     }
 }
 
+// ==================== 代码编辑器 ====================
+let codeEditorData = {
+    pluginId: null,
+    pluginName: '',
+    pluginInfo: null,  // 保存插件完整信息
+    files: [],         // 可编辑的文件
+    allFiles: [],      // 所有文件（包括不可编辑的）
+    currentFileIndex: 0,
+    modified: false
+};
+
+// 打开代码编辑器（使用预览API获取代码）
+async function openCodeEditor(pluginId, pluginName, directUrl) {
+    if (!currentUser) {
+        showToast('请先登录', 'error');
+        return;
+    }
+    
+    // 获取插件完整信息
+    const plugin = allPlugins.find(p => p.id === pluginId);
+    
+    codeEditorData = { 
+        pluginId, 
+        pluginName, 
+        pluginInfo: plugin,
+        files: [], 
+        allFiles: [],
+        currentFileIndex: 0, 
+        modified: false 
+    };
+    document.getElementById('code-editor-title').textContent = '预览/编辑: ' + pluginName;
+    document.getElementById('code-editor-loading').style.display = 'flex';
+    document.getElementById('code-editor-loading').innerHTML = '<div class="spinner"></div><span>加载中...</span>';
+    document.getElementById('code-editor-container').style.display = 'none';
+    document.getElementById('code-file-select').style.display = 'none';
+    document.getElementById('code-editor-status').textContent = '';
+    document.getElementById('code-file-info').textContent = '';
+    
+    showModal('code-editor-modal');
+    
+    try {
+        // 使用与预览相同的API获取代码
+        const r = await fetch(`/web/api/market/preview?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url: directUrl, use_proxy: false })
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            // 根据返回类型处理
+            if (result.type === 'py') {
+                // 单个py文件
+                codeEditorData.files = [{
+                    name: result.filename || pluginName + '.py',
+                    content: result.content,
+                    size: result.size || result.content.length
+                }];
+            } else if (result.type === 'zip') {
+                // zip压缩包，筛选有内容的文件
+                codeEditorData.files = (result.files || []).filter(f => f.content !== null);
+            }
+            
+            codeEditorData.allFiles = codeEditorData.files;
+            
+            if (codeEditorData.files.length === 0) {
+                document.getElementById('code-editor-loading').innerHTML = '<i class="bi bi-exclamation-circle" style="font-size:2rem;color:#999;"></i><span>没有可编辑的文件</span>';
+                return;
+            }
+            
+            // 如果有多个文件，显示文件选择器
+            if (codeEditorData.files.length > 1) {
+                const select = document.getElementById('code-file-select');
+                select.innerHTML = codeEditorData.files.map((f, i) => 
+                    `<option value="${i}">${f.name}</option>`
+                ).join('');
+                select.style.display = 'block';
+            }
+            
+            loadCodeFile(0);
+        } else {
+            document.getElementById('code-editor-loading').innerHTML = `<i class="bi bi-exclamation-circle" style="font-size:2rem;color:#ef4444;"></i><span>${result.message}</span>`;
+        }
+    } catch (e) {
+        document.getElementById('code-editor-loading').innerHTML = `<i class="bi bi-wifi-off" style="font-size:2rem;color:#999;"></i><span>加载失败: ${e.message}</span>`;
+    }
+}
+
+// 加载指定文件到编辑器
+function loadCodeFile(index) {
+    const file = codeEditorData.files[index];
+    if (!file) return;
+    
+    codeEditorData.currentFileIndex = index;
+    
+    document.getElementById('code-editor-loading').style.display = 'none';
+    document.getElementById('code-editor-container').style.display = 'flex';
+    document.getElementById('code-textarea').value = file.content || '';
+    document.getElementById('code-file-info').textContent = `${file.name} (${formatSize(file.size || 0)})`;
+    document.getElementById('code-editor-status').textContent = '';
+    
+    // 更新选择器
+    const select = document.getElementById('code-file-select');
+    if (select.style.display !== 'none') {
+        select.value = index;
+    }
+    
+    // 监听修改
+    const textarea = document.getElementById('code-textarea');
+    textarea.onchange = textarea.oninput = function() {
+        codeEditorData.modified = true;
+        document.getElementById('code-editor-status').textContent = '已修改';
+        document.getElementById('code-editor-status').style.color = '#f59e0b';
+    };
+}
+
+// 切换文件
+function switchCodeFile() {
+    const index = parseInt(document.getElementById('code-file-select').value);
+    
+    // 保存当前文件的修改
+    if (codeEditorData.currentFileIndex !== index) {
+        codeEditorData.files[codeEditorData.currentFileIndex].content = document.getElementById('code-textarea').value;
+    }
+    
+    loadCodeFile(index);
+}
+
+// 保存代码 - 仅支持单个 .py 文件
+async function saveCode() {
+    if (!currentUser || !codeEditorData.pluginId) {
+        showToast('无效的编辑会话', 'error');
+        return;
+    }
+    
+    // 更新当前文件内容
+    codeEditorData.files[codeEditorData.currentFileIndex].content = document.getElementById('code-textarea').value;
+    
+    const statusEl = document.getElementById('code-editor-status');
+    statusEl.textContent = '保存中...';
+    statusEl.style.color = '#3b82f6';
+    
+    try {
+        // 仅支持单个 .py 文件
+        if (codeEditorData.files.length !== 1 || !codeEditorData.files[0].name.endsWith('.py')) {
+            showToast('仅支持编辑单个 .py 文件', 'error');
+            statusEl.textContent = '不支持';
+            statusEl.style.color = '#ef4444';
+            return;
+        }
+        
+        const content = codeEditorData.files[0].content;
+        const pluginData = btoa(unescape(encodeURIComponent(content)));
+        const pluginFilename = codeEditorData.files[0].name;
+        
+        statusEl.textContent = '上传中...';
+        
+        // 更新现有插件
+        const r = await fetch(`/web/api/market/update_plugin_code?token=${getToken()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                plugin_id: codeEditorData.pluginId,
+                user_key: currentUser.user_key,
+                plugin_data: pluginData,
+                plugin_filename: pluginFilename
+            })
+        });
+        const result = await r.json();
+        
+        if (result.success) {
+            statusEl.textContent = '已保存';
+            statusEl.style.color = '#10b981';
+            codeEditorData.modified = false;
+            showToast('修改成功', 'success');
+            closeModal('code-editor-modal');
+            loadPlugins(); // 刷新列表
+        } else {
+            statusEl.textContent = '保存失败';
+            statusEl.style.color = '#ef4444';
+            showToast(result.message, 'error');
+        }
+    } catch (e) {
+        statusEl.textContent = '保存失败';
+        statusEl.style.color = '#ef4444';
+        showToast('保存失败: ' + e.message, 'error');
+    }
+}
+
+// 关闭代码编辑器
+function closeCodeEditor() {
+    if (codeEditorData.modified) {
+        if (!confirm('有未保存的修改，确定要关闭吗？')) {
+            return;
+        }
+    }
+    closeModal('code-editor-modal');
+    codeEditorData = { pluginId: null, pluginName: '', pluginInfo: null, files: [], allFiles: [], currentFileIndex: 0, modified: false };
+}
+
 // 弹窗控制
 function showModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
@@ -1539,6 +1921,16 @@ function showToast(msg, type = 'success') {
 .upload-tab:hover { border-color: var(--theme-primary, #5865F2); color: var(--theme-primary, #5865F2); }
 .upload-tab.active { background: var(--theme-gradient); color: #fff; border-color: transparent; }
 
+/* 文件上传区域 */
+.upload-drop-zone { border: 2px dashed #d0d5dd; border-radius: 12px; padding: 2rem; text-align: center; background: #fafbfc; transition: all 0.3s; cursor: pointer; }
+.upload-drop-zone:hover, .upload-drop-zone.dragover { border-color: var(--theme-primary, #5865F2); background: #f0f4ff; }
+.upload-drop-zone i { font-size: 2.5rem; color: var(--theme-primary, #5865F2); margin-bottom: 0.5rem; }
+.upload-drop-zone p { color: #666; margin: 0.5rem 0; }
+.upload-drop-zone small { color: #999; font-size: 0.75rem; }
+.upload-btns { display: flex; gap: 0.75rem; justify-content: center; margin: 1rem 0; }
+.upload-select-btn { padding: 0.5rem 1rem; background: #fff; border: 1px solid #d0d5dd; border-radius: 8px; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; }
+.upload-select-btn:hover { border-color: var(--theme-primary, #5865F2); color: var(--theme-primary, #5865F2); }
+
 /* 弹窗 */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
 .modal-content { background: #fff; border-radius: 16px; width: 100%; max-width: 520px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
@@ -1548,6 +1940,8 @@ function showToast(msg, type = 'success') {
 .modal-header h5 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; color: #333; }
 .modal-close { background: none; border: none; font-size: 1.5rem; color: #999; cursor: pointer; line-height: 1; }
 .modal-close:hover { color: #333; }
+.code-editor-actions { display: flex; align-items: center; gap: 0.5rem; }
+.code-editor-actions .form-select-sm { padding: 0.3rem 0.5rem; font-size: 0.8rem; border-radius: 6px; }
 .modal-body { padding: 1.25rem; overflow-y: auto; flex: 1; }
 .modal-footer { padding: 1rem 1.25rem; border-top: 1px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.75rem; }
 .modal-btn { padding: 0.6rem 1.25rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; border: none; }

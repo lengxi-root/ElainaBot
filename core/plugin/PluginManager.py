@@ -21,8 +21,8 @@ from config import (
     DEFAULT_RESPONSE_EXCLUDED_REGEX
 )
 from core.plugin.message_templates import MessageTemplate, MSG_TYPE_MAINTENANCE, MSG_TYPE_GROUP_ONLY, MSG_TYPE_OWNER_ONLY, MSG_TYPE_DEFAULT, MSG_TYPE_BLACKLIST, MSG_TYPE_GROUP_BLACKLIST
-from web.app import add_plugin_log, add_framework_log, add_error_log
-from function.log_db import add_log_to_db
+from web.app import add_plugin_log
+from function.log_db import add_log_to_db, add_framework_log, add_error_log
 
 _logger = logging.getLogger('ElainaBot.core.PluginManager')
 
@@ -109,6 +109,7 @@ class PluginManager:
     _api_routes = {}
     _csp_domains = {}  # 存储插件的CSP域名配置
     _exclude_patterns_cache = None
+    _message_interceptors = []  # 消息拦截器列表
 
     @staticmethod
     def _get_event_info(event):
@@ -795,6 +796,43 @@ class PluginManager:
         cls._rebuild_sorted_handlers()
         cls._handler_patterns_cache.clear()
         return handlers_count
+
+    @classmethod
+    def register_message_interceptor(cls, interceptor_func, priority=100, plugin_class=None):
+        cls._message_interceptors.append({'func': interceptor_func, 'priority': priority, 'plugin_class': plugin_class})
+        cls._message_interceptors.sort(key=lambda x: x['priority'])
+        add_framework_log(f"注册消息拦截器: {interceptor_func.__name__} (优先级: {priority})")
+        return True
+    
+    @classmethod
+    def unregister_message_interceptor(cls, interceptor_func=None, plugin_class=None):
+        original_count = len(cls._message_interceptors)
+        if interceptor_func:
+            cls._message_interceptors = [i for i in cls._message_interceptors if i['func'] != interceptor_func]
+        if plugin_class:
+            cls._message_interceptors = [i for i in cls._message_interceptors if i['plugin_class'] != plugin_class]
+        removed = original_count - len(cls._message_interceptors)
+        if removed:
+            add_framework_log(f"注销了 {removed} 个消息拦截器")
+        return removed
+    
+    @classmethod
+    def get_message_interceptors(cls):
+        return cls._message_interceptors.copy()
+    
+    @classmethod
+    def call_message_interceptors(cls, message_info):
+        for interceptor in cls._message_interceptors:
+            try:
+                result = interceptor['func'](message_info)
+                if result is None or result is False:
+                    add_framework_log(f"消息被拦截器 {interceptor['func'].__name__} 阻止")
+                    return None
+                if isinstance(result, dict):
+                    message_info = result
+            except Exception as e:
+                _log_error(f"消息拦截器 {interceptor['func'].__name__} 执行失败: {str(e)}", traceback.format_exc())
+        return message_info
 
     @classmethod
     def is_maintenance_mode(cls):

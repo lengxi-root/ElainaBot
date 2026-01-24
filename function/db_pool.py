@@ -11,7 +11,7 @@ logger = logging.getLogger('ElainaBot.function.db_pool')
 def add_framework_log(msg):
     """延迟导入避免循环依赖"""
     try:
-        from web.app import add_framework_log as _add_framework_log
+        from function.log_db import add_framework_log as _add_framework_log
         _add_framework_log(msg)
     except:
         pass

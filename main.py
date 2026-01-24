@@ -175,16 +175,16 @@ import urllib.parse
 logger = logging.getLogger('ElainaBot')
 
 try:
-    from web.app import start_web, add_framework_log, add_error_log
+    from web.app import start_web
     _web_available = True
 except:
     _web_available = False
-    add_framework_log = add_error_log = lambda *a, **k: None
 
 try:
-    from function.log_db import add_log_to_db
+    from function.log_db import add_log_to_db, add_framework_log, add_error_log
 except:
     add_log_to_db = lambda *a, **k: False
+    add_framework_log = add_error_log = lambda *a, **k: None
 
 try:
     from function.dau_analytics import start_dau_analytics, stop_dau_analytics

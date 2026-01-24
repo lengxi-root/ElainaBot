@@ -706,6 +706,23 @@ class MessageEvent:
             return None
 
     def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info=""):
+        # 调用消息拦截器
+        try:
+            from core.plugin.PluginManager import PluginManager
+            message_info = {
+                'event': self,
+                'send_type': content_type,
+                'payload': payload,
+                'endpoint': endpoint
+            }
+            result = PluginManager.call_message_interceptors(message_info)
+            if result is None:
+                return None  # 消息被拦截
+            # 使用可能被修改的payload
+            payload = result.get('payload', payload)
+        except Exception:
+            pass  # 拦截器调用失败不影响发送
+        
         # 获取群ID用于判断是否使用沙盒API
         group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
         

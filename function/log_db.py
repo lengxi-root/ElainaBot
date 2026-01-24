@@ -631,6 +631,34 @@ def add_log_to_db(log_type, log_data):
             return False
     return log_db_manager.add_log(log_type, log_data)
 
+
+def add_framework_log(content):
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_data = content.copy() if isinstance(content, dict) else {'timestamp': ts, 'content': str(content)}
+    log_data.setdefault('timestamp', ts)
+    log_db_manager.add_log('framework', log_data)
+    try:
+        from web.tools.log_handler import add_framework_log as _web_log
+        _web_log(log_data)
+    except:
+        pass
+    return log_data
+
+def add_error_log(content, traceback_info=None):
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_data = content.copy() if isinstance(content, dict) else {'timestamp': ts, 'content': str(content)}
+    log_data.setdefault('timestamp', ts)
+    if traceback_info:
+        log_data['traceback'] = traceback_info
+    log_db_manager.add_log('error', log_data)
+    try:
+        from web.tools.log_handler import add_error_log as _web_log
+        _web_log(log_data, traceback_info)
+    except:
+        pass
+    return log_data
+
+
 _EVENT_MAP = {
     'group_join': ('group_join_count', 'group_count_change', 1),
     'group_leave': ('group_leave_count', 'group_count_change', -1),

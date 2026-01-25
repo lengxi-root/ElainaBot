@@ -103,17 +103,13 @@ def handle_market_download():
 
 
 def handle_market_preview():
-    """预览插件 - 仅支持单个 .py 文件"""
+    """预览插件"""
     data = request.json or {}
     url = data.get('url', '')
     use_proxy = data.get('use_proxy', False)
     
     if not url:
         return jsonify({'success': False, 'message': '缺少下载链接'})
-    
-    # 不再支持压缩包，只支持 .py 文件
-    if url.endswith('.zip') or '/archive/' in url:
-        return jsonify({'success': False, 'message': '不再支持压缩包，请提供单个 .py 文件的 raw 链接'})
     
     url = convert_github_url(url)
     
@@ -131,11 +127,11 @@ def handle_market_preview():
             content = response.content
         
         if content[:100].lower().find(b'<!doctype html') != -1 or content[:100].lower().find(b'<html') != -1:
-            return jsonify({'success': False, 'message': '下载链接无效，请使用 .py 文件的 raw 链接'})
+            return jsonify({'success': False, 'message': '下载链接无效'})
         
         # 检测是否为压缩包
-        if len(content) >= 2 and content[:2] == b'PK':
-            return jsonify({'success': False, 'message': '不再支持压缩包，请提供单个 .py 文件的 raw 链接'})
+        if len(content) >= 4 and content[:4] == b'PK\x03\x04':
+            return preview_zip_content(content, url)
         
         # 检测是否为 Python 文件
         is_py = url.endswith('.py') or (b'import ' in content[:500] or b'def ' in content[:500] or b'class ' in content[:500])
@@ -150,15 +146,34 @@ def handle_market_preview():
                 filename = 'plugin.py'
             return jsonify({'success': True, 'type': 'py', 'filename': filename, 'content': code, 'size': len(code)})
         else:
-            return jsonify({'success': False, 'message': '不支持的文件类型，仅支持单个 .py 文件'})
+            return jsonify({'success': False, 'message': '不支持的文件类型'})
     except httpx.TimeoutException:
         return jsonify({'success': False, 'message': '下载超时'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'预览失败: {str(e)}'})
 
 
+def preview_zip_content(content, url):
+    """预览压缩包内容"""
+    import zipfile
+    import io
+    try:
+        with zipfile.ZipFile(io.BytesIO(content), 'r') as zf:
+            files = []
+            py_files = [f for f in zf.namelist() if f.endswith('.py') and not f.startswith('__') and '/__pycache__/' not in f]
+            for py_file in py_files[:10]:
+                try:
+                    file_content = zf.read(py_file).decode('utf-8', errors='replace')
+                    files.append({'name': py_file, 'content': file_content[:5000], 'size': len(file_content)})
+                except:
+                    pass
+            return jsonify({'success': True, 'type': 'zip', 'files': files, 'total_files': len(py_files)})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'解析压缩包失败: {str(e)}'})
+
+
 def handle_market_install():
-    """安装插件 - 仅支持单个 .py 文件"""
+    """安装插件"""
     data = request.json or {}
     url = data.get('url', '')
     plugin_name = data.get('name', 'unknown_plugin')
@@ -166,10 +181,6 @@ def handle_market_install():
     
     if not url:
         return jsonify({'success': False, 'message': '缺少下载链接'})
-    
-    # 不再支持压缩包
-    if url.endswith('.zip') or '/archive/' in url:
-        return jsonify({'success': False, 'message': '不再支持压缩包安装，请联系插件作者提供单个 .py 文件'})
     
     url = convert_github_url(url)
     
@@ -187,11 +198,12 @@ def handle_market_install():
             content = response.content
         
         if content[:100].lower().find(b'<!doctype html') != -1 or content[:100].lower().find(b'<html') != -1:
-            return jsonify({'success': False, 'message': '下载链接无效，请使用 .py 文件的 raw 链接'})
+            return jsonify({'success': False, 'message': '下载链接无效'})
         
         # 检测是否为压缩包
         if len(content) >= 4 and content[:4] == b'PK\x03\x04':
-            return jsonify({'success': False, 'message': '不再支持压缩包安装，请联系插件作者提供单个 .py 文件'})
+            result = install_zip_plugin(content, plugin_name)
+            return jsonify(result)
         
         # 检测是否为 Python 文件
         is_py = url.endswith('.py') or (b'import ' in content[:500] or b'def ' in content[:500] or b'class ' in content[:500])
@@ -200,7 +212,7 @@ def handle_market_install():
             result = install_py_plugin(content, plugin_name, url)
             return jsonify(result)
         else:
-            return jsonify({'success': False, 'message': '不支持的文件类型，仅支持单个 .py 文件'})
+            return jsonify({'success': False, 'message': '不支持的文件类型'})
     except httpx.TimeoutException:
         return jsonify({'success': False, 'message': '下载超时'})
     except Exception as e:
@@ -236,6 +248,55 @@ def install_py_plugin(content, plugin_name, url):
         return {'success': True, 'message': f'插件已安装到 plugins/{safe_name}/{filename}', 'path': f'{safe_name}/{filename}'}
     except Exception as e:
         return {'success': False, 'message': f'安装失败: {str(e)}'}
+
+
+def install_zip_plugin(content, plugin_name):
+    """安装压缩包插件"""
+    import zipfile
+    import io
+    try:
+        safe_name = "".join(c for c in plugin_name if c.isalnum() or c in ('_', '-', ' ')).strip() or 'unknown_plugin'
+        dest_dir = os.path.join(PLUGINS_DIR, safe_name)
+        
+        with zipfile.ZipFile(io.BytesIO(content), 'r') as zf:
+            file_list = zf.namelist()
+            if not file_list:
+                return {'success': False, 'message': '压缩包为空'}
+            
+            # 检查是否有根目录
+            root_dirs = set()
+            for f in file_list:
+                parts = f.split('/')
+                if len(parts) > 1 and parts[0]:
+                    root_dirs.add(parts[0])
+            
+            # 如果只有一个根目录，去掉它
+            strip_root = len(root_dirs) == 1
+            root_prefix = list(root_dirs)[0] + '/' if strip_root else ''
+            
+            os.makedirs(dest_dir, exist_ok=True)
+            extracted = []
+            
+            for file_path in file_list:
+                if file_path.endswith('/') or '__pycache__' in file_path or file_path.startswith('__'):
+                    continue
+                
+                # 去掉根目录前缀
+                rel_path = file_path[len(root_prefix):] if strip_root and file_path.startswith(root_prefix) else file_path
+                if not rel_path:
+                    continue
+                
+                dest_path = os.path.join(dest_dir, rel_path)
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                
+                with zf.open(file_path) as src, open(dest_path, 'wb') as dst:
+                    dst.write(src.read())
+                extracted.append(rel_path)
+            
+            py_count = len([f for f in extracted if f.endswith('.py')])
+            return {'success': True, 'message': f'插件已安装到 plugins/{safe_name}/ ({py_count} 个 Python 文件)', 'path': safe_name, 'files': extracted[:20]}
+    except Exception as e:
+        return {'success': False, 'message': f'安装压缩包失败: {str(e)}'}
 
 
 def handle_market_local_plugins():

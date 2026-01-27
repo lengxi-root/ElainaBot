@@ -12,8 +12,13 @@
     <link href="{{ url_for('web.static', filename='css/vendor/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('web.static', filename='css/vendor/bootstrap-icons.css') }}" rel="stylesheet">
     <style>
+        :root {
+            --theme-gradient: {{ web_interface.theme_gradient }};
+            --theme-color: #5865F2;
+        }
+        
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--theme-gradient);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -39,7 +44,7 @@
         .login-icon {
             width: 80px;
             height: 80px;
-            background: linear-gradient(135deg, #4361ee, #3f37c9);
+            background: var(--theme-gradient);
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -73,12 +78,12 @@
         }
         
         .form-control:focus {
-            border-color: #4361ee;
-            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+            border-color: var(--theme-color);
+            box-shadow: 0 0 0 0.2rem rgba(88, 101, 242, 0.25);
         }
         
         .btn-login {
-            background: linear-gradient(135deg, #4361ee, #3f37c9);
+            background: var(--theme-gradient);
             border: none;
             border-radius: 12px;
             padding: 12px 24px;
@@ -89,9 +94,8 @@
         }
         
         .btn-login:hover {
-            background: linear-gradient(135deg, #3f37c9, #4361ee);
             transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(67, 97, 238, 0.3);
+            box-shadow: 0 8px 25px rgba(88, 101, 242, 0.3);
             color: white;
         }
         
@@ -116,7 +120,7 @@
         }
         
         .security-info i {
-            color: #4361ee;
+            color: var(--theme-color);
             margin-right: 5px;
         }
         
@@ -132,12 +136,12 @@
         }
         
         .official-group i {
-            color: #4361ee;
+            color: var(--theme-color);
             margin-right: 6px;
         }
         
         .group-link {
-            color: #4361ee;
+            color: var(--theme-color);
             text-decoration: none;
             font-weight: 500;
             transition: all 0.3s;
@@ -149,8 +153,8 @@
         }
         
         .group-link:hover {
-            color: #3f37c9;
-            background: rgba(67, 97, 238, 0.1);
+            color: var(--theme-color);
+            background: rgba(88, 101, 242, 0.1);
             text-decoration: none;
             transform: translateY(-1px);
         }

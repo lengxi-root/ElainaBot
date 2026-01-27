@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token验证失败 - {{ framework_name }}</title>
+    {% if favicon_url %}
+    <link rel="icon" type="image/x-icon" href="{{ favicon_url }}">
+    <link rel="shortcut icon" type="image/x-icon" href="{{ favicon_url }}">
+    {% endif %}
+    <link href="{{ url_for('web.static', filename='css/vendor/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('web.static', filename='css/vendor/bootstrap-icons.css') }}" rel="stylesheet">
+    <style>
+        :root {
+            --theme-gradient: {{ theme_gradient }};
+        }
+        
+        body {
+            background: var(--theme-gradient);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        
+        .error-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            max-width: 480px;
+            width: 100%;
+            margin: 20px;
+        }
+        
+        .error-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .error-icon {
+            width: 80px;
+            height: 80px;
+            background: var(--theme-gradient);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            color: white;
+            font-size: 32px;
+        }
+        
+        .error-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .error-subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .status-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-danger {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .info-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .info-card h5 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .info-card h5 i {
+            color: #5865F2;
+        }
+        
+        .info-card p {
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #555;
+            padding-left: 8px;
+            border-left: 3px solid #e9ecef;
+        }
+        
+        .info-card p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .info-card code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #e83e8c;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #856404;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        
+        .warning-box i {
+            font-size: 18px;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        
+        .btn-back {
+            background: var(--theme-gradient);
+            border: none;
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-weight: 600;
+            color: white;
+            width: 100%;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        
+        .btn-back:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(88, 101, 242, 0.3);
+            color: white;
+        }
+        
+        .security-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }
+        
+        .security-info i {
+            color: #5865F2;
+            margin-right: 5px;
+        }
+        
+        @media (max-width: 480px) {
+            .error-container {
+                margin: 10px;
+                padding: 30px 25px;
+            }
+            
+            .error-icon {
+                width: 60px;
+                height: 60px;
+                font-size: 24px;
+            }
+            
+            .error-title {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-header">
+            <div class="error-icon">
+                <i class="bi bi-shield-lock"></i>
+            </div>
+            <h1 class="error-title">访问被拒绝</h1>
+            <p class="error-subtitle">Token验证失败</p>
+        </div>
+        
+        <div class="text-center">
+            {% if is_banned %}
+            <span class="status-badge status-danger">
+                <i class="bi bi-ban"></i> 您的IP已被临时封禁
+            </span>
+            {% else %}
+            <span class="status-badge status-warning">
+                <i class="bi bi-exclamation-triangle"></i> 已错误 {{ fail_count }} 次，还剩 {{ remaining }} 次机会
+            </span>
+            {% endif %}
+        </div>
+        
+        <div class="info-card">
+            <h5><i class="bi bi-gear"></i> 请检查您的配置</h5>
+            <p>1. 确认URL中的 <code>token</code> 参数是否正确</p>
+            <p>2. Token可在 <code>config.py</code> 中的 <code>WEB_CONFIG</code> 内的 <code>access_token</code> 查看</p>
+            <p>3. 确保Token没有多余的空格或特殊字符</p>
+        </div>
+        
+        <div class="warning-box">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <div>
+                <strong>安全提示</strong><br>
+                连续 {{ max_fail_count }} 次Token错误将导致IP被临时封禁
+            </div>
+        </div>
+        
+        <div class="info-card">
+            <h5><i class="bi bi-person-gear"></i> 管理员提示</h5>
+            <p>如需解除IP封禁限制，请删除 <code>data/web.ip.json</code> 文件中对应的IP地址记录</p>
+        </div>
+        
+        <div class="security-info">
+            <i class="bi bi-shield-check"></i>
+            此页面受安全验证保护
+        </div>
+    </div>
+</body>
+</html>

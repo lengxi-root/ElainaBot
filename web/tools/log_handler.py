@@ -1,4 +1,6 @@
 import functools
+import os
+import json
 from collections import deque
 from datetime import datetime
 
@@ -107,3 +109,77 @@ def add_error_log(log, traceback_info=None):
 def get_logs_data(log_type):
     handler = _HANDLERS.get(log_type)
     return list(handler.logs) if handler else []
+
+# 登录日志相关
+_WEB_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data', 'web')
+_IP_DATA_FILE = os.path.join(_WEB_DATA_DIR, 'ip.json')
+
+def get_login_logs():
+    """获取登录日志数据"""
+    try:
+        if os.path.exists(_IP_DATA_FILE):
+            with open(_IP_DATA_FILE, 'r', encoding='utf-8') as f:
+                ip_data = json.load(f)
+            
+            logs = []
+            for ip, data in ip_data.items():
+                logs.append({
+                    'ip': ip,
+                    'first_access': data.get('first_access', ''),
+                    'last_access': data.get('last_access', ''),
+                    'token_success_count': data.get('token_success_count', 0),
+                    'token_fail_count': data.get('token_fail_count', 0),
+                    'password_success_count': data.get('password_success_count', 0),
+                    'password_fail_count': data.get('password_fail_count', 0),
+                    'is_banned': data.get('is_banned', False),
+                    'ban_time': data.get('ban_time', ''),
+                    'device_info': data.get('device_info', {}),
+                    'password_fail_times': data.get('password_fail_times', []),
+                    'token_fail_times': data.get('token_fail_times', []),
+                })
+            
+            # 按最后访问时间排序
+            logs.sort(key=lambda x: x['last_access'] or '', reverse=True)
+            return logs
+        return []
+    except Exception as e:
+        return []
+
+def unban_ip(ip_address):
+    """解封IP"""
+    try:
+        if os.path.exists(_IP_DATA_FILE):
+            with open(_IP_DATA_FILE, 'r', encoding='utf-8') as f:
+                ip_data = json.load(f)
+            
+            if ip_address in ip_data:
+                ip_data[ip_address]['is_banned'] = False
+                ip_data[ip_address]['ban_time'] = None
+                ip_data[ip_address]['password_fail_times'] = []
+                ip_data[ip_address]['token_fail_times'] = []
+                ip_data[ip_address]['password_fail_count'] = 0
+                ip_data[ip_address]['token_fail_count'] = 0
+                
+                with open(_IP_DATA_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(ip_data, f, ensure_ascii=False, indent=2)
+                return True
+        return False
+    except:
+        return False
+
+def delete_ip_record(ip_address):
+    """删除IP记录"""
+    try:
+        if os.path.exists(_IP_DATA_FILE):
+            with open(_IP_DATA_FILE, 'r', encoding='utf-8') as f:
+                ip_data = json.load(f)
+            
+            if ip_address in ip_data:
+                del ip_data[ip_address]
+                
+                with open(_IP_DATA_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(ip_data, f, ensure_ascii=False, indent=2)
+                return True
+        return False
+    except:
+        return False

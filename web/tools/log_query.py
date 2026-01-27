@@ -143,3 +143,60 @@ def handle_get_today_logs():
                         'message': f'成功获取今日日志，每种类型最多{limit}条'})
     except Exception as e:
         return jsonify({'success': False, 'error': f'获取今日日志失败: {e}'}), 500
+
+def handle_get_login_logs():
+    """获取登录日志"""
+    try:
+        from web.tools.log_handler import get_login_logs
+        logs = get_login_logs()
+        
+        # 统计数据
+        total = len(logs)
+        banned_count = sum(1 for log in logs if log.get('is_banned'))
+        active_count = total - banned_count
+        
+        return jsonify({
+            'success': True,
+            'data': logs,
+            'stats': {
+                'total': total,
+                'banned': banned_count,
+                'active': active_count
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'获取登录日志失败: {e}'}), 500
+
+def handle_unban_ip():
+    """解封IP"""
+    try:
+        data = request.get_json() or {}
+        ip = data.get('ip', '')
+        
+        if not ip:
+            return jsonify({'success': False, 'error': '缺少IP参数'}), 400
+        
+        from web.tools.log_handler import unban_ip
+        if unban_ip(ip):
+            return jsonify({'success': True, 'message': f'已解封IP: {ip}'})
+        else:
+            return jsonify({'success': False, 'error': '解封失败，IP不存在'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'解封失败: {e}'}), 500
+
+def handle_delete_ip():
+    """删除IP记录"""
+    try:
+        data = request.get_json() or {}
+        ip = data.get('ip', '')
+        
+        if not ip:
+            return jsonify({'success': False, 'error': '缺少IP参数'}), 400
+        
+        from web.tools.log_handler import delete_ip_record
+        if delete_ip_record(ip):
+            return jsonify({'success': True, 'message': f'已删除IP记录: {ip}'})
+        else:
+            return jsonify({'success': False, 'error': '删除失败，IP不存在'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'删除失败: {e}'}), 500

@@ -136,7 +136,7 @@ def catch_error(func):
 require_token = session_manager.require_token(WEB_CONFIG)
 require_auth = session_manager.require_auth(WEB_CONFIG)
 require_socketio_token = session_manager.require_socketio_token(WEB_CONFIG)
-check_ip_ban = session_manager.check_ip_ban
+check_ip_ban = session_manager.check_ip_ban(WEB_CONFIG)
 
 def full_auth(func):
     @functools.wraps(func)
@@ -318,6 +318,21 @@ def get_logs(log_type):
 @full_auth
 def get_today_logs():
     return log_query.handle_get_today_logs()
+
+@web.route('/api/logs/login')
+@full_auth
+def get_login_logs():
+    return log_query.handle_get_login_logs()
+
+@web.route('/api/logs/unban', methods=['POST'])
+@full_auth
+def unban_ip():
+    return log_query.handle_unban_ip()
+
+@web.route('/api/logs/delete-ip', methods=['POST'])
+@full_auth
+def delete_ip_record():
+    return log_query.handle_delete_ip()
 
 @web.route('/status')
 @full_auth

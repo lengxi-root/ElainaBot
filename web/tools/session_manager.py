@@ -88,7 +88,8 @@ def record_ip_access(ip_address, access_type='token_success', device_info=None):
         ip_access_data[ip_address] = {
             'first_access': now_iso, 'last_access': now_iso, 'token_success_count': 0,
             'password_fail_count': 0, 'password_fail_times': [], 'password_success_count': 0,
-            'password_success_times': [], 'device_info': {}, 'is_banned': False, 'ban_time': None
+            'password_success_times': [], 'token_fail_count': 0, 'token_fail_times': [],
+            'device_info': {}, 'is_banned': False, 'ban_time': None
         }
     
     ip_data = ip_access_data[ip_address]
@@ -112,6 +113,17 @@ def record_ip_access(ip_address, access_type='token_success', device_info=None):
         _cleanup_old_times(ip_address, 'password_success_times', _PASSWORD_SUCCESS_WINDOW)
         if device_info:
             ip_data['device_info'] = device_info
+    elif access_type == 'token_fail':
+        if 'token_fail_count' not in ip_data:
+            ip_data['token_fail_count'] = 0
+            ip_data['token_fail_times'] = []
+        ip_data['token_fail_count'] += 1
+        ip_data['token_fail_times'].append(now_iso)
+        _cleanup_old_times(ip_address, 'token_fail_times', _PASSWORD_FAIL_WINDOW)
+        recent_fails = sum(1 for t in ip_data['token_fail_times'] if (now - datetime.fromisoformat(t)).total_seconds() < _PASSWORD_FAIL_WINDOW)
+        if recent_fails >= _MAX_FAIL_COUNT:
+            ip_data['is_banned'] = True
+            ip_data['ban_time'] = now_iso
     
     save_ip_data()
 
@@ -209,13 +221,42 @@ def verify_cookie_value(signed_value, secret=_COOKIE_SECRET):
     except:
         return False, None
 
+def get_token_fail_count(ip_address):
+    """获取IP的token错误次数"""
+    ip_data = ip_access_data.get(ip_address, {})
+    if 'token_fail_times' not in ip_data:
+        return 0
+    now = datetime.now()
+    recent_fails = sum(1 for t in ip_data.get('token_fail_times', []) 
+                      if (now - datetime.fromisoformat(t)).total_seconds() < _PASSWORD_FAIL_WINDOW)
+    return recent_fails
+
+def render_token_error_page(fail_count, WEB_CONFIG):
+    """渲染token错误页面"""
+    from flask import render_template
+    remaining = _MAX_FAIL_COUNT - fail_count
+    is_banned = remaining <= 0
+    
+    return render_template('token_error.html',
+        framework_name=WEB_CONFIG.get('framework_name', 'ElainaBot'),
+        favicon_url=WEB_CONFIG.get('favicon_url', ''),
+        theme_gradient=WEB_CONFIG.get('theme_gradient', 'linear-gradient(135deg, #5865F2, #7289DA)'),
+        fail_count=fail_count,
+        remaining=max(0, remaining),
+        is_banned=is_banned,
+        max_fail_count=_MAX_FAIL_COUNT
+    )
+
 def require_token(WEB_CONFIG):
     def decorator(f):
         @functools.wraps(f)
         def decorated(*args, **kwargs):
             token = request.args.get('token') or request.form.get('token')
             if not token or token != WEB_CONFIG['access_token']:
-                return '', 403
+                client_ip = get_real_ip(request)
+                record_ip_access(client_ip, 'token_fail')
+                fail_count = get_token_fail_count(client_ip)
+                return render_token_error_page(fail_count, WEB_CONFIG), 403
             record_ip_access(request.remote_addr, 'token_success', extract_device_info(request))
             return f(*args, **kwargs)
         return decorated
@@ -274,14 +315,18 @@ def require_socketio_token(WEB_CONFIG):
         return decorated
     return decorator
 
-def check_ip_ban(f):
-    @functools.wraps(f)
-    def wrapper(*args, **kwargs):
-        cleanup_expired_ip_bans()
-        if is_ip_banned(request.remote_addr):
-            return '', 403
-        return f(*args, **kwargs)
-    return wrapper
+def check_ip_ban(WEB_CONFIG):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            cleanup_expired_ip_bans()
+            client_ip = get_real_ip(request)
+            if is_ip_banned(client_ip):
+                fail_count = get_token_fail_count(client_ip)
+                return render_token_error_page(max(fail_count, _MAX_FAIL_COUNT), WEB_CONFIG), 403
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
 
 load_ip_data()
 load_session_data()

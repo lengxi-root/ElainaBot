@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import json, random, tempfile, hashlib, datetime, time, re, base64, os, logging 
+import json, random, tempfile, hashlib, datetime, time, re, base64, os, logging, html
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
 from config import USE_MARKDOWN, IMAGE_BED_CHANNEL_ID, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, ENABLE_FRIEND_ADD_MESSAGE, HIDE_AVATAR_GLOBAL, BILIBILI_IMAGE_BED_CONFIG
@@ -17,16 +17,13 @@ except:
 _image_upload_counter = 0
 _image_upload_msgid = 0
 
-# 获取可选配置，不存在时默认为 False
 try:
     from config import USE_UNION_ID_FOR_GROUP, USE_UNION_ID_FOR_CHANNEL
 except ImportError:
     USE_UNION_ID_FOR_GROUP = USE_UNION_ID_FOR_CHANNEL = False
 
 def _swap_ids(uid, unid, should_swap):
-    if should_swap and unid:
-        return unid, uid, uid
-    return uid, unid or uid, uid
+    return (unid, uid, uid) if should_swap and unid else (uid, unid or uid, uid)
 
 _MSG_TYPES_WITH_MSG_ID = frozenset(['GROUP_AT_MESSAGE_CREATE', 'C2C_MESSAGE_CREATE', 'AT_MESSAGE_CREATE', 'DIRECT_MESSAGE_CREATE'])
 _MSG_TYPES_WITH_EVENT_ID = frozenset(['INTERACTION_CREATE', 'GROUP_ADD_ROBOT', 'FRIEND_ADD'])
@@ -56,60 +53,31 @@ class MessageEvent:
     }
 
     _BASE_ENDPOINTS = {
-        'group': {
-            'reply': '/v2/groups/{group_id}/messages',
-            'recall': '/v2/groups/{group_id}/messages/{message_id}'
-        },
-        'user': {
-            'reply': '/v2/users/{user_id}/messages',
-            'recall': '/v2/users/{user_id}/messages/{message_id}'
-        },
-        'channel': {
-            'reply': '/channels/{channel_id}/messages',
-            'recall': '/channels/{channel_id}/messages/{message_id}'
-        },
-        'channel_dm': {
-            'reply': '/dms/{guild_id}/messages',
-            'recall': '/dms/{guild_id}/messages/{message_id}'
-        }
+        'group': {'reply': '/v2/groups/{group_id}/messages', 'recall': '/v2/groups/{group_id}/messages/{message_id}'},
+        'user': {'reply': '/v2/users/{user_id}/messages', 'recall': '/v2/users/{user_id}/messages/{message_id}'},
+        'channel': {'reply': '/channels/{channel_id}/messages', 'recall': '/channels/{channel_id}/messages/{message_id}'},
+        'channel_dm': {'reply': '/dms/{guild_id}/messages', 'recall': '/dms/{guild_id}/messages/{message_id}'}
     }
     
     _MESSAGE_TYPE_TO_ENDPOINT = {
-        GROUP_MESSAGE: 'group',
-        DIRECT_MESSAGE: 'user', 
-        INTERACTION: 'group',
-        CHANNEL_MESSAGE: 'channel',
-        CHANNEL_DIRECT_MESSAGE: 'channel_dm',
-        GROUP_ADD_ROBOT: 'group',
-        GROUP_DEL_ROBOT: 'group',
-        FRIEND_ADD: 'user',
-        FRIEND_DEL: 'user'
+        GROUP_MESSAGE: 'group', DIRECT_MESSAGE: 'user', INTERACTION: 'group',
+        CHANNEL_MESSAGE: 'channel', CHANNEL_DIRECT_MESSAGE: 'channel_dm',
+        GROUP_ADD_ROBOT: 'group', GROUP_DEL_ROBOT: 'group', FRIEND_ADD: 'user', FRIEND_DEL: 'user'
     }
 
     _IGNORE_ERROR_CODES = [11293, 40054002, 40054003]
-    
     _TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
-    
-    _MSG_TYPES_NEED_MSG_ID = None
-    _MSG_TYPES_NEED_EVENT_ID = None
-    _MSG_TYPES_NO_RECORD = None
-    _MSG_TYPES_NEED_EVENT_PREFIX = None
-    
-    _EVENT_PREFIX_MAP = {
-        'GROUP_ADD_ROBOT': 'ROBOT_ADD',
-        'FRIEND_ADD': 'FRIEND_ADD'
-    }
+    _MSG_TYPES_NEED_MSG_ID = _MSG_TYPES_NEED_EVENT_ID = _MSG_TYPES_NO_RECORD = _MSG_TYPES_NEED_EVENT_PREFIX = None
+    _EVENT_PREFIX_MAP = {'GROUP_ADD_ROBOT': 'ROBOT_ADD', 'FRIEND_ADD': 'FRIEND_ADD'}
     
     _MARKDOWN_PATTERNS = [
-        re.compile(r'(!?\[.*?\])(\s*\(.*?\))'),
-        re.compile(r'(\[.*?\])(\[.*?\])'),
-        re.compile(r'(\*)([^*]+?\*)'),
-        re.compile(r'(`)([^`]+?`)'),
-        re.compile(r'(_)([^_]*?_)'),
-        re.compile(r'(``)(`)')
+        re.compile(r'(!?\[.*?\])(\s*\(.*?\))'), re.compile(r'(\[.*?\])(\[.*?\])'),
+        re.compile(r'(\*)([^*]+?\*)'), re.compile(r'(`)([^`]+?`)'),
+        re.compile(r'(_)([^_]*?_)'), re.compile(r'(``)(`)')
     ]
     _LINK_PATTERN = re.compile(r'\[([^\]]*)\]\(([^\)]*)\)')
     _FACE_PATTERN = re.compile(r'<faceType=\d+,faceId="[^"]+",ext="[^"]+">')
+    _plugin_manager = None
     
     @classmethod
     def _init_type_sets(cls):
@@ -126,6 +94,16 @@ class MessageEvent:
     @classmethod
     def _get_event_prefix(cls, message_type):
         return cls._EVENT_PREFIX_MAP.get(message_type, 'UNKNOWN')
+    
+    @classmethod
+    def _get_plugin_manager(cls):
+        if cls._plugin_manager is None:
+            try:
+                from core.plugin.PluginManager import PluginManager
+                cls._plugin_manager = PluginManager
+            except:
+                pass
+        return cls._plugin_manager
 
     def __init__(self, data, skip_recording=False, http_context=None):
         if self._MSG_TYPES_NEED_MSG_ID is None:
@@ -144,13 +122,11 @@ class MessageEvent:
         self.skip_recording = skip_recording
         self._endpoint_cache = {}
         self._capture_http_context(http_context)
-        
         self._parse_message()
     
     @property
     def db(self):
         if self._db is None:
-            from function.database import Database
             self._db = Database()
         return self._db
 
@@ -162,21 +138,16 @@ class MessageEvent:
             self.request_remote_addr = http_context.get('remote_addr')
             self.request_headers = http_context.get('headers', {})
         else:
-            self.request_path = None
-            self.request_method = None
-            self.request_url = None
-            self.request_remote_addr = None
+            self.request_path = self.request_method = self.request_url = self.request_remote_addr = None
             self.request_headers = {}
     
     def get_header(self, header_name, default=None):
         if not self.request_headers:
             return default
         header_name_lower = header_name.lower()
-        
         for key, value in self.request_headers.items():
             if key.lower() == header_name_lower:
                 return value
-        
         return default
 
     def _parse_message(self):
@@ -188,62 +159,36 @@ class MessageEvent:
             self.user_id = self.group_id = self.guild_id = self.union_openid = self.raw_user_id = None
             self.is_group = self.is_private = False
 
-    def _parse_group_message(self):
-        self.message_type = self.GROUP_MESSAGE
-        self.content = self.sanitize_content(self.get('d/content'))
-        
-        attachments = self.get('d/attachments')
+    def _extract_image_from_attachments(self, attachments):
         if attachments and isinstance(attachments, list):
             for att in attachments:
                 if att.get('content_type', '').startswith('image/'):
-                    import html
-                    url = att.get('url', '')
-                    url = html.unescape(url)
-                    if self.content:
-                        self.content += f"<{url}>"
-                    else:
-                        self.content = f"<{url}>"
-                    break
-        
+                    url = html.unescape(att.get('url', ''))
+                    return f"<{url}>" if url else None
+        return None
+
+    def _parse_group_message(self):
+        self.message_type = self.GROUP_MESSAGE
+        self.content = self.sanitize_content(self.get('d/content'))
+        img = self._extract_image_from_attachments(self.get('d/attachments'))
+        if img:
+            self.content = f"{self.content}{img}" if self.content else img
         self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
-            self.get('d/author/id'),
-            self.get('d/author/union_openid'),
-            USE_UNION_ID_FOR_GROUP
-        )
-        
+            self.get('d/author/id'), self.get('d/author/union_openid'), USE_UNION_ID_FOR_GROUP)
         self.group_id = self.get('d/group_id')
         self.guild_id = None
-        self.is_group = True
-        self.is_private = False
+        self.is_group, self.is_private = True, False
 
     def _parse_direct_message(self):
         self.message_type = self.DIRECT_MESSAGE
         self.content = self.sanitize_content(self.get('d/content'))
-        
-        attachments = self.get('d/attachments')
-        if attachments and isinstance(attachments, list):
-            for att in attachments:
-                if att.get('content_type', '').startswith('image/'):
-                    import html
-                    url = att.get('url', '')
-                    url = html.unescape(url)
-                    if self.content:
-                        self.content += f"<{url}>"
-                    else:
-                        self.content = f"<{url}>"
-                    break
-        
+        img = self._extract_image_from_attachments(self.get('d/attachments'))
+        if img:
+            self.content = f"{self.content}{img}" if self.content else img
         self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
-            self.get('d/author/id'),
-            self.get('d/author/union_openid'),
-            USE_UNION_ID_FOR_GROUP
-        )
-        
+            self.get('d/author/id'), self.get('d/author/union_openid'), USE_UNION_ID_FOR_GROUP)
         self.group_id = self.guild_id = None
-        self.is_group = False
-        self.is_private = True
-        
-        # 记录私聊用户召回状态
+        self.is_group, self.is_private = False, True
         if self.user_id:
             from function.log_db import update_user_wakeup
             update_user_wakeup(self.user_id)
@@ -255,8 +200,7 @@ class MessageEvent:
         self.message_type = self.INTERACTION
         chat_type = self.get('d/chat_type')
         scene = self.get('d/scene')
-        self.chat_type = chat_type
-        self.scene = scene
+        self.chat_type, self.scene = chat_type, scene
         if chat_type == 1 or scene == 'group':
             self.group_id = self.get('d/group_openid') or self.get('d/group_id')
             self.user_id = self.get('d/group_member_openid') or self.get('d/author/id')
@@ -270,8 +214,7 @@ class MessageEvent:
             self.user_id = self.get('d/group_member_openid') or self.get('d/user_openid') or self.get('d/author/id')
             self.is_group = bool(self.group_id)
             self.is_private = not self.is_group
-        self.union_openid = None
-        self.guild_id = None
+        self.union_openid = self.guild_id = None
         self.raw_user_id = self.user_id
         button_data = self.get('d/data/resolved/button_data')
         self.content = self.sanitize_content(button_data) if button_data else ""
@@ -289,13 +232,8 @@ class MessageEvent:
                         raw_content = raw_content[len(prefix):].lstrip()
                         break
         self.content = self.sanitize_content(raw_content.strip() if raw_content else "")
-        
         self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
-            self.get('d/author/id'),
-            self.get('d/author/union_openid'),
-            USE_UNION_ID_FOR_CHANNEL
-        )
-        
+            self.get('d/author/id'), self.get('d/author/union_openid'), USE_UNION_ID_FOR_CHANNEL)
         self.group_id = self.get('d/channel_id')
         self.guild_id = None
         self.is_group = self.is_private = False
@@ -303,35 +241,18 @@ class MessageEvent:
     def _parse_channel_direct_message(self):
         self.message_type = self.CHANNEL_DIRECT_MESSAGE
         self.content = self.sanitize_content(self.get('d/content'))
-        
-        attachments = self.get('d/attachments')
-        if attachments and isinstance(attachments, list):
-            for att in attachments:
-                if att.get('content_type', '').startswith('image/'):
-                    import html
-                    url = att.get('url', '')
-                    url = html.unescape(url)
-                    if self.content:
-                        self.content += f"<{url}>"
-                    else:
-                        self.content = f"<{url}>"
-                    break
-        
+        img = self._extract_image_from_attachments(self.get('d/attachments'))
+        if img:
+            self.content = f"{self.content}{img}" if self.content else img
         self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
-            self.get('d/author/id'),
-            self.get('d/author/union_openid'),
-            USE_UNION_ID_FOR_CHANNEL
-        )
-        
+            self.get('d/author/id'), self.get('d/author/union_openid'), USE_UNION_ID_FOR_CHANNEL)
         self.group_id = None
         self.guild_id = self.get('d/guild_id')
-        self.is_group = False
-        self.is_private = True
+        self.is_group, self.is_private = False, True
 
     def _parse_group_add_robot(self):
         self.message_type = self.GROUP_ADD_ROBOT
-        self.user_id = self.get('d/op_member_openid')
-        self.raw_user_id = self.user_id
+        self.user_id = self.raw_user_id = self.get('d/op_member_openid')
         self.group_id = self.get('d/group_openid')
         self.union_openid = self.guild_id = None
         self.is_group, self.is_private = True, False
@@ -347,8 +268,7 @@ class MessageEvent:
 
     def _parse_group_del_robot(self):
         self.message_type = self.GROUP_DEL_ROBOT
-        self.user_id = self.get('d/op_member_openid')
-        self.raw_user_id = self.user_id
+        self.user_id = self.raw_user_id = self.get('d/op_member_openid')
         self.group_id = self.get('d/group_openid')
         self.union_openid = self.guild_id = None
         self.is_group, self.is_private = True, False
@@ -361,38 +281,31 @@ class MessageEvent:
 
     def _parse_friend_add(self):
         self.message_type = self.FRIEND_ADD
-        self.user_id = self.get('d/openid')
-        self.raw_user_id = self.user_id
+        self.user_id = self.raw_user_id = self.get('d/openid')
         self.group_id = self.union_openid = self.guild_id = None
         self.is_group, self.is_private = False, True
         self.timestamp = self.get('d/timestamp')
         self.id = self.get('id')
-        
         self.scene = self.get('d/scene') or 0
         self.scene_param = self.get('d/scene_param')
         self.sharer_id = None
-        
         try:
             self.scene = int(self.scene)
         except:
             self.scene = 0
-        
         if self.scene_param:
             try:
                 data = json.loads(self.scene_param) if isinstance(self.scene_param, str) else self.scene_param
                 self.sharer_id = data.get('callbackData', '') if isinstance(data, dict) else self.scene_param
             except:
                 self.sharer_id = self.scene_param
-            
             if self.sharer_id:
                 from function.log_db import record_share_relation
                 record_share_relation(self.sharer_id, self.user_id, self.scene)
-        
         self.content = f"用户 {self.user_id} 添加机器人为好友"
         if self.sharer_id:
             from function.log_db import get_scene_name
             self.content += f" (通过 {self.sharer_id} 的分享链接, 场景: {get_scene_name(self.scene)})"
-        
         self.handled = self.welcome_allowed = True
         from function.log_db import add_dau_event_to_db
         add_dau_event_to_db('friend_add')
@@ -402,8 +315,7 @@ class MessageEvent:
 
     def _parse_friend_del(self):
         self.message_type = self.FRIEND_DEL
-        self.user_id = self.get('d/openid')
-        self.raw_user_id = self.user_id
+        self.user_id = self.raw_user_id = self.get('d/openid')
         self.group_id = self.union_openid = self.guild_id = None
         self.is_group, self.is_private = False, True
         self.timestamp = self.get('d/timestamp')
@@ -440,29 +352,23 @@ class MessageEvent:
     def _send_media_message(self, data, content, file_type, content_type, auto_delete_time=None, converter=None):
         if not self._check_send_conditions():
             return None
-            
         processed_data = self._prepare_media_data(data)
-        
         if converter:
             processed_data = converter(processed_data)
             if not processed_data:
                 return None
-        
         file_info = self.upload_media(processed_data, file_type)
         if not file_info:
             return None
-            
         payload = self._build_media_message_payload(content, file_info)
         endpoint = self._get_endpoint()
-        
         if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-        
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}")
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
-    def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None, use_markdown=None):
+    def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None, use_markdown=None, prompt_buttons=None):
         if not self._check_send_conditions() or self.message_type not in self._MESSAGE_TYPE_TO_ENDPOINT:
             return None
         media_payload = None
@@ -472,13 +378,10 @@ class MessageEvent:
                 media_payload = {'type': 3, 'file_info': file_info} if file_info else None
             elif isinstance(media, list) and media:
                 media_payload = media[0]
-        
         hide_avatar_and_center = HIDE_AVATAR_GLOBAL if hide_avatar_and_center is None else hide_avatar_and_center
-        payload = self._build_message_payload(content, buttons or [], media_payload, hide_avatar_and_center, use_markdown)
-        
+        payload = self._build_message_payload(content, buttons or [], media_payload, hide_avatar_and_center, use_markdown, prompt_buttons)
         if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX and not payload.get('event_id'):
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-        
         message_id = self._send_with_error_handling(payload, self._get_endpoint('reply'), "消息", f"content: {content}")
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
@@ -496,97 +399,88 @@ class MessageEvent:
         return self._send_simple_message(
             lambda: self._build_ark_message_payload(template_id, 
                 self._convert_simple_ark_data(template_id, kv_data) if isinstance(kv_data, (tuple, list)) and template_id in [23, 24, 37] else kv_data, content),
-            "ark卡片消息",
-            auto_delete_time
-        )
+            "ark卡片消息", auto_delete_time)
 
-    def reply_markdown(self, template, params=None, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
+    def reply_markdown(self, template, params=None, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None, prompt_buttons=None):
         if hide_avatar_and_center is None:
             hide_avatar_and_center = HIDE_AVATAR_GLOBAL
-            
-        def build_payload():
-            template_data = self._build_markdown_template_data(template, params)
-            if not template_data:
-                return None
-            return self._build_markdown_message_payload(template_data, keyboard_id, hide_avatar_and_center)
-        
         if not self._check_send_conditions():
             return None
-            
-        payload = build_payload()
-        if not payload:
+        template_data = self._build_markdown_template_data(template, params)
+        if not template_data:
             return None
-            
+        payload = self._build_markdown_message_payload(template_data, keyboard_id, hide_avatar_and_center, prompt_buttons)
         endpoint = self._get_endpoint()
-        
         if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-        
         message_id = self._send_with_error_handling(payload, endpoint, "markdown模板消息", f"template: {template}, params: {params}")
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
-    def reply_md(self, template, params=None, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
-        return self.reply_markdown(template, params, keyboard_id, hide_avatar_and_center, auto_delete_time)
+    def reply_md(self, template, params=None, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None, prompt_buttons=None):
+        return self.reply_markdown(template, params, keyboard_id, hide_avatar_and_center, auto_delete_time, prompt_buttons)
 
     def _process_button_parameter(self, button_param):
         if not button_param:
             return None
         return {"id": str(button_param)} if isinstance(button_param, str) else button_param if isinstance(button_param, dict) else None
 
+    def _build_prompt_keyboard(self, prompt_buttons):
+        """构建prompt_keyboard扩展按钮，最多3个，支持: 字符串 / (label, style) / 字典"""
+        if not prompt_buttons:
+            return None
+        if isinstance(prompt_buttons, dict):
+            return {"keyboard": prompt_buttons}
+        items = [prompt_buttons] if not isinstance(prompt_buttons, (list, tuple)) else list(prompt_buttons)
+        action = {"type": 2, "data": "elaina", "enter": True}
+        buttons = []
+        for i, btn in enumerate(items[:3]):
+            if isinstance(btn, str):
+                buttons.append({"id": str(i+1), "render_data": {"label": btn, "visited_label": btn, "style": 1}, "action": action})
+            elif isinstance(btn, (list, tuple)):
+                label, style = (btn[0] if btn else ""), (btn[1] if len(btn) > 1 else 1)
+                buttons.append({"id": str(i+1), "render_data": {"label": label, "visited_label": label, "style": style}, "action": action})
+            elif isinstance(btn, dict):
+                btn.setdefault("id", str(i+1))
+                btn.setdefault("action", action)
+                buttons.append(btn)
+        return {"keyboard": {"content": {"rows": [{"buttons": buttons}]}}} if buttons else None
+
     def _split_markdown_to_params(self, text):
         from config import MARKDOWN_AJ_TEMPLATE
         import uuid
-        
-        # 处理转义字符：将字面量 \r \n 转换为实际的控制字符
         if '\\r' in text:
             text = text.replace('\\r', '\r')
         if '\\n' in text:
             text = text.replace('\\n', '\n')
-        
-        # 统一使用 \r 作为换行符
         text = text.replace('\n', '\r')
         delimiter = str(uuid.uuid4())
-
         for pattern in self._MARKDOWN_PATTERNS:
             text = pattern.sub(lambda m: delimiter.join(m.groups()), text)
-
         parts = text.split(delimiter) if delimiter in text else [text]
-
         keys_list = [k.strip() for k in MARKDOWN_AJ_TEMPLATE['keys'].split(',')] if ',' in MARKDOWN_AJ_TEMPLATE['keys'] else list(MARKDOWN_AJ_TEMPLATE['keys'])
-        # 只写入实际使用的参数，不填充空参数
-        params = [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
+        return [{"key": keys_list[i], "values": [part]} for i, part in enumerate(parts) if i < len(keys_list)]
 
-        return params
-
-    def reply_markdown_aj(self, text, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None):
+    def reply_markdown_aj(self, text, keyboard_id=None, hide_avatar_and_center=None, auto_delete_time=None, prompt_buttons=None):
         from config import MARKDOWN_AJ_TEMPLATE
-        
         if not self._check_send_conditions():
             return None
-        
         payload = {
-            "msg_type": 2,
-            "msg_seq": self._generate_msg_seq(),
-            "markdown": {
-                "custom_template_id": MARKDOWN_AJ_TEMPLATE['template_id'],
-                "params": self._split_markdown_to_params(text)
-            }
+            "msg_type": 2, "msg_seq": self._generate_msg_seq(),
+            "markdown": {"custom_template_id": MARKDOWN_AJ_TEMPLATE['template_id'], "params": self._split_markdown_to_params(text)}
         }
-        
         if hide_avatar_and_center if hide_avatar_and_center is not None else HIDE_AVATAR_GLOBAL:
             payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
-        
         if self.message_type != self.CHANNEL_DIRECT_MESSAGE:
             button_data = self._process_button_parameter(keyboard_id)
             if button_data:
                 payload["keyboard"] = button_data
-        
+            prompt_keyboard_data = self._build_prompt_keyboard(prompt_buttons)
+            if prompt_keyboard_data:
+                payload["prompt_keyboard"] = prompt_keyboard_data
         payload = self._set_message_id_in_payload(payload)
-        
         if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-        
         message_id = self._send_with_error_handling(payload, self._get_endpoint(), "markdown AJ模板消息", f"text: {text[:50]}...")
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
@@ -614,64 +508,30 @@ class MessageEvent:
 
     def _convert_to_silk(self, audio_data):
         import subprocess, tempfile, platform, stat
-        audio_path = pcm_path = silk_path = codec_path = None
+        audio_path = pcm_path = silk_path = None
         try:
-            # 写入音频数据到临时文件
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as f:
                 audio_path = f.name
                 f.write(audio_data)
-            
-            # 使用 ffmpeg 转换为 PCM (24000Hz, 单声道, s16le)
             pcm_path = audio_path + '.pcm'
-            subprocess.run(
-                ['ffmpeg', '-y', '-i', audio_path, '-ar', '24000', '-ac', '1', '-f', 's16le', 
-                 '-loglevel', 'quiet', '-hide_banner', pcm_path], 
-                check=True, 
-                stdout=subprocess.DEVNULL, 
-                stderr=subprocess.DEVNULL
-            )
-            
-            # 获取对应平台的 silk_codec 路径
+            subprocess.run(['ffmpeg', '-y', '-i', audio_path, '-ar', '24000', '-ac', '1', '-f', 's16le', 
+                '-loglevel', 'quiet', '-hide_banner', pcm_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             system = platform.system().lower()
             machine = platform.machine().lower()
-            
             codec_name = None
             if system == 'windows':
-                if 'amd64' in machine or 'x86_64' in machine:
-                    codec_name = 'silk_codec-windows-static-x64.exe'
-                elif '386' in machine or 'x86' in machine:
-                    codec_name = 'silk_codec-windows-static-x86.exe'
+                codec_name = 'silk_codec-windows-static-x64.exe' if 'amd64' in machine or 'x86_64' in machine else 'silk_codec-windows-static-x86.exe' if '386' in machine or 'x86' in machine else None
             elif system == 'linux':
-                if 'amd64' in machine or 'x86_64' in machine:
-                    codec_name = 'silk_codec-linux-x64'
-                elif 'arm64' in machine or 'aarch64' in machine:
-                    codec_name = 'silk_codec-linux-arm64'
-            
+                codec_name = 'silk_codec-linux-x64' if 'amd64' in machine or 'x86_64' in machine else 'silk_codec-linux-arm64' if 'arm64' in machine or 'aarch64' in machine else None
             if not codec_name:
                 return None
-            
-            # 获取 silk_codec 文件路径
-            import os
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            codec_path = os.path.join(current_dir, 'silk', 'exec', codec_name)
-            
+            codec_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'silk', 'exec', codec_name)
             if not os.path.exists(codec_path):
                 return None
-            
-            # 设置可执行权限（Linux/Mac）
             if system != 'windows':
                 os.chmod(codec_path, os.stat(codec_path).st_mode | stat.S_IEXEC)
-            
-            # 调用 silk_codec 进行编码
             silk_path = audio_path + '.silk'
-            subprocess.run(
-                [codec_path, 'pts', '-i', pcm_path, '-o', silk_path, '-s', '24000'],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            
-            # 读取生成的 SILK 文件
+            subprocess.run([codec_path, 'pts', '-i', pcm_path, '-o', silk_path, '-s', '24000'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             with open(silk_path, 'rb') as f:
                 return f.read()
         except:
@@ -704,43 +564,19 @@ class MessageEvent:
             return BOTAPI(endpoint, "DELETE", None, group_id=group_id)
         except:
             return None
-
-    # 缓存 PluginManager 引用，避免每次发送消息时导入
-    _plugin_manager = None
-    
-    @classmethod
-    def _get_plugin_manager(cls):
-        """延迟获取 PluginManager，缓存引用"""
-        if cls._plugin_manager is None:
-            try:
-                from core.plugin.PluginManager import PluginManager
-                cls._plugin_manager = PluginManager
-            except:
-                pass
-        return cls._plugin_manager
     
     def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info=""):
-        # 调用消息拦截器 - 仅在有拦截器时执行
         pm = self._get_plugin_manager()
         if pm and pm.has_message_interceptors():
             try:
-                message_info = {
-                    'event': self,
-                    'send_type': content_type,
-                    'payload': payload,
-                    'endpoint': endpoint
-                }
+                message_info = {'event': self, 'send_type': content_type, 'payload': payload, 'endpoint': endpoint}
                 result = pm.call_message_interceptors(message_info)
                 if result is None:
-                    return None  # 消息被拦截
-                # 使用可能被修改的payload
+                    return None
                 payload = result.get('payload', payload)
-            except Exception:
-                pass  # 拦截器调用失败不影响发送
-        
-        # 获取群ID用于判断是否使用沙盒API
+            except:
+                pass
         group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
-        
         for retry_count in range(2):
             response = BOTAPI(endpoint, "POST", Json(payload), group_id=group_id)
             resp_obj = self._parse_response(response)
@@ -755,12 +591,7 @@ class MessageEvent:
                     continue
                 self._log_error(f"发送{content_type}失败：{resp_obj.get('message')} code：{error_code}", resp_obj=resp_obj, send_payload=payload, raw_message=self.raw_data)
                 MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
-                import json
-                return json.dumps({
-                    'error': True,
-                    'message': resp_obj.get('message', '未知错误'),
-                    'code': error_code
-                })
+                return json.dumps({'error': True, 'message': resp_obj.get('message', '未知错误'), 'code': error_code})
             msg_id = self._extract_message_id(response)
             if msg_id:
                 self._last_sent_payload = payload
@@ -778,15 +609,10 @@ class MessageEvent:
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
-    def _build_message_payload(self, content, buttons, media, hide_avatar_and_center=False, use_markdown=None):
+    def _build_message_payload(self, content, buttons, media, hide_avatar_and_center=False, use_markdown=None, prompt_buttons=None):
         should_use_markdown = USE_MARKDOWN if use_markdown is None else use_markdown
-        payload = {
-            "msg_type": 7 if media else (2 if should_use_markdown else 0),
-            "msg_seq": self._generate_msg_seq()
-        }
-        
+        payload = {"msg_type": 7 if media else (2 if should_use_markdown else 0), "msg_seq": self._generate_msg_seq()}
         payload = self._set_message_id_in_payload(payload)
-        
         if media:
             payload['content'] = ''
             payload['media'] = {'file_info': media['file_info']} if isinstance(media, dict) and 'file_info' in media else media
@@ -797,52 +623,30 @@ class MessageEvent:
                     payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
             else:
                 payload['content'] = content
-        
         if self.message_type != self.CHANNEL_DIRECT_MESSAGE:
             button_data = self._process_button_parameter(buttons)
             if button_data:
                 payload['keyboard'] = button_data
-                
+            prompt_keyboard_data = self._build_prompt_keyboard(prompt_buttons)
+            if prompt_keyboard_data:
+                payload['prompt_keyboard'] = prompt_keyboard_data
         return payload
 
     def _build_media_message_payload(self, content, file_info):
-        payload = {
-            "msg_type": 7,
-            "msg_seq": self._generate_msg_seq(),
-            "content": content or '',
-            "media": {'file_info': file_info}
-        }
+        payload = {"msg_type": 7, "msg_seq": self._generate_msg_seq(), "content": content or '', "media": {'file_info': file_info}}
         return self._set_message_id_in_payload(payload)
 
     def _build_ark_message_payload(self, template_id, kv_data, content):
-        payload = {
-            "msg_type": 3,
-            "msg_seq": self._generate_msg_seq(),
-            "content": content or '',
-            "ark": {
-                "template_id": template_id,
-                "kv": kv_data
-            }
-        }
+        payload = {"msg_type": 3, "msg_seq": self._generate_msg_seq(), "content": content or '', "ark": {"template_id": template_id, "kv": kv_data}}
         return self._set_message_id_in_payload(payload)
 
     def _convert_simple_ark_data(self, template_id, simple_data):
         if template_id == 24:
             keys = ["#DESC#", "#PROMPT#", "#TITLE#", "#METADESC#", "#IMG#", "#LINK#", "#SUBTITLE#"]
-            kv_data = []
-            for i, value in enumerate(simple_data):
-                if i < len(keys) and value is not None:
-                    kv_data.append({"key": keys[i], "value": str(value)})
-            return kv_data
-            
+            return [{"key": keys[i], "value": str(v)} for i, v in enumerate(simple_data) if i < len(keys) and v is not None]
         elif template_id == 37:
             keys = ["#PROMPT#", "#METATITLE#", "#METASUBTITLE#", "#METACOVER#", "#METAURL#"]
-            kv_data = []
-            for i, value in enumerate(simple_data):
-                if i < len(keys) and value is not None:
-                    kv_data.append({"key": keys[i], "value": str(value)})
-            return kv_data
-            
+            return [{"key": keys[i], "value": str(v)} for i, v in enumerate(simple_data) if i < len(keys) and v is not None]
         elif template_id == 23:
             kv_data = []
             if len(simple_data) >= 1 and simple_data[0] is not None:
@@ -862,7 +666,6 @@ class MessageEvent:
                             obj_list.append({"obj_kv": obj_kv})
                 kv_data.append({"key": "#LIST#", "obj": obj_list})
             return kv_data
-            
         return simple_data
 
     def _build_markdown_template_data(self, template, params):
@@ -884,7 +687,6 @@ class MessageEvent:
                 return None
             template_id = template_config['id']
             template_params = template_config['params']
-            
             param_list = []
             if params:
                 for i, param_name in enumerate(template_params):
@@ -899,58 +701,35 @@ class MessageEvent:
                                 values = [str(v) for v in param_value if v is not None]
                         else:
                             values = [str(param_value)]
-                        
-                        param_list.append({
-                            "key": param_name,
-                            "values": values
-                        })
-            
-            template_data = {"custom_template_id": template_id, "params": param_list}
-            
-            return template_data
+                        param_list.append({"key": param_name, "values": values})
+            return {"custom_template_id": template_id, "params": param_list}
         except Exception as e:
             logging.error(f"[Markdown模板发送] 构建模板数据失败: {str(e)}")
             return None
     
     def _split_markdown_to_values(self, text):
         import uuid
-        
         text = text.replace('\n', '\r')
         delimiter = str(uuid.uuid4())
-
         for pattern in self._MARKDOWN_PATTERNS[:-1]:
             text = pattern.sub(lambda m: delimiter.join(m.groups()), text)
-
         parts = text.split(delimiter) if delimiter in text else [text]
-
         final_parts = []
         for part in parts:
-            sub_parts = self._split_bracket_links(part)
-            final_parts.extend(sub_parts)
-        
+            final_parts.extend(self._split_bracket_links(part))
         merged_parts = self._merge_split_parts(final_parts)
-        
         return merged_parts if merged_parts else [text]
     
     def _split_bracket_links(self, text):
-        parts = []
-        current = ""
-        i = 0
-        
+        parts, current, i = [], "", 0
         while i < len(text):
             if text[i] == '[':
-                remaining = text[i:]
-                match = self._LINK_PATTERN.match(remaining)
-                
+                match = self._LINK_PATTERN.match(text[i:])
                 if match:
-                    bracket_content = match.group(1)
-                    paren_content = match.group(2)
-                    
-                    current += '[' + bracket_content
+                    current += '[' + match.group(1)
                     if current:
                         parts.append(current)
-                    
-                    current = '](' + paren_content + ')'
+                    current = '](' + match.group(2) + ')'
                     i += len(match.group(0))
                 else:
                     current += text[i]
@@ -958,66 +737,45 @@ class MessageEvent:
             else:
                 current += text[i]
                 i += 1
-        
         if current:
             parts.append(current)
-        
         return parts if parts else [text]
     
     def _merge_split_parts(self, parts):
         if not parts or len(parts) <= 1:
             return parts
-        
-        merged = []
-        current = parts[0]
-        
+        merged, current = [], parts[0]
         for i in range(1, len(parts)):
-            next_part = parts[i]
-            test_merged = current + next_part
-            
+            test_merged = current + parts[i]
             if self._LINK_PATTERN.search(test_merged):
                 merged.append(current)
-                current = next_part
+                current = parts[i]
             else:
                 current = test_merged
-        
         if current:
             merged.append(current)
-        
         return merged
 
-    def _build_markdown_message_payload(self, template_data, keyboard_id=None, hide_avatar_and_center=False):
-        payload = {
-            "msg_type": 2,
-            "msg_seq": self._generate_msg_seq(),
-            "markdown": {"custom_template_id": template_data["custom_template_id"]}
-        }
-        
+    def _build_markdown_message_payload(self, template_data, keyboard_id=None, hide_avatar_and_center=False, prompt_buttons=None):
+        payload = {"msg_type": 2, "msg_seq": self._generate_msg_seq(), "markdown": {"custom_template_id": template_data["custom_template_id"]}}
         if template_data.get("params"):
             payload["markdown"]["params"] = template_data["params"]
-        
         if hide_avatar_and_center:
             payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
-        
         if self.message_type != self.CHANNEL_DIRECT_MESSAGE:
             button_data = self._process_button_parameter(keyboard_id)
             if button_data:
                 payload["keyboard"] = button_data
-        
+            prompt_keyboard_data = self._build_prompt_keyboard(prompt_buttons)
+            if prompt_keyboard_data:
+                payload["prompt_keyboard"] = prompt_keyboard_data
         return self._set_message_id_in_payload(payload)
 
     def _fill_endpoint_template(self, template):
-        replacements = {
-            '{group_id}': self.group_id,
-            '{user_id}': self.user_id,
-            '{channel_id}': self.group_id,  # 频道消息的 group_id 就是 channel_id
-            '{guild_id}': self.guild_id  # 频道私聊需要 guild_id
-        }
-        
+        replacements = {'{group_id}': self.group_id, '{user_id}': self.user_id, '{channel_id}': self.group_id, '{guild_id}': self.guild_id}
         for key, value in replacements.items():
             if key in template and value:
                 template = template.replace(key, value)
-                
         return template
 
     def _extract_message_id(self, response):
@@ -1121,33 +879,19 @@ class MessageEvent:
         self._notify_web_display(timestamp)
     
     def _record_message_to_db_only(self):
-        from function.log_db import add_log_to_db
         from config import SAVE_RAW_MESSAGE_TO_DB
         timestamp = datetime.datetime.now().strftime(self._TIMESTAMP_FORMAT)
         db_entry = {
-            'timestamp': timestamp, 
-            'type': 'received',
-            'content': self.content or "", 
-            'user_id': self.user_id or "未知用户", 
-            'group_id': self.group_id or "c2c",
-            'plugin_name': ''
+            'timestamp': timestamp, 'type': 'received', 'content': self.content or "", 
+            'user_id': self.user_id or "未知用户", 'group_id': self.group_id or "c2c", 'plugin_name': ''
         }
-        if SAVE_RAW_MESSAGE_TO_DB:
-            db_entry['raw_message'] = json.dumps(self.raw_data, ensure_ascii=False, indent=2) if isinstance(self.raw_data, dict) else str(self.raw_data)
-        else:
-            db_entry['raw_message'] = ''
+        db_entry['raw_message'] = json.dumps(self.raw_data, ensure_ascii=False, indent=2) if SAVE_RAW_MESSAGE_TO_DB and isinstance(self.raw_data, dict) else str(self.raw_data) if SAVE_RAW_MESSAGE_TO_DB else ''
         add_log_to_db('message', db_entry)
 
     def _notify_web_display(self, timestamp):
         from web.app import add_display_message
-        formatted_message = self.content or ""
-        add_display_message(
-            formatted_message, 
-            timestamp, 
-            user_id=self.user_id,
-            group_id=self.group_id if self.group_id and self.group_id != "c2c" else None,
-            message_content=self.content
-        )
+        add_display_message(self.content or "", timestamp, user_id=self.user_id,
+            group_id=self.group_id if self.group_id and self.group_id != "c2c" else None, message_content=self.content)
 
     def _record_user_and_group(self):
         def async_welcome_check():
@@ -1155,23 +899,18 @@ class MessageEvent:
                 user_is_new = False
                 if self.user_id and hasattr(self.db, 'exists_user'):
                     user_is_new = not self.db.exists_user(self.user_id)
-                
                 if user_is_new and self.is_group and self.message_type not in {self.GROUP_ADD_ROBOT, self.GROUP_DEL_ROBOT, self.FRIEND_ADD, self.FRIEND_DEL}:
                     from config import ENABLE_NEW_USER_WELCOME
                     if ENABLE_NEW_USER_WELCOME:
-                        from core.plugin.message_templates import MessageTemplate, MSG_TYPE_USER_WELCOME
                         MessageTemplate.send(self, MSG_TYPE_USER_WELCOME, user_count=self.db.get_user_count())
             except:
                 pass
-        
         if self.user_id:
             self.db.add_user(self.user_id)
         if self.group_id and self.user_id:
-            # 直接添加用户到群组，无需单独创建群组记录
             self.db.add_user_to_group(self.group_id, self.user_id)
         if self.is_private and self.user_id:
             self.db.add_member(self.user_id)
-        
         try:
             import eventlet
             eventlet.spawn_n(async_welcome_check)
@@ -1182,13 +921,10 @@ class MessageEvent:
     def record_last_message_id(self):
         if self.message_type in self._MSG_TYPES_NO_RECORD:
             return False
-        # 判断ID类型：msg_id 或 event_id
         if self.message_type in self._MSG_TYPES_NEED_MSG_ID:
-            message_id_to_record = self.message_id
-            id_type = 'msg'
+            message_id_to_record, id_type = self.message_id, 'msg'
         elif self.message_type in self._MSG_TYPES_NEED_EVENT_ID or self.message_type == self.FRIEND_ADD:
-            message_id_to_record = self.get('id')
-            id_type = 'event'
+            message_id_to_record, id_type = self.get('id'), 'event'
         else:
             return False
         if not message_id_to_record:
@@ -1233,9 +969,9 @@ class MessageEvent:
                 'render_data': {'label': button.get('text', button.get('link', '')), 'visited_label': button.get('show', button.get('text', button.get('link', ''))), 'style': button.get('style', 0)},
                 'action': {'type': 0 if 'link' in button else button.get('type', 2), 'data': button.get('data', button.get('link', button.get('text', ''))), 'unsupport_tips': button.get('tips', '.'), 'permission': {'type': 2}}
             }
-            if 'enter' in button and button['enter']:
+            if button.get('enter'):
                 button_obj['action']['enter'] = True
-            if 'reply' in button and button['reply']:
+            if button.get('reply'):
                 button_obj['action']['reply'] = True
             if 'admin' in button:
                 button_obj['action']['permission']['type'] = 1
@@ -1256,7 +992,7 @@ class MessageEvent:
     def get_image_size(self, image_input):
         try:
             from PIL import Image
-            import io, os
+            import io
             if isinstance(image_input, bytes):
                 with Image.open(io.BytesIO(image_input)) as img:
                     width, height = img.size
@@ -1311,7 +1047,6 @@ class MessageEvent:
 
     def send_wakeup(self, user_id, content='', buttons=None):
         from function.log_db import can_send_wakeup, mark_wakeup_sent
-        
         can_send, stage, days = can_send_wakeup(user_id)
         if not can_send:
             if days == -1:
@@ -1320,15 +1055,12 @@ class MessageEvent:
                 return (False, f"超过30天({days}天)无法召回")
             else:
                 return (False, f"今日已推送过该周期(周期{stage})")
-        
         try:
             payload = {"msg_type": 0, "content": content, "msg_seq": self._generate_msg_seq(), "is_wakeup": True}
             if buttons:
                 payload["keyboard"] = buttons
-            
             response = BOTAPI(f"/v2/users/{user_id}/messages", "POST", Json(payload))
             resp_data = json.loads(response) if isinstance(response, str) else response
-            
             msg_id = resp_data.get('id') or resp_data.get('msg_id')
             if msg_id:
                 mark_wakeup_sent(user_id, stage)
@@ -1365,12 +1097,8 @@ class MessageEvent:
             content = payload.get('content', '') or f"[{content_type}]"
             db_entry = {
                 'timestamp': datetime.datetime.now().strftime(self._TIMESTAMP_FORMAT),
-                'type': 'sent',
-                'content': content,
-                'user_id': user_id or "",
-                'group_id': "c2c",
-                'plugin_name': '',
-                'raw_message': json.dumps(payload, ensure_ascii=False)
+                'type': 'sent', 'content': content, 'user_id': user_id or "", 'group_id': "c2c",
+                'plugin_name': '', 'raw_message': json.dumps(payload, ensure_ascii=False)
             }
             add_log_to_db('message', db_entry)
         except:

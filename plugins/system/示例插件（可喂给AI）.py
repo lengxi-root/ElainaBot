@@ -82,7 +82,7 @@ class media_plugin(Plugin):
             r'^md图片$': {'handler': 'send_advanced_image', 'owner_only': True},
             r'^md模板$': {'handler': 'send_markdown_template', 'owner_only': True},
             r'^aj模板$': {'handler': 'test_markdown_aj', 'owner_only': True},
-            r'^按钮测试$': {'handler': 'test_buttons', 'owner_only': True},
+            r'^扩展按钮$': {'handler': 'test_prompt_buttons', 'owner_only': True},
             # ajdm和mddm功能
             r'^ajdm\s+(.+)$': {'handler': 'send_ajdm', 'owner_only': True},
             r'^mddm\s+(\d+)\s+(.+)$': {'handler': 'send_mddm', 'owner_only': True},
@@ -200,10 +200,21 @@ class media_plugin(Plugin):
         e.reply("⏰ 5秒后自动撤回", auto_delete_time=5)
         e.reply_image("https://i0.hdslb.com/bfs/openplatform/559162218f455ea859c783dceeda65cb1c724f4c.png", "🖼️ 10秒后撤回", auto_delete_time=10)
 
-    #自定义按钮
+    # ==================== 按钮消息示例 ====================
+    # 扩展按钮 (prompt_buttons) - 消息气泡内的快捷按钮，最多3个
     @staticmethod
-    def test_buttons(e):
-        e.reply("请选择：", buttons=e.button([e.rows([{'text': '✅ 确认', 'data': '确认', 'enter': True}, {'text': '❌ 取消', 'data': '取消', 'style': 1}])]))
+    def test_prompt_buttons(e):
+        # reply_markdown 使用按钮模板ID（第3个参数直接传ID字符串）
+        e.reply_markdown("模板名", ["参数"], "102321943_1752737844", prompt_buttons=["扩展1", "扩展2"])
+        
+        # reply_markdown 使用自定义按钮（传字典）
+        # e.reply_markdown("模板名", ["参数"], e.button([e.rows([{'text': '确认', 'data': '确认'}])]))
+        
+        # reply_markdown_aj 同理
+        # e.reply_markdown_aj("内容", "按钮模板ID", prompt_buttons=["选项1", "选项2"])
+        
+        # reply 普通消息 + 自定义按钮 + 扩展按钮
+        # e.reply("内容", buttons=e.button([e.rows([{'text': '按钮', 'data': '数据'}])]), prompt_buttons=["快捷1", "快捷2"])
     
     @staticmethod
     def test_database(e):

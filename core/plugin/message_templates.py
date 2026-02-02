@@ -34,7 +34,7 @@ def _handle_welcome(event, **kwargs):
     """群欢迎消息处理"""
     if USE_MARKDOWN:
         # Markdown模式：包含图片和按钮
-        message = "![感谢 #1755px #2048px](https://lengxi-1323728141.cos.ap-guangzhou.myqcloud.com/%E5%9B%BA%E5%AE%9A%E5%9B%BE%E7%89%87/%E7%BE%A4%E6%AC%A2%E8%BF%8E.jpg)\n__「你绝不是只身一人」 「我一直在你身边。」\n今朝依旧，今后亦然。__\n\n>大家好，我是有着沉鱼落雁般美貌的灰之魔女伊蕾娜！\n\n>可以为群内提供各种各样的群娱互动，与一些高质量图库功能，欢迎大家使用！\n***\n\n>注:所有指令必须_[@伊蕾娜]_才能使用,可以先尝试发送娱乐菜单，有按钮可以一键发送命令使用哦~\n"
+        message = "感谢邀请我进群，发送菜单查看全部帮助。"
         
         btn = event.button([
             event.rows([{
@@ -66,7 +66,7 @@ def _handle_welcome(event, **kwargs):
         result = event.reply(message, btn)
     else:
         # 非Markdown模式：纯文本消息，无图片和按钮
-        message = "「你绝不是只身一人」 「我一直在你身边。」\n今朝依旧，今后亦然。\n\n大家好，我是有着沉鱼落雁般美貌的灰之魔女伊蕾娜！\n\n可以为群内提供各种各样的群娱互动，与一些高质量图库功能，欢迎大家使用！\n\n注:所有指令必须@伊蕾娜才能使用,可以先尝试发送娱乐菜单！"
+        message = "感谢邀请我进群，发送菜单查看全部帮助。"
         result = event.reply(message)
     
     return result is not None
@@ -268,7 +268,7 @@ def _handle_default(event, **kwargs):
             }
             ])
         ])
-        result = event.reply(f"![错误指令 #1360px #680px](https://lengxi-1323728141.cos.ap-guangzhou.myqcloud.com/%E5%9B%BA%E5%AE%9A%E5%9B%BE%E7%89%87/%E9%94%99%E8%AF%AF%E6%8C%87%E4%BB%A4.png)\n<@{user_id}> ", btn)
+        result = event.reply(f"<@{user_id}> 指令错误或不存在，请检查您的输入", btn)
     else:
         # 非Markdown模式：纯文本消息，无图片和按钮
         result = event.reply(f"<@{user_id}> 指令错误或不存在，请检查您的输入")

@@ -94,6 +94,8 @@ class media_plugin(Plugin):
             r'^指定召回\s+(.+)$': {'handler': 'wakeup_user', 'owner_only': True},
             r'^强制召回\s+(.+)$': {'handler': 'force_wakeup_user', 'owner_only': True},
             r'^智能召回$': {'handler': 'smart_wakeup', 'owner_only': True},
+            # ==================== 主动消息示例（仅主人可用） ====================
+            r'^主动测试$': {'handler': 'test_active_message', 'owner_only': True},
         }
 
     # ==================== 分享链接功能 ====================
@@ -205,7 +207,7 @@ class media_plugin(Plugin):
     @staticmethod
     def test_prompt_buttons(e):
         # reply_markdown 使用按钮模板ID（第3个参数直接传ID字符串）
-        e.reply_markdown("模板名", ["参数"], "102321943_1752737844", prompt_buttons=["扩展1", "扩展2"])
+        #e.reply_markdown("模板名", ["参数"], "102321943_1752737844", prompt_buttons=["扩展1", "扩展2"])
         
         # reply_markdown 使用自定义按钮（传字典）
         # e.reply_markdown("模板名", ["参数"], e.button([e.rows([{'text': '确认', 'data': '确认'}])]))
@@ -214,7 +216,7 @@ class media_plugin(Plugin):
         # e.reply_markdown_aj("内容", "按钮模板ID", prompt_buttons=["选项1", "选项2"])
         
         # reply 普通消息 + 自定义按钮 + 扩展按钮
-        # e.reply("内容", buttons=e.button([e.rows([{'text': '按钮', 'data': '数据'}])]), prompt_buttons=["快捷1", "快捷2"])
+         e.reply("内容", buttons=e.button([e.rows([{'text': '按钮', 'data': '数据'}])]), prompt_buttons=["快捷1", "快捷2"])
     
     @staticmethod
     def test_database(e):
@@ -377,3 +379,36 @@ class media_plugin(Plugin):
         msg = f"📊 完成 ✅{ok} ❌{fail}\n\n" + "\n".join(res[:20])
         if len(res) > 20: msg += f"\n... 还有 {len(res)-20} 条"
         e.reply(msg)
+
+    # ==================== 主动消息示例 ====================
+    @staticmethod
+    def test_active_message(e):
+        """主动消息测试：自动判断群聊/私聊，3秒后发送主动消息"""
+        target_id = e.group_id if e.is_group else e.user_id
+        target_type = "群" if e.is_group else "用户"
+        
+        e.reply(f"✅ 检测到{target_type}消息\nID: {target_id}\n\n⏰ 3秒后将发送主动消息...")
+        
+        # 延迟发送主动消息
+        def send_delayed():
+            time.sleep(3)
+            if e.is_group:
+                e.reply("🎉 主动群消息", target_group_id=e.group_id)
+            else:
+                e.reply("🎉 主动私聊消息", target_user_id=e.user_id)
+        
+        threading.Thread(target=send_delayed, daemon=True).start()
+    
+    # ==================== 没有event时发送消息（注释示例） ====================
+    # 场景：定时任务、后台线程等没有event对象时
+    #
+    # from core.event.MessageEvent import MessageEvent
+    # temp_event = MessageEvent({})
+    #
+    # # 发送文本
+    # temp_event.reply("消息", target_user_id="用户OpenID")
+    # temp_event.reply("消息", target_group_id="群ID")
+    #
+    # # 发送图片
+    # temp_event.reply_image(image_data, "说明", target_user_id="用户OpenID")
+

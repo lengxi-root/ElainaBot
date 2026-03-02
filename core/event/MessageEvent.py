@@ -349,7 +349,7 @@ class MessageEvent:
             import threading
             threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
     
-    def _send_media_message(self, data, content, file_type, content_type, auto_delete_time=None, converter=None):
+    def _send_media_message(self, data, content, file_type, content_type, auto_delete_time=None, converter=None, target_user_id=None, target_group_id=None):
         if not self._check_send_conditions():
             return None
         processed_data = self._prepare_media_data(data)
@@ -361,14 +361,20 @@ class MessageEvent:
         if not file_info:
             return None
         payload = self._build_media_message_payload(content, file_info)
-        endpoint = self._get_endpoint()
+        
+        # 如果指定了目标，使用自定义endpoint
+        if target_user_id or target_group_id:
+            endpoint = f"/v2/groups/{target_group_id}/messages" if target_group_id else f"/v2/users/{target_user_id}/messages"
+        else:
+            endpoint = self._get_endpoint()
+        
         if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
         message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}")
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
-    def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None, use_markdown=None, prompt_buttons=None):
+    def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None, use_markdown=None, prompt_buttons=None, target_user_id=None, target_group_id=None):
         if not self._check_send_conditions() or self.message_type not in self._MESSAGE_TYPE_TO_ENDPOINT:
             return None
         media_payload = None
@@ -382,18 +388,25 @@ class MessageEvent:
         payload = self._build_message_payload(content, buttons or [], media_payload, hide_avatar_and_center, use_markdown, prompt_buttons)
         if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX and not payload.get('event_id'):
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-        message_id = self._send_with_error_handling(payload, self._get_endpoint('reply'), "消息", f"content: {content}")
+        
+        # 如果指定了目标，使用自定义endpoint
+        if target_user_id or target_group_id:
+            endpoint = f"/v2/groups/{target_group_id}/messages" if target_group_id else f"/v2/users/{target_user_id}/messages"
+        else:
+            endpoint = self._get_endpoint('reply')
+        
+        message_id = self._send_with_error_handling(payload, endpoint, "消息", f"content: {content}")
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
-    def reply_image(self, image_data, content='', auto_delete_time=None):
-        return self._send_media_message(image_data, content, 1, "图片消息", auto_delete_time)
+    def reply_image(self, image_data, content='', auto_delete_time=None, target_user_id=None, target_group_id=None):
+        return self._send_media_message(image_data, content, 1, "图片消息", auto_delete_time, target_user_id=target_user_id, target_group_id=target_group_id)
 
-    def reply_voice(self, voice_data, content='', auto_delete_time=None):
-        return self._send_media_message(voice_data, content, 3, "语音消息", auto_delete_time, self._convert_to_silk)
+    def reply_voice(self, voice_data, content='', auto_delete_time=None, target_user_id=None, target_group_id=None):
+        return self._send_media_message(voice_data, content, 3, "语音消息", auto_delete_time, self._convert_to_silk, target_user_id=target_user_id, target_group_id=target_group_id)
 
-    def reply_video(self, video_data, content='', auto_delete_time=None):
-        return self._send_media_message(video_data, content, 2, "视频消息", auto_delete_time)
+    def reply_video(self, video_data, content='', auto_delete_time=None, target_user_id=None, target_group_id=None):
+        return self._send_media_message(video_data, content, 2, "视频消息", auto_delete_time, target_user_id=target_user_id, target_group_id=target_group_id)
 
     def reply_ark(self, template_id, kv_data, content='', auto_delete_time=None):
         return self._send_simple_message(
@@ -1103,3 +1116,6 @@ class MessageEvent:
             add_log_to_db('message', db_entry)
         except:
             pass
+
+
+

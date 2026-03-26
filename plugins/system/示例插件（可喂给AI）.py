@@ -62,6 +62,7 @@ class media_plugin(Plugin):
             r'^本地图片$': {'handler': 'send_local_image', 'owner_only': True},
             r'^语音$': {'handler': 'send_voice', 'owner_only': True},
             r'^视频$': {'handler': 'send_video', 'owner_only': True},
+            r'^发送文件$': {'handler': 'send_file_example', 'owner_only': True},
             r'^图片尺寸$': {'handler': 'get_image_dimensions', 'owner_only': True},
             # 图床上传示例（仅主人可用）
             r'^cos上传$': {'handler': 'upload_to_cos', 'owner_only': True},
@@ -155,9 +156,29 @@ class media_plugin(Plugin):
     @staticmethod
     def send_voice(e): e.reply_voice("https://act-upload.mihoyo.com/sr-wiki/2025/06/03/160045374/420e9ac5c0c9d2b2c44b91f453b65061_2267222992827173477.wav")
 
-    #发送语音
+    #发送视频
     @staticmethod
     def send_video(e): e.reply_video("https://i.elaina.vin/1.mp4")
+
+    #发送文件示例（自动生成txt文件）
+    @staticmethod
+    def send_file_example(e):
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            f.write("ElainaBot测试文件\n这是一个自动生成的文本文件示例")
+            temp_path = f.name
+        try:
+            e.reply_file(temp_path, "📄 自动生成的测试文件")
+        finally:
+            if os.path.exists(temp_path): os.remove(temp_path)
+        
+        # 其他发送方式示例：
+        # 方式1：通过URL直接发送文件
+        # e.reply_file("https://example.com/file.pdf", "📄 PDF文档")
+        
+        # 方式2：发送bytes数据
+        # file_bytes = b"file content here"
+        # e.reply_file(file_bytes, "📄 二进制文件")
 
     #获取图片尺寸
     @staticmethod

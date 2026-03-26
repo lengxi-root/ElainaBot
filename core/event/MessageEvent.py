@@ -4,7 +4,7 @@
 import json, random, tempfile, hashlib, datetime, time, re, base64, os, logging, html
 from function.Access import BOT凭证, BOTAPI, Json, Json取
 from function.database import Database
-from config import USE_MARKDOWN, IMAGE_BED_CHANNEL_ID, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, ENABLE_FRIEND_ADD_MESSAGE, HIDE_AVATAR_GLOBAL, BILIBILI_IMAGE_BED_CONFIG
+from config import USE_MARKDOWN, IMAGE_BED_CHANNEL_ID, ENABLE_NEW_USER_WELCOME, ENABLE_WELCOME_MESSAGE, ENABLE_FRIEND_ADD_MESSAGE, HIDE_AVATAR_GLOBAL, BILIBILI_IMAGE_BED_CONFIG, MARKDOWN_SUFFIX
 from function.log_db import add_log_to_db, record_last_message_id
 from core.plugin.message_templates import MessageTemplate, MSG_TYPE_WELCOME, MSG_TYPE_USER_WELCOME, MSG_TYPE_FRIEND_ADD, MSG_TYPE_API_ERROR
 from function.httpx_pool import sync_post, get_binary_content
@@ -408,6 +408,32 @@ class MessageEvent:
     def reply_video(self, video_data, content='', auto_delete_time=None, target_user_id=None, target_group_id=None):
         return self._send_media_message(video_data, content, 2, "视频消息", auto_delete_time, target_user_id=target_user_id, target_group_id=target_group_id)
 
+    def reply_file(self, file_data, content='', auto_delete_time=None, target_user_id=None, target_group_id=None):
+        try:
+            if isinstance(file_data, str) and file_data.startswith(('http://', 'https://')):
+                file_info = self._upload_media_via_url(file_data, 4)
+                if not file_info:
+                    return None
+                payload = self._build_media_message_payload(content, file_info)
+                if target_user_id or target_group_id:
+                    endpoint = f"/v2/groups/{target_group_id}/messages" if target_group_id else f"/v2/users/{target_user_id}/messages"
+                else:
+                    endpoint = self._get_endpoint()
+                if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+                    payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
+                message_id = self._send_with_error_handling(payload, endpoint, "文件消息", f"file url: {file_data}")
+                self._handle_auto_recall(message_id, auto_delete_time)
+                return message_id
+
+            if isinstance(file_data, str) and os.path.exists(file_data):
+                with open(file_data, 'rb') as f:
+                    data = f.read()
+            else:
+                data = file_data
+        except Exception:
+            data = file_data
+        return self._send_media_message(data, content, 4, "文件消息", auto_delete_time, target_user_id=target_user_id, target_group_id=target_group_id)
+
     def reply_ark(self, template_id, kv_data, content='', auto_delete_time=None):
         return self._send_simple_message(
             lambda: self._build_ark_message_payload(template_id, 
@@ -631,7 +657,9 @@ class MessageEvent:
             payload['media'] = {'file_info': media['file_info']} if isinstance(media, dict) and 'file_info' in media else media
         elif content:
             if should_use_markdown:
-                payload['markdown'] = {'content': content}
+                # 应用全局 Markdown 后缀
+                markdown_content = content + MARKDOWN_SUFFIX if MARKDOWN_SUFFIX else content
+                payload['markdown'] = {'content': markdown_content}
                 if hide_avatar_and_center:
                     payload['markdown'].setdefault('style', {})['layout'] = 'hide_avatar_and_center'
             else:
@@ -803,6 +831,21 @@ class MessageEvent:
     def upload_media(self, file_bytes, file_type):
         endpoint = f"/v2/groups/{self.group_id}/files" if self.is_group else f"/v2/users/{self.user_id}/files"
         req_data = {"srv_send_msg": False, "file_type": file_type, "file_data": base64.b64encode(file_bytes).decode()}
+        group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
+        resp = BOTAPI(endpoint, "POST", Json(req_data), group_id=group_id)
+        if isinstance(resp, str):
+            try:
+                resp = json.loads(resp)
+            except:
+                return None
+        return resp.get('file_info')
+
+    def _upload_media_via_url(self, url, file_type, srv_send_msg=False):
+        """通过 URL 上传媒体，返回 file_info 或 None"""
+        if not url:
+            return None
+        endpoint = f"/v2/groups/{self.group_id}/files" if self.is_group else f"/v2/users/{self.user_id}/files"
+        req_data = {"srv_send_msg": srv_send_msg, "file_type": file_type, "url": url}
         group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
         resp = BOTAPI(endpoint, "POST", Json(req_data), group_id=group_id)
         if isinstance(resp, str):

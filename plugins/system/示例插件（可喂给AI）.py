@@ -97,6 +97,10 @@ class media_plugin(Plugin):
             r'^智能召回$': {'handler': 'smart_wakeup', 'owner_only': True},
             # ==================== 主动消息示例（仅主人可用） ====================
             r'^主动测试$': {'handler': 'test_active_message', 'owner_only': True},
+            r'^主动私聊\s+(\S+)\s+(.+)$': {'handler': 'test_send_to_user', 'owner_only': True},
+            r'^主动群发\s+(\S+)\s+(.+)$': {'handler': 'test_send_to_group', 'owner_only': True},
+            r'^主动图片$': {'handler': 'test_send_image_proactive', 'owner_only': True},
+            r'^无事件发送\s+(\S+)\s+(.+)$': {'handler': 'test_static_send', 'owner_only': True},
         }
 
     # ==================== 分享链接功能 ====================
@@ -402,34 +406,84 @@ class media_plugin(Plugin):
         e.reply(msg)
 
     # ==================== 主动消息示例 ====================
+    # 主动消息：不依赖被动回复上下文，可随时向任意用户/群发送消息
+    # payload 中不含 msg_id，直接走生产 API（不走沙盒）
+    #
+    # 两种使用方式：
+    # 方式1（有event）：e.reply("内容", target_user_id="xxx") / e.reply("内容", target_group_id="xxx")
+    # 方式2（无event）：MessageEvent.send_to_user("xxx", "内容") / MessageEvent.send_to_group("xxx", "内容")
+
     @staticmethod
     def test_active_message(e):
-        """主动消息测试：自动判断群聊/私聊，3秒后发送主动消息"""
+        """主动消息测试：3秒后向当前会话发送主动消息"""
         target_id = e.group_id if e.is_group else e.user_id
         target_type = "群" if e.is_group else "用户"
-        
         e.reply(f"✅ 检测到{target_type}消息\nID: {target_id}\n\n⏰ 3秒后将发送主动消息...")
-        
-        # 延迟发送主动消息
+
         def send_delayed():
             time.sleep(3)
             if e.is_group:
-                e.reply("🎉 主动群消息", target_group_id=e.group_id)
+                e.reply("🎉 主动群消息（通过event发送）", target_group_id=e.group_id)
             else:
-                e.reply("🎉 主动私聊消息", target_user_id=e.user_id)
-        
+                e.reply("🎉 主动私聊消息（通过event发送）", target_user_id=e.user_id)
         threading.Thread(target=send_delayed, daemon=True).start()
-    
-    # ==================== 没有event时发送消息（注释示例） ====================
-    # 场景：定时任务、后台线程等没有event对象时
+
+    @staticmethod
+    def test_send_to_user(e):
+        """主动私聊：主动私聊 用户OpenID 消息内容"""
+        if not e.matches or len(e.matches) < 2: return e.reply("❌ 用法：主动私聊 用户OpenID 消息内容")
+        uid, content = e.matches[0].strip(), e.matches[1].strip()
+        mid = e.reply(content, target_user_id=uid)
+        e.reply(f"✅ 已发送主动私聊消息\n目标: {uid[:8]}****\n消息ID: {mid}" if mid else f"❌ 发送失败")
+
+    @staticmethod
+    def test_send_to_group(e):
+        """主动群发：主动群发 群OpenID 消息内容"""
+        if not e.matches or len(e.matches) < 2: return e.reply("❌ 用法：主动群发 群OpenID 消息内容")
+        gid, content = e.matches[0].strip(), e.matches[1].strip()
+        mid = e.reply(content, target_group_id=gid)
+        e.reply(f"✅ 已发送主动群消息\n目标群: {gid[:8]}****\n消息ID: {mid}" if mid else f"❌ 发送失败")
+
+    @staticmethod
+    def test_send_image_proactive(e):
+        """主动图片：向当前会话主动发送一张图片"""
+        target_id = e.group_id if e.is_group else e.user_id
+        if e.is_group:
+            mid = e.reply_image("https://i0.hdslb.com/bfs/openplatform/559162218f455ea859c783dceeda65cb1c724f4c.png", "📸 主动图片", target_group_id=target_id)
+        else:
+            mid = e.reply_image("https://i0.hdslb.com/bfs/openplatform/559162218f455ea859c783dceeda65cb1c724f4c.png", "📸 主动图片", target_user_id=target_id)
+        e.reply(f"✅ 主动图片已发送 ID:{mid}" if mid else "❌ 发送失败")
+
+    @staticmethod
+    def test_static_send(e):
+        """无event静态发送：无事件发送 用户OpenID 消息内容"""
+        if not e.matches or len(e.matches) < 2: return e.reply("❌ 用法：无事件发送 用户OpenID 消息内容")
+        uid, content = e.matches[0].strip(), e.matches[1].strip()
+        # 使用静态方法，完全不依赖当前event上下文
+        from core.event.MessageEvent import MessageEvent
+        mid = MessageEvent.send_to_user(uid, content)
+        e.reply(f"✅ 静态方法发送成功\n目标: {uid[:8]}****\n消息ID: {mid}" if mid else f"❌ 发送失败")
+
+    # ==================== 无event时发送消息（完整示例） ====================
+    # 场景：定时任务、后台线程、Web接口等没有event对象时
     #
     # from core.event.MessageEvent import MessageEvent
-    # temp_event = MessageEvent({})
     #
-    # # 发送文本
-    # temp_event.reply("消息", target_user_id="用户OpenID")
-    # temp_event.reply("消息", target_group_id="群ID")
+    # # 发送文本（私聊/群聊）
+    # MessageEvent.send_to_user("用户OpenID", "你好")
+    # MessageEvent.send_to_group("群OpenID", "你好")
     #
-    # # 发送图片
-    # temp_event.reply_image(image_data, "说明", target_user_id="用户OpenID")
+    # # 支持 markdown
+    # MessageEvent.send_to_user("用户OpenID", "**加粗文本**", use_markdown=True)
+    # MessageEvent.send_to_group("群OpenID", "**加粗文本**", use_markdown=True)
+    #
+    # # 发送图片（私聊/群聊）
+    # MessageEvent.send_image_to_user("用户OpenID", image_bytes, "图片说明")
+    # MessageEvent.send_image_to_group("群OpenID", image_bytes, "图片说明")
+    #
+    # # 定时任务示例
+    # import threading
+    # def daily_notify():
+    #     MessageEvent.send_to_group("群OpenID", "📢 每日提醒：记得签到！")
+    # threading.Timer(86400, daily_notify).start()
 

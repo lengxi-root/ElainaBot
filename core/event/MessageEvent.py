@@ -350,7 +350,8 @@ class MessageEvent:
             threading.Timer(auto_delete_time, self.recall_message, args=[message_id]).start()
     
     def _send_media_message(self, data, content, file_type, content_type, auto_delete_time=None, converter=None, target_user_id=None, target_group_id=None):
-        if not self._check_send_conditions():
+        proactive = bool(target_user_id or target_group_id)
+        if not proactive and not self._check_send_conditions():
             return None
         processed_data = self._prepare_media_data(data)
         if converter:
@@ -360,23 +361,24 @@ class MessageEvent:
         file_info = self.upload_media(processed_data, file_type)
         if not file_info:
             return None
-        payload = self._build_media_message_payload(content, file_info)
-        
-        # 如果指定了目标，使用自定义endpoint
-        if target_user_id or target_group_id:
+        payload = self._build_media_message_payload(content, file_info, proactive=proactive)
+
+        if proactive:
             endpoint = f"/v2/groups/{target_group_id}/messages" if target_group_id else f"/v2/users/{target_user_id}/messages"
         else:
             endpoint = self._get_endpoint()
-        
-        if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+
+        if not proactive and self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-        message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}")
+        message_id = self._send_with_error_handling(payload, endpoint, content_type, f"content: {content}", proactive_group_id=target_group_id if proactive else None)
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
     def reply(self, content='', buttons=None, media=None, hide_avatar_and_center=None, auto_delete_time=None, use_markdown=None, prompt_buttons=None, target_user_id=None, target_group_id=None):
-        if not self._check_send_conditions() or self.message_type not in self._MESSAGE_TYPE_TO_ENDPOINT:
-            return None
+        proactive = bool(target_user_id or target_group_id)
+        if not proactive:
+            if not self._check_send_conditions() or self.message_type not in self._MESSAGE_TYPE_TO_ENDPOINT:
+                return None
         media_payload = None
         if media:
             if isinstance(media, bytes):
@@ -385,17 +387,16 @@ class MessageEvent:
             elif isinstance(media, list) and media:
                 media_payload = media[0]
         hide_avatar_and_center = HIDE_AVATAR_GLOBAL if hide_avatar_and_center is None else hide_avatar_and_center
-        payload = self._build_message_payload(content, buttons or [], media_payload, hide_avatar_and_center, use_markdown, prompt_buttons)
-        if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX and not payload.get('event_id'):
+        payload = self._build_message_payload(content, buttons or [], media_payload, hide_avatar_and_center, use_markdown, prompt_buttons, proactive=proactive)
+        if not proactive and self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX and not payload.get('event_id'):
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-        
-        # 如果指定了目标，使用自定义endpoint
-        if target_user_id or target_group_id:
+
+        if proactive:
             endpoint = f"/v2/groups/{target_group_id}/messages" if target_group_id else f"/v2/users/{target_user_id}/messages"
         else:
             endpoint = self._get_endpoint('reply')
-        
-        message_id = self._send_with_error_handling(payload, endpoint, "消息", f"content: {content}")
+
+        message_id = self._send_with_error_handling(payload, endpoint, "主动消息" if proactive else "消息", f"content: {content}", proactive_group_id=target_group_id if proactive else None)
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
@@ -409,23 +410,47 @@ class MessageEvent:
         return self._send_media_message(video_data, content, 2, "视频消息", auto_delete_time, target_user_id=target_user_id, target_group_id=target_group_id)
 
     def reply_file(self, file_data, content='', auto_delete_time=None, target_user_id=None, target_group_id=None, file_name=None):
+        proactive = bool(target_user_id or target_group_id)
         try:
             if isinstance(file_data, str) and file_data.startswith(('http://', 'https://')):
                 file_info = self._upload_media_via_url(file_data, 4, file_name=file_name)
                 if not file_info:
                     return None
-                payload = self._build_media_message_payload(content, file_info)
-                if target_user_id or target_group_id:
+                payload = self._build_media_message_payload(content, file_info, proactive=proactive)
+                if proactive:
                     endpoint = f"/v2/groups/{target_group_id}/messages" if target_group_id else f"/v2/users/{target_user_id}/messages"
                 else:
                     endpoint = self._get_endpoint()
-                if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+                if not proactive and self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
                     payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-                message_id = self._send_with_error_handling(payload, endpoint, "文件消息", f"file url: {file_data}")
+                message_id = self._send_with_error_handling(payload, endpoint, "文件消息", f"file url: {file_data}", proactive_group_id=target_group_id if proactive else None)
                 self._handle_auto_recall(message_id, auto_delete_time)
                 return message_id
 
             if isinstance(file_data, str) and os.path.exists(file_data):
+                # 大文件直接从路径分片上传，避免全部加载到内存
+                if os.path.getsize(file_data) > 5 * 1024 * 1024:
+                    try:
+                        if proactive:
+                            _target_id = target_group_id or target_user_id
+                            _is_grp = bool(target_group_id)
+                        else:
+                            _target_id = self.group_id if self.is_group else self.user_id
+                            _is_grp = self.is_group
+                        file_info = self._chunked_upload(file_data, 4, _is_grp, _target_id)
+                        if file_info:
+                            payload = self._build_media_message_payload(content, file_info, proactive=proactive)
+                            if proactive:
+                                endpoint = f"/v2/groups/{target_group_id}/messages" if target_group_id else f"/v2/users/{target_user_id}/messages"
+                            else:
+                                endpoint = self._get_endpoint()
+                            if not proactive and self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+                                payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
+                            message_id = self._send_with_error_handling(payload, endpoint, "文件消息", f"chunked file: {file_data}", proactive_group_id=target_group_id if proactive else None)
+                            self._handle_auto_recall(message_id, auto_delete_time)
+                            return message_id
+                    except Exception as e:
+                        logging.warning(f"[分片上传] 本地文件分片上传失败，回退普通上传: {e}")
                 with open(file_data, 'rb') as f:
                     data = f.read()
                 if not file_name:
@@ -434,18 +459,18 @@ class MessageEvent:
                 data = file_data
         except Exception:
             data = file_data
-        
+
         file_info = self.upload_media(data, 4, file_name=file_name)
         if not file_info:
             return None
-        payload = self._build_media_message_payload(content, file_info)
-        if target_user_id or target_group_id:
+        payload = self._build_media_message_payload(content, file_info, proactive=proactive)
+        if proactive:
             endpoint = f"/v2/groups/{target_group_id}/messages" if target_group_id else f"/v2/users/{target_user_id}/messages"
         else:
             endpoint = self._get_endpoint()
-        if self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
+        if not proactive and self.message_type in self._MSG_TYPES_NEED_EVENT_PREFIX:
             payload['event_id'] = self.get('id') or f"{self._get_event_prefix(self.message_type)}_{int(time.time())}"
-        message_id = self._send_with_error_handling(payload, endpoint, "文件消息", f"content: {content}")
+        message_id = self._send_with_error_handling(payload, endpoint, "文件消息", f"content: {content}", proactive_group_id=target_group_id if proactive else None)
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
@@ -619,7 +644,7 @@ class MessageEvent:
         except:
             return None
     
-    def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info=""):
+    def _send_with_error_handling(self, payload, endpoint, content_type="消息", extra_info="", proactive_group_id=None):
         pm = self._get_plugin_manager()
         if pm and pm.has_message_interceptors():
             try:
@@ -630,7 +655,11 @@ class MessageEvent:
                 payload = result.get('payload', payload)
             except:
                 pass
-        group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
+        # 主动消息不走沙盒路由（传 None），被动消息按原逻辑
+        if proactive_group_id is not None:
+            group_id = None
+        else:
+            group_id = self.group_id if hasattr(self, 'group_id') and self.is_group else None
         for retry_count in range(2):
             response = BOTAPI(endpoint, "POST", Json(payload), group_id=group_id)
             resp_obj = self._parse_response(response)
@@ -663,10 +692,11 @@ class MessageEvent:
         self._handle_auto_recall(message_id, auto_delete_time)
         return message_id
 
-    def _build_message_payload(self, content, buttons, media, hide_avatar_and_center=False, use_markdown=None, prompt_buttons=None):
+    def _build_message_payload(self, content, buttons, media, hide_avatar_and_center=False, use_markdown=None, prompt_buttons=None, proactive=False):
         should_use_markdown = USE_MARKDOWN if use_markdown is None else use_markdown
         payload = {"msg_type": 7 if media else (2 if should_use_markdown else 0), "msg_seq": self._generate_msg_seq()}
-        payload = self._set_message_id_in_payload(payload)
+        if not proactive:
+            payload = self._set_message_id_in_payload(payload)
         if media:
             payload['content'] = ''
             payload['media'] = {'file_info': media['file_info']} if isinstance(media, dict) and 'file_info' in media else media
@@ -688,9 +718,9 @@ class MessageEvent:
                 payload['prompt_keyboard'] = prompt_keyboard_data
         return payload
 
-    def _build_media_message_payload(self, content, file_info):
+    def _build_media_message_payload(self, content, file_info, proactive=False):
         payload = {"msg_type": 7, "msg_seq": self._generate_msg_seq(), "content": content or '', "media": {'file_info': file_info}}
-        return self._set_message_id_in_payload(payload)
+        return payload if proactive else self._set_message_id_in_payload(payload)
 
     def _build_ark_message_payload(self, template_id, kv_data, content):
         payload = {"msg_type": 3, "msg_seq": self._generate_msg_seq(), "content": content or '', "ark": {"template_id": template_id, "kv": kv_data}}
@@ -844,6 +874,14 @@ class MessageEvent:
             return response
 
     def upload_media(self, file_bytes, file_type, file_name=None):
+        # 大文件自动走分片上传 (> 5MB)
+        if isinstance(file_bytes, bytes) and len(file_bytes) > 5 * 1024 * 1024:
+            try:
+                target_id = self.group_id if self.is_group else self.user_id
+                return self._chunked_upload_from_bytes(file_bytes, file_type, self.is_group, target_id, file_name=file_name)
+            except Exception as e:
+                logging.warning(f"[分片上传] 失败，回退到普通上传: {e}")
+
         endpoint = f"/v2/groups/{self.group_id}/files" if self.is_group else f"/v2/users/{self.user_id}/files"
         req_data = {"srv_send_msg": False, "file_type": file_type, "file_data": base64.b64encode(file_bytes).decode()}
         if file_name:
@@ -856,6 +894,90 @@ class MessageEvent:
             except:
                 return None
         return resp.get('file_info')
+
+    # ==================== 分片上传 ====================
+
+    @staticmethod
+    def _compute_file_hashes(file_path, file_size):
+        md5_h, sha1_h, md5_10m_h = hashlib.md5(), hashlib.sha1(), hashlib.md5()
+        _10M = 10_002_432
+        need_10m, bytes_read = file_size > _10M, 0
+        with open(file_path, 'rb') as f:
+            while chunk := f.read(65536):
+                md5_h.update(chunk)
+                sha1_h.update(chunk)
+                if need_10m and (remaining := _10M - bytes_read) > 0:
+                    md5_10m_h.update(chunk[:remaining] if remaining < len(chunk) else chunk)
+                bytes_read += len(chunk)
+        md5 = md5_h.hexdigest()
+        return {'md5': md5, 'sha1': sha1_h.hexdigest(), 'md5_10m': md5_10m_h.hexdigest() if need_10m else md5}
+
+    @staticmethod
+    def _api_with_retry(endpoint, data, max_retries=2, base_delay=1.0):
+        last_err = None
+        for attempt in range(max_retries + 1):
+            try:
+                resp_text = BOTAPI(endpoint, "POST", Json(data))
+                resp = json.loads(resp_text) if isinstance(resp_text, str) else resp_text
+                if isinstance(resp, dict) and 'code' in resp and 'message' in resp:
+                    raise Exception(f"code={resp['code']}, {resp['message']}")
+                return resp
+            except Exception as e:
+                last_err = e
+                if attempt < max_retries:
+                    time.sleep(base_delay * (2 ** attempt))
+        raise last_err
+
+    def _chunked_upload(self, file_path, file_type, is_group, target_id):
+        """分片上传本地文件，返回 file_info"""
+        import requests as _req
+        file_size = os.path.getsize(file_path)
+        file_name = os.path.basename(file_path)
+        hashes = self._compute_file_hashes(file_path, file_size)
+        scope = 'groups' if is_group else 'users'
+
+        # 1. 申请上传
+        prep = self._api_with_retry(f"/v2/{scope}/{target_id}/upload_prepare", {
+            'file_type': file_type, 'file_name': file_name, 'file_size': file_size, **hashes})
+        upload_id, block_size, parts = prep['upload_id'], int(prep['block_size']), prep['parts']
+
+        # 2. 逐片上传
+        for part in parts:
+            idx = part['index']
+            offset = (idx - 1) * block_size
+            with open(file_path, 'rb') as f:
+                f.seek(offset)
+                chunk = f.read(min(block_size, file_size - offset))
+            # PUT 到预签名 URL（带重试）
+            for attempt in range(3):
+                try:
+                    r = _req.put(part['presigned_url'], data=chunk, headers={'Content-Length': str(len(chunk))}, timeout=300)
+                    if not r.ok:
+                        raise Exception(f"PUT {r.status_code}")
+                    break
+                except Exception:
+                    if attempt >= 2: raise
+                    time.sleep(1 * (2 ** attempt))
+            # 通知平台分片完成
+            self._api_with_retry(f"/v2/{scope}/{target_id}/upload_part_finish", {
+                'upload_id': upload_id, 'part_index': idx, 'block_size': len(chunk), 'md5': hashlib.md5(chunk).hexdigest()})
+
+        # 3. 完成上传
+        return self._api_with_retry(f"/v2/{scope}/{target_id}/files", {'upload_id': upload_id}, base_delay=2.0).get('file_info')
+
+    def _chunked_upload_from_bytes(self, file_bytes, file_type, is_group, target_id, file_name=None):
+        """从内存数据分片上传（写临时文件）"""
+        suffix = os.path.splitext(file_name)[1] if file_name else ''
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+                f.write(file_bytes)
+                tmp_path = f.name
+            return self._chunked_upload(tmp_path, file_type, is_group, target_id)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except OSError: pass
 
     def _upload_media_via_url(self, url, file_type, srv_send_msg=False, file_name=None):
         """通过 URL 上传媒体，返回 file_info 或 None"""
@@ -1163,6 +1285,68 @@ class MessageEvent:
             return (False, resp_data.get('message', '发送失败'))
         except Exception as e:
             return (False, str(e))
+
+    # ==================== 主动消息静态方法 ====================
+
+    @staticmethod
+    def send_to_user(user_id, content='', buttons=None, use_markdown=None):
+        """无需 event 上下文的主动私聊消息
+
+        用法:
+            MessageEvent.send_to_user("用户OpenID", "你好")
+            MessageEvent.send_to_user("用户OpenID", "你好", use_markdown=True)
+        """
+        e = MessageEvent.__new__(MessageEvent)
+        e._init_minimal()
+        return e.reply(content, buttons=buttons, use_markdown=use_markdown, target_user_id=user_id)
+
+    @staticmethod
+    def send_to_group(group_id, content='', buttons=None, use_markdown=None):
+        """无需 event 上下文的主动群消息
+
+        用法:
+            MessageEvent.send_to_group("群OpenID", "你好")
+            MessageEvent.send_to_group("群OpenID", "你好", use_markdown=True)
+        """
+        e = MessageEvent.__new__(MessageEvent)
+        e._init_minimal()
+        return e.reply(content, buttons=buttons, use_markdown=use_markdown, target_group_id=group_id)
+
+    @staticmethod
+    def send_image_to_user(user_id, image_data, content=''):
+        """无需 event 上下文的主动私聊图片"""
+        e = MessageEvent.__new__(MessageEvent)
+        e._init_minimal()
+        e.is_private, e.user_id = True, user_id
+        return e.reply_image(image_data, content, target_user_id=user_id)
+
+    @staticmethod
+    def send_image_to_group(group_id, image_data, content=''):
+        """无需 event 上下文的主动群图片"""
+        e = MessageEvent.__new__(MessageEvent)
+        e._init_minimal()
+        e.is_group, e.group_id = True, group_id
+        return e.reply_image(image_data, content, target_group_id=group_id)
+
+    def _init_minimal(self):
+        """最小化初始化，用于主动消息发送"""
+        if self._MSG_TYPES_NEED_MSG_ID is None:
+            self._init_type_sets()
+        self.is_private = self.is_group = False
+        self.raw_data = {}
+        self.user_id = self.group_id = self.guild_id = self.union_openid = None
+        self.content = ""
+        self.message_type = self.UNKNOWN_MESSAGE
+        self.event_type = None
+        self.message_id = None
+        self.timestamp = None
+        self.matches = None
+        self._db = None
+        self.ignore = False
+        self.skip_recording = True
+        self._endpoint_cache = {}
+        self.request_path = self.request_method = self.request_url = self.request_remote_addr = None
+        self.request_headers = {}
 
     def _record_sent_message_for_user(self, user_id, payload, content_type="消息"):
         from config import SAVE_RAW_MESSAGE_TO_DB

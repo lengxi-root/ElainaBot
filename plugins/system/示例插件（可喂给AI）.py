@@ -62,7 +62,7 @@ class media_plugin(Plugin):
             r'^本地图片$': {'handler': 'send_local_image', 'owner_only': True},
             r'^语音$': {'handler': 'send_voice', 'owner_only': True},
             r'^视频$': {'handler': 'send_video', 'owner_only': True},
-            r'^发送文件$': {'handler': 'send_file_example', 'owner_only': True},
+            r'^文件$': {'handler': 'send_file_example', 'owner_only': True},
             r'^图片尺寸$': {'handler': 'get_image_dimensions', 'owner_only': True},
             # 图床上传示例（仅主人可用）
             r'^cos上传$': {'handler': 'upload_to_cos', 'owner_only': True},
@@ -168,17 +168,17 @@ class media_plugin(Plugin):
             f.write("ElainaBot测试文件\n这是一个自动生成的文本文件示例")
             temp_path = f.name
         try:
-            e.reply_file(temp_path, "📄 自动生成的测试文件")
+            e.reply_file(temp_path, "📄 自动生成的测试文件", file_name="elainabot_test.txt")
         finally:
             if os.path.exists(temp_path): os.remove(temp_path)
         
         # 其他发送方式示例：
-        # 方式1：通过URL直接发送文件
-        # e.reply_file("https://example.com/file.pdf", "📄 PDF文档")
+        # 方式1：通过URL直接发送文件（指定文件名）
+        # e.reply_file("https://example.com/file.pdf", "📄 PDF文档", file_name="document.pdf")
         
-        # 方式2：发送bytes数据
+        # 方式2：发送bytes数据（指定文件名）
         # file_bytes = b"file content here"
-        # e.reply_file(file_bytes, "📄 二进制文件")
+        # e.reply_file(file_bytes, "📄 二进制文件", file_name="data.bin")
 
     #获取图片尺寸
     @staticmethod

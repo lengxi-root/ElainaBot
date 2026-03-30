@@ -12,6 +12,7 @@ OWNER_IDS = [""] # 主人OPENID列表，可使用仅主人插件
 
 # 消息处理配置 - 控制消息格式和行为
 USE_MARKDOWN = False                             # 是否使用Markdown格式发送消息 MD模板请使用False
+MARKDOWN_SUFFIX = ""  # Markdown消息全局后缀，仅在USE_MARKDOWN=True时生效，会自动添加到所有markdown消息末尾
 HIDE_AVATAR_GLOBAL = False                        # 全局启用Markdown无头像模式（私聊可用）
 SEND_DEFAULT_RESPONSE = False                     # 无匹配命令时是否发送默认回复
 DEFAULT_RESPONSE_EXCLUDED_REGEX = []             # 排除默认回复的消息正则表达式列表

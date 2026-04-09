@@ -1,4 +1,5 @@
 import json, logging, threading, pymysql
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from function.httpx_pool import get_json
@@ -194,9 +195,19 @@ class Database:
     def add_user_to_group(self, group_id, user_id):
         self._async_execute(self._add_user_to_group, group_id, user_id)
 
+    _last_active_cache: dict[tuple[str, str], str] = {}
+
     def _add_user_to_group(self, group_id, user_id):
+        user_id_str = str(user_id)
+        group_id_str = str(group_id)
+        today = date.today().isoformat()
+        cache_key = (group_id_str, user_id_str)
+
+        if self._last_active_cache.get(cache_key) == today:
+            return
+
         result = self._execute_query(_SQL_SELECT_GROUP_USERS, (group_id,))
-        
+
         try:
             users = []
             if result and result.get('users'):
@@ -206,12 +217,26 @@ class Database:
                         users = []
                 except (json.JSONDecodeError, TypeError):
                     users = []
-            
-            user_id_str = str(user_id)
-            if not any(u.get("userid") == user_id_str for u in users if isinstance(u, dict)):
-                users.append({"value": 1, "userid": user_id_str})
+
+            changed = False
+            found = False
+            for u in users:
+                if isinstance(u, dict) and u.get("userid") == user_id_str:
+                    found = True
+                    if u.get("last_active") != today:
+                        u["last_active"] = today
+                        changed = True
+                    break
+
+            if not found:
+                users.append({"value": 1, "userid": user_id_str, "last_active": today})
+                changed = True
+
+            if changed:
                 users_json = json.dumps(users, ensure_ascii=False)
                 self._execute_update(_SQL_UPSERT_GROUP_USERS, (group_id, users_json, users_json))
+
+            self._last_active_cache[cache_key] = today
         except Exception as e:
             logger.error(f"添加用户到群组失败: {e}, group_id: {group_id}, user_id: {user_id}")
 

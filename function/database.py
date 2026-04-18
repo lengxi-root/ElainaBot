@@ -2,8 +2,7 @@ import json, logging, threading, pymysql
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from function.httpx_pool import get_json
-from config import LOG_DB_CONFIG, DB_CONFIG, appid
+from config import LOG_DB_CONFIG, DB_CONFIG
 
 logger = logging.getLogger('ElainaBot.function.database')
 
@@ -12,9 +11,6 @@ _USERS_TABLE = f"{_TABLE_PREFIX}users"
 _GROUPS_USERS_TABLE = f"{_TABLE_PREFIX}groups_users"
 _MEMBERS_TABLE = f"{_TABLE_PREFIX}members"
 _DATABASE_NAME = LOG_DB_CONFIG.get('database', 'log')
-_API_URL_TEMPLATE = f"http://127.0.0.1:65535/api/bot/xx.php?openid={{user_id}}&appid={appid}"
-_NAME_KEYS = ('名字', 'name', 'nickname')
-
 # 数据库连接配置
 _DB_HOST = LOG_DB_CONFIG.get('host', 'localhost')
 _DB_PORT = LOG_DB_CONFIG.get('port', 3306)
@@ -147,9 +143,9 @@ class Database:
         if init_thread.is_alive():
             logger.warning("数据库表初始化超时，将在后台继续")
 
-    def _async_execute(self, func, *args):
+    def _async_execute(self, func, *args, **kwargs):
         if self._thread_pool:
-            self._thread_pool.submit(func, *args)
+            self._thread_pool.submit(func, *args, **kwargs)
 
     def _execute_query(self, sql, params=None):
         try:
@@ -174,12 +170,12 @@ class Database:
             logger.error(f"数据库更新失败: {e}")
             return False
 
-    def add_user(self, user_id):
-        self._async_execute(self._add_user, user_id)
+    def add_user(self, user_id, username=None):
+        self._async_execute(self._add_user, user_id, username)
 
-    def _add_user(self, user_id):
+    def _add_user(self, user_id, username=None):
         self._execute_update(_SQL_INSERT_USER, (user_id,))
-        self._update_user_name(user_id)
+        self._update_user_name(user_id, event_username=username)
 
     def get_user_count(self):
         result = self._execute_query(_SQL_COUNT_USERS)
@@ -259,29 +255,14 @@ class Database:
         result = self._execute_query(_SQL_COUNT_MEMBERS)
         return result.get('count', 0) if result else 0
 
-    def fetch_user_name_from_api(self, user_id):
-        try:
-            response = get_json(_API_URL_TEMPLATE.format(user_id=user_id), timeout=3, verify=False)
-            if isinstance(response, dict):
-                for key in _NAME_KEYS:
-                    name = response.get(key)
-                    if name:
-                        if isinstance(name, str):
-                            return name
-                        elif not isinstance(name, dict):
-                            return str(name)
-            return None
-        except:
-            return None
-
     def update_user_name(self, user_id, name=None):
-        self._async_execute(self._update_user_name, user_id, name)
+        self._async_execute(self._update_user_name, user_id, name=name)
 
-    def _update_user_name(self, user_id, name=None):
+    def _update_user_name(self, user_id, name=None, event_username=None):
         if name is None:
             if self.get_user_name(user_id):
                 return
-            name = self.fetch_user_name_from_api(user_id)
+            name = event_username
         
         if name and isinstance(name, str):
             name = name.strip()

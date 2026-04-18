@@ -112,6 +112,7 @@ class MessageEvent:
         self.raw_data = data
         self.user_id = self.group_id = None
         self.content = ""
+        self.author_username = None
         self.message_type = self.UNKNOWN_MESSAGE
         self.event_type = self.get('t')
         self.message_id = self.get('d/id') or self.get('id') if self.event_type in _MSG_TYPES_WITH_MSG_ID else self.get('id')
@@ -175,6 +176,7 @@ class MessageEvent:
             self.content = f"{self.content}{img}" if self.content else img
         self.user_id, self.union_openid, self.raw_user_id = _swap_ids(
             self.get('d/author/id'), self.get('d/author/union_openid'), USE_UNION_ID_FOR_GROUP)
+        self.author_username = self.get('d/author/username')
         self.group_id = self.get('d/group_id')
         self.guild_id = None
         self.is_group, self.is_private = True, False
@@ -1103,7 +1105,7 @@ class MessageEvent:
             except:
                 pass
         if self.user_id:
-            self.db.add_user(self.user_id)
+            self.db.add_user(self.user_id, username=self.author_username)
         if self.group_id and self.user_id:
             self.db.add_user_to_group(self.group_id, self.user_id)
         if self.is_private and self.user_id:

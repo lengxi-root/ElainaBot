@@ -22,6 +22,11 @@ try:
 except ImportError:
     USE_UNION_ID_FOR_GROUP = USE_UNION_ID_FOR_CHANNEL = False
 
+try:
+    from config import BUTTON_ENTER_TO_SEND
+except ImportError:
+    BUTTON_ENTER_TO_SEND = False
+
 def _swap_ids(uid, unid, should_swap):
     return (unid, uid, uid) if should_swap and unid else (uid, unid or uid, uid)
 
@@ -1169,7 +1174,10 @@ class MessageEvent:
                 'action': {'type': 0 if 'link' in button else button.get('type', 2), 'data': button.get('data', button.get('link', button.get('text', ''))), 'unsupport_tips': button.get('tips', '.'), 'permission': {'type': 2}}
             }
             if button.get('enter'):
-                button_obj['action']['enter'] = True
+                if BUTTON_ENTER_TO_SEND and button_obj['action']['type'] == 2:
+                    button_obj['action']['type'] = 1
+                else:
+                    button_obj['action']['enter'] = True
             if button.get('reply'):
                 button_obj['action']['reply'] = True
             if 'admin' in button:

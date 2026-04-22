@@ -1,16 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-消息模板系统
-使用映射方式处理各种消息模板，便于快速查找和单独修改
-"""
-
-import json
+#消息模板系统
 import random
 from config import USE_MARKDOWN
 from function.Access import BOTAPI, Json
-
 # 消息类型常量
 MSG_TYPE_WELCOME = 'welcome'                # 群欢迎消息
 MSG_TYPE_USER_WELCOME = 'user_welcome'      # 新用户欢迎消息
@@ -24,431 +18,114 @@ MSG_TYPE_BLACKLIST = 'blacklist'            # 黑名单用户提示消息
 MSG_TYPE_GROUP_BLACKLIST = 'group_blacklist'  # 群黑名单提示消息
 
 # 消息类型映射常量
-GROUP_MESSAGE = 'GROUP_AT_MESSAGE_CREATE'      # 群消息类型
-DIRECT_MESSAGE = 'C2C_MESSAGE_CREATE'          # 私聊消息类型
-INTERACTION = 'INTERACTION_CREATE'             # 按钮交互消息类型
-CHANNEL_MESSAGE = 'AT_MESSAGE_CREATE'          # 频道消息类型
-GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'            # 被拉进群事件类型
+GROUP_MESSAGE = 'GROUP_AT_MESSAGE_CREATE'
+DIRECT_MESSAGE = 'C2C_MESSAGE_CREATE'
+INTERACTION = 'INTERACTION_CREATE'
+CHANNEL_MESSAGE = 'AT_MESSAGE_CREATE'
+GROUP_ADD_ROBOT = 'GROUP_ADD_ROBOT'
 
 def _handle_welcome(event, **kwargs):
     """群欢迎消息处理"""
-    if USE_MARKDOWN:
-        # Markdown模式：包含图片和按钮
-        message = "感谢邀请我进群，发送菜单查看全部帮助。"
-        
-        btn = event.button([
-            event.rows([{
-                'text': '娱乐菜单',
-                'data': '/娱乐菜单',
-                'type': 2,
-                'style': 1,
-                'enter': True,
-            },{
-                'text': '今日老婆',
-                'data': '/今日老婆',
-                'type': 2,
-                'style': 1,
-                'enter': True,
-            }]),
-            event.rows([{
-                'text': '关于',
-                'data': '/关于',
-                'type': 2,
-                'style': 1,
-                'enter': True,
-            },{
-                'text': '邀我进群',
-                'data': 'https://qun.qq.com/qunpro/robot/qunshare?robot_appid=102134274&robot_uin=3889045760',
-                'type': 0,
-                'style': 1
-            }])
-        ])
-        result = event.reply(message, btn)
-    else:
-        # 非Markdown模式：纯文本消息，无图片和按钮
-        message = "感谢邀请我进群，发送菜单查看全部帮助。"
-        result = event.reply(message)
-    
+    # 按钮示例（已注释，需要时取消注释并传入 event.reply 第二个参数）：
+    # btn = event.button([
+    #     event.rows([
+    #         {'text': '娱乐菜单', 'data': '/娱乐菜单', 'type': 2, 'style': 1, 'enter': True},
+    #         {'text': '邀我进群', 'data': 'https://qun.qq.com/qunpro/robot/qunshare?robot_appid=102134274&robot_uin=3889045760', 'type': 0, 'style': 1}
+    #     ])
+    # ])
+    result = event.reply("感谢邀请我进群，发送菜单查看全部帮助。")
     return result is not None
 
 def _handle_user_welcome(event, **kwargs):
     """新用户欢迎消息处理"""
-    user_id = event.user_id if hasattr(event, 'user_id') else None
+    user_id = getattr(event, 'user_id', None)
     user_count = kwargs.get('user_count', 1)
-    
-    if USE_MARKDOWN:
-        # Markdown模式：包含QQ头像图片和按钮
-        welcome_msg = (
-            f"![伊蕾娜 #200px #200px](https://q.qlogo.cn/qqapp/102134274/{user_id}/640)\n"
-            f"欢迎<@{user_id}>！您是第{user_count}位使用伊蕾娜的伊宝！  \n"
-            f"\n> 可以把伊蕾娜邀请到任意群使用哦！"
-        )
-        
-        btn = event.button([
-            event.rows([
-                {
-                    'text': '🎄️ 菜单',
-                    'data': '菜单',
-                    'enter': True,
-                    'style': 1
-                },
-                {
-                    'text': '🪀️ 娱乐菜单',
-                    'data': '/娱乐菜单',
-                    'enter': True,
-                    'style': 1
-                }
-            ]),
-            event.rows([
-                {
-                    'text': '♥️ 群友老婆',
-                    'data': '/群友老婆',
-                    'enter': True,
-                    'style': 1
-                },
-                {
-                    'text': '✨ 今日老婆',
-                    'data': '/今日老婆',
-                    'enter': True,
-                    'style': 1
-                }
-            ]),
-            event.rows([
-                {
-                    'text': '🎆 邀伊蕾娜进群',
-                    'data': 'https://qun.qq.com/qunpro/robot/qunshare?robot_appid=102134274&robot_uin=3889045760',
-                    'type': 0,
-                    'style': 1
-                }
-            ])
-        ])
-        result = event.reply(welcome_msg, btn)
-    else:
-        # 非Markdown模式：纯文本消息，无QQ头像图片和按钮
-        welcome_msg = f"欢迎<@{user_id}>！您是第{user_count}位使用伊蕾娜的伊宝！\n\n可以把伊蕾娜邀请到任意群使用哦！"
-        result = event.reply(welcome_msg)
-    
+    welcome_msg = (
+        f"![伊蕾娜 #200px #200px](https://q.qlogo.cn/qqapp/102134274/{user_id}/640)\n"
+        f"欢迎<@{user_id}>！您是第{user_count}位使用伊蕾娜的伊宝！  \n"
+        f"\n> 可以把伊蕾娜邀请到任意群使用哦！"
+    ) if USE_MARKDOWN else (
+        f"欢迎<@{user_id}>！您是第{user_count}位使用伊蕾娜的伊宝！\n\n可以把伊蕾娜邀请到任意群使用哦！"
+    )
+    result = event.reply(welcome_msg)
     return result is not None
 
 def _handle_friend_add(event, **kwargs):
     """好友添加欢迎消息处理"""
-    user_id = event.user_id if hasattr(event, 'user_id') else None
-    
-    if USE_MARKDOWN:
-        # Markdown模式：包含QQ头像图片和按钮
-        welcome_msg = (
-            f"![伊蕾娜 #360px #360px](https://q.qlogo.cn/qqapp/102134274/{user_id}/640)\n"
-            f"欢迎<@{user_id}>！感谢您添加伊蕾娜为好友！  \n"
-            f"\n> 您可以直接在这里与我对话，也可以邀请我到您的群聊中使用更多功能！\n"
-            f"> 私聊支持的功能相对较少，更多精彩功能请在群聊中体验~"
-        )
-        
-        btn = event.button([
-            event.rows([
-                {
-                    'text': '📋 菜单',
-                    'data': '菜单',
-                    'enter': True,
-                    'style': 1
-                },
-                {
-                    'text': '🎮 娱乐菜单',
-                    'data': '/娱乐菜单',
-                    'enter': True,
-                    'style': 1
-                }
-            ]),
-            event.rows([
-                {
-                    'text': '💖 今日老婆',
-                    'data': '/今日老婆',
-                    'enter': True,
-                    'style': 1
-                },
-                {
-                    'text': '🎲 今日运势',
-                    'data': '/今日运势',
-                    'enter': True,
-                    'style': 1
-                }
-            ]),
-            event.rows([
-                {
-                    'text': '🎆 邀请我进群',
-                    'data': 'https://qun.qq.com/qunpro/robot/qunshare?robot_appid=102134274&robot_uin=3889045760',
-                    'type': 0,
-                    'style': 1
-                }
-            ])
-        ])
-        result = event.reply(welcome_msg, btn)
-    else:
-        # 非Markdown模式：纯文本消息，无QQ头像图片和按钮
-        welcome_msg = (
-            f"欢迎<@{user_id}>！感谢您添加伊蕾娜为好友！\n\n"
-            f"您可以直接在这里与我对话，也可以邀请我到您的群聊中使用更多功能！\n"
-            f"私聊支持的功能相对较少，更多精彩功能请在群聊中体验~"
-        )
-        result = event.reply(welcome_msg)
-    
+    user_id = getattr(event, 'user_id', None)
+    welcome_msg = (
+        f"![伊蕾娜 #360px #360px](https://q.qlogo.cn/qqapp/102134274/{user_id}/640)\n"
+        f"欢迎<@{user_id}>！感谢您添加我为好友！  \n"
+        f"\n> 您可以直接在这里与我对话，也可以邀请我到您的群聊中使用更多功能！\n"
+        f"> 私聊支持的功能相对较少，更多精彩功能请在群聊中体验~"
+    ) if USE_MARKDOWN else (
+        f"欢迎<@{user_id}>！感谢您添加我为好友！\n\n"
+        f"您可以直接在这里与我对话，也可以邀请我到您的群聊中使用更多功能！\n"
+        f"私聊支持的功能相对较少，更多精彩功能请在群聊中体验~"
+    )
+    result = event.reply(welcome_msg)
     return result is not None
 
 def _handle_group_only(event, **kwargs):
     """群聊专用命令提示处理"""
-    user_id = event.user_id if hasattr(event, 'user_id') else None
-    
-    if USE_MARKDOWN:
-        # Markdown模式：包含按钮
-        btn = event.button([
-            event.rows([{
-                'text': '提示',
-                'data': '仅限群聊',
-                'type': 2,
-                'list': [],  # 空数组，任何人都不能点击
-                'style': 0,  # 红色警告风格
-                'enter': False
-            },{
-                'text': '邀请我进群',
-                'data': 'https://qun.qq.com/qunpro/robot/qunshare?robot_appid=102134274&robot_uin=3889045760',
-                'type': 0,  # 链接类型
-                'style': 1
-            }])
-        ])
-        result = event.reply(f"<@{user_id}> 该指令仅在群聊中可用，请在群聊中使用", btn)
-    else:
-        # 非Markdown模式：纯文本消息，无按钮
-        result = event.reply(f"<@{user_id}> 该指令仅在群聊中可用，请在群聊中使用")
-    
+    user_id = getattr(event, 'user_id', None)
+    result = event.reply(f"<@{user_id}> 该指令仅在群聊中可用，请在群聊中使用")
     return result is not None
 
 def _handle_default(event, **kwargs):
     """默认回复处理"""
-    user_id = event.user_id if hasattr(event, 'user_id') else None
-    
-    if USE_MARKDOWN:
-        # Markdown模式：包含图片和按钮
-        btn = event.button([
-            event.rows([
-               {
-                'text': '菜单',
-                'data': '/菜单',
-                'enter': True,
-                'style': 1
-            }, {
-                'text': '娱乐菜单',
-                'data': '/娱乐菜单',
-                'enter': True,
-                'style': 1
-            }
-            ]),
-            event.rows([
-               {
-                'text': '盯伊蕾娜',
-                'data': '/盯伊蕾娜',
-                'enter': True,
-                'style': 1
-            }, {
-                'text': '邀我进群',
-                'data': 'https://qun.qq.com/qunpro/robot/qunshare?robot_appid=102134274&robot_uin=3889045760',
-                'type': 0,
-                'style': 1
-            }
-            ]),
-            event.rows([
-               {
-                'text': '反馈与投稿',
-                'data': 'https://www.wjx.cn/vm/wVmvlOu.aspx',
-                'type': 0,
-                'style': 4
-            }, {
-                'text': '提供赞助',
-                'data': 'https://afdian.com/a/VSTlengxi',
-                'type': 0,
-                'style': 4
-            }
-            ])
-        ])
-        result = event.reply(f"<@{user_id}> 指令错误或不存在，请检查您的输入", btn)
-    else:
-        # 非Markdown模式：纯文本消息，无图片和按钮
-        result = event.reply(f"<@{user_id}> 指令错误或不存在，请检查您的输入")
-    
+    user_id = getattr(event, 'user_id', None)
+    result = event.reply(f"<@{user_id}> 指令错误或不存在，请检查您的输入")
     return result is not None
 
 def _handle_owner_only(event, **kwargs):
     """主人专属命令提示处理"""
-    user_id = event.user_id if hasattr(event, 'user_id') else None
+    user_id = getattr(event, 'user_id', None)
     result = event.reply(f"<@{user_id}> 暂无权限，你无法操作此命令")
     return result is not None
 
 def _handle_maintenance(event, **kwargs):
     """维护模式回复处理"""
-    message = "系统正在维护中，请稍后再试...\n>当前功能暂时不可用，维护完成后将自动恢复"
-    
-    if USE_MARKDOWN:
-        # Markdown模式：包含按钮
-        buttons = event.button([
-            event.rows([
-                {
-                    'text': '联系管理员',
-                    'data': '联系管理员',
-                    'enter': True,
-                    'style': 5
-                }
-            ])
-        ])
-        result = event.reply(message, buttons)
-    else:
-        # 非Markdown模式：纯文本消息，无按钮
-        result = event.reply(message)
-    
+    result = event.reply("系统正在维护中，请稍后再试...\n>当前功能暂时不可用，维护完成后将自动恢复")
     return result is not None
 
 def _handle_api_error(event, **kwargs):
     """API错误消息处理"""
     error_code = kwargs.get('error_code')
     error_message = kwargs.get('error_message', '')
-    trace_id = kwargs.get('trace_id')
     endpoint = kwargs.get('endpoint')
-    
-    # 根据不同错误码定制用户友好的错误提示（QQ用户看到的）
-    if error_code == 40034006:
-        user_tip = f"\n消息发送失败\n\n>消息违规\ncode:{error_code}\n注：请截图选一种方式反馈"
-        show_feedback_buttons = True
-    elif error_code == 40054017:
-        user_tip = f"\n消息发送失败\n\n>消息被拦截\ncode:{error_code}\n注：可能因你的群昵称导致，请更换群昵称尝试"
-        show_feedback_buttons = True
-    elif error_code == 50015006:
-        user_tip = f"\n消息发送失败\n\n>系统繁忙\ncode:{error_code}\n注：稍后重试"
-        show_feedback_buttons = False
-    elif error_code == 40054010 or error_code == 40034028:
-        user_tip = f"\n消息发送失败\n\n>禁止发送url\ncode:{error_code}\n注：请截图选一种方式反馈"
-        show_feedback_buttons = True
-    else:
-        user_tip = f"\n消息发送失败\n\n>未知错误\ncode:{error_code}\n注：出现错误，请截图进行反馈"
-        show_feedback_buttons = True
-    
+
+    user_tip = f"\n消息发送失败\n\n>code:{error_code}\n{error_message}"
+
     try:
         error_payload = {
             "msg_type": 2,
             "msg_seq": random.randint(10000, 999999),
-            "markdown": {
-                "content": user_tip
-            }
+            "markdown": {"content": user_tip}
         }
-        
-        # 只在Markdown模式且需要时添加反馈按钮
-        if USE_MARKDOWN and show_feedback_buttons:
-            feedback_button = event.button([
-                event.rows([
-                    {
-                        'text': '加群',
-                        'link': 'https://qm.qq.com/q/w5kFw95zDq',
-                        'type': 0,
-                        'style': 1
-                    },
-                    {
-                        'text': '频道',
-                        'link': 'https://pd.qq.com/s/4mrty8rgq?b=9',
-                        'type': 0,
-                        'style': 1
-                    },
-                    {
-                        'text': '问卷',
-                        'link': 'https://www.wjx.cn/vm/wVmvlOu.aspx',
-                        'type': 0,
-                        'style': 1
-                    },
-                ])
-            ])
-            error_payload["keyboard"] = feedback_button
-        
-        # 根据消息类型设置相应的消息ID或事件ID
-        if event.message_type == GROUP_MESSAGE or event.message_type == DIRECT_MESSAGE:
+        if event.message_type in (GROUP_MESSAGE, DIRECT_MESSAGE):
             error_payload["msg_id"] = event.message_id
-        elif event.message_type == INTERACTION or event.message_type == GROUP_ADD_ROBOT:
+        elif event.message_type in (INTERACTION, GROUP_ADD_ROBOT):
             error_payload["event_id"] = event.get('id') or ""
         elif event.message_type == CHANNEL_MESSAGE:
             error_payload["msg_id"] = event.get('id')
-            
-        # 发送API错误提示
         BOTAPI(endpoint, "POST", Json(error_payload))
     except Exception:
         pass
-        
+
     return user_tip
 
 def _handle_blacklist(event, **kwargs):
     """黑名单用户消息处理"""
-    user_id = event.user_id if hasattr(event, 'user_id') else None
+    user_id = getattr(event, 'user_id', None)
     reason = kwargs.get('reason', '未指明原因')
-    
-    if USE_MARKDOWN:
-        # Markdown模式：包含按钮
-        message = f"<@{user_id}> 您已被列入黑名单，无法使用任何指令，如有误判，请点击下方反馈\n\n>原因：{reason}"
-        
-        # 添加反馈按钮
-        buttons = event.button([
-           event.rows([
-                        {
-                            'text': '加群',
-                            'link': 'https://qm.qq.com/q/w5kFw95zDq',
-                            'type': 0,
-                            'style': 1
-                        },
-                        {
-                            'text': '频道',
-                            'link': 'https://pd.qq.com/s/4mrty8rgq?b=9',
-                            'type': 0,
-                            'style': 1
-                        },
-                        {
-                            'text': '问卷',
-                            'link': 'https://www.wjx.cn/vm/wVmvlOu.aspx',
-                            'type': 0,
-                            'style': 1
-                        },
-                    ])
-                ])
-        result = event.reply(message, buttons)
-    else:
-        # 非Markdown模式：纯文本消息，无按钮
-        message = f"<@{user_id}> 您已被列入黑名单，无法使用任何指令，如有误判，请联系管理员\n\n原因：{reason}"
-        result = event.reply(message)
-    
+    msg = f"<@{user_id}> 您已被列入黑名单，无法使用任何指令，如有误判，请联系管理员\n\n>原因：{reason}"
+    result = event.reply(msg)
     return result is not None
 
 def _handle_group_blacklist(event, **kwargs):
     """群黑名单消息处理"""
-    group_id = kwargs.get('group_id', '未知群组')
-    
-    message = "该群组已被列入黑名单，机器人已停止服务\n\n>如有疑问，请联系管理员"
-    
-    # 添加反馈按钮
-    buttons = event.button([
-       event.rows([
-                    {
-                        'text': '加群反馈',
-                        'link': 'https://qm.qq.com/q/w5kFw95zDq',
-                        'type': 0,
-                        'style': 1
-                    },
-                    {
-                        'text': '频道反馈',
-                        'link': 'https://pd.qq.com/s/4mrty8rgq?b=9',
-                        'type': 0,
-                        'style': 1
-                    },
-                    {
-                        'text': '问卷反馈',
-                        'link': 'https://www.wjx.cn/vm/wVmvlOu.aspx',
-                        'type': 0,
-                        'style': 1
-                    },
-                ])
-            ])
-    
-    result = event.reply(message, buttons)
+    result = event.reply("该群组已被列入黑名单，机器人已停止服务\n\n>如有疑问，请联系管理员")
     return result is not None
 
 # 消息处理器映射表
@@ -467,32 +144,17 @@ MESSAGE_HANDLERS = {
 
 class MessageTemplate:
     """统一的消息模板系统"""
-    
+
     @staticmethod
     def send(event, msg_type, **kwargs):
-        """
-        统一的消息发送方法
-        @param event: 消息事件对象
-        @param msg_type: 消息类型，使用MSG_TYPE_*常量
-        @param kwargs: 额外参数，根据消息类型不同而不同
-        @return: 根据处理函数返回值，对于_handle_welcome返回(message, btn)元组，
-                其他处理函数返回布尔值表示是否发送成功
-        """
+        handler = MESSAGE_HANDLERS.get(msg_type)
+        if not handler:
+            return False
         try:
-            # 查找对应的处理函数，如果没有则返回False
-            handler = MESSAGE_HANDLERS.get(msg_type)
-            if handler:
-                return handler(event, **kwargs)
+            return handler(event, **kwargs)
+        except Exception:
             return False
-        except Exception as e:
-            # 处理异常
-            return False
-    
+
     @staticmethod
     def register_handler(msg_type, handler_func):
-        """
-        注册新的消息处理函数
-        @param msg_type: 消息类型
-        @param handler_func: 处理函数
-        """
-        MESSAGE_HANDLERS[msg_type] = handler_func 
+        MESSAGE_HANDLERS[msg_type] = handler_func

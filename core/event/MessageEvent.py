@@ -680,7 +680,7 @@ class MessageEvent:
                     time.sleep(1)
                     continue
                 self._log_error(f"发送{content_type}失败：{resp_obj.get('message')} code：{error_code}", resp_obj=resp_obj, send_payload=payload, raw_message=self.raw_data)
-                MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
+                MessageTemplate.send(self, MSG_TYPE_API_ERROR, error_code=error_code, error_message=resp_obj.get('message', ''), trace_id=resp_obj.get('trace_id'), endpoint=endpoint)
                 return json.dumps({'error': True, 'message': resp_obj.get('message', '未知错误'), 'code': error_code})
             msg_id = self._extract_message_id(response)
             if msg_id:

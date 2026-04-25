@@ -203,9 +203,11 @@ _message_handler_ready = threading.Event()
 _plugins_preloaded = False
 _message_executor = None
 
-def log_error(error_msg, tb_str=None):
-    logger.error(f"{error_msg}\n{tb_str or traceback.format_exc()}")
-    add_error_log(error_msg, tb_str or traceback.format_exc())
+def log_error(error_msg, tb_str=None, include_traceback=True):
+    trace_content = tb_str if tb_str is not None else (traceback.format_exc() if include_traceback else "")
+    log_content = error_msg if not trace_content else f"{error_msg}\n{trace_content}"
+    logger.error(log_content)
+    add_error_log(error_msg, trace_content)
 
 def cleanup_gc():
     global _gc_counter
@@ -406,7 +408,7 @@ def run_websocket_client():
             log_to_console("WebSocket客户端被用户中断")
             break
         except Exception as e:
-            log_error(f"WebSocket客户端运行失败 (第 {attempt + 1}/3 次): {str(e)}")
+            log_error(f"WebSocket客户端运行失败 (第 {attempt + 1}/3 次): {str(e)}", include_traceback=False)
             if attempt < 2:
                 log_to_console(f"等待 10 秒后重试...")
                 time.sleep(10)

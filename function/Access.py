@@ -20,6 +20,7 @@ _TOKEN_PAYLOAD = {"appId": appid, "clientSecret": secret}
 _TOKEN_REFRESH_BUFFER = 60
 _TOKEN_RETRY_DELAY = 3
 _TOKEN_CHECK_INTERVAL = 45
+_last_token_error = None
 
 def curl(url, method="POST", headers=None, params=None):
     url = url.replace(" ", "%20")
@@ -31,16 +32,27 @@ def curl(url, method="POST", headers=None, params=None):
     return _session.request(method, url, headers=headers, json=params).text
 
 def 获取新Token():
-    global _token_info
+    global _token_info, _last_token_error
+    _last_token_error = None
     for i in range(3):
         try:
-            response = json.loads(curl(_TOKEN_URL, "POST", _DEFAULT_HEADERS, _TOKEN_PAYLOAD))
-            if 'access_token' in response:
+            resp = _session.post(_TOKEN_URL, headers=_DEFAULT_HEADERS, json=_TOKEN_PAYLOAD)
+            try:
+                response = resp.json()
+            except Exception:
+                response = resp.text
+            if resp.status_code != 200:
+                _last_token_error = f"获取BOT凭证失败，HTTP {resp.status_code}，响应：{response}"
+            elif isinstance(response, dict) and 'access_token' in response:
                 _token_info['access_token'] = response['access_token']
                 _token_info['expires_in'] = int(response.get('expires_in', 7200))
                 _token_info['last_update'] = time.time()
+                _last_token_error = None
                 return True
-        except:
+            else:
+                _last_token_error = f"获取BOT凭证失败，响应：{response}"
+        except Exception as e:
+            _last_token_error = f"获取BOT凭证异常：{e}"
             if i < 2:
                 time.sleep(_TOKEN_RETRY_DELAY)
     return False
@@ -57,7 +69,8 @@ def 定时更新Token():
 
 def BOT凭证():
     if not _token_info['access_token']:
-        获取新Token()
+        if not 获取新Token():
+            raise Exception(_last_token_error or "BOT凭证获取失败")
     return _token_info['access_token']
 
 threading.Thread(target=定时更新Token, daemon=True).start()

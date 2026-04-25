@@ -337,9 +337,9 @@ class LogDatabaseManager:
             'dau': ('special', """`date` date NOT NULL PRIMARY KEY, `active_users` int(11) DEFAULT 0, `active_groups` int(11) DEFAULT 0,
                 `total_messages` int(11) DEFAULT 0, `private_messages` int(11) DEFAULT 0, `group_join_count` int(11) DEFAULT 0,
                 `group_leave_count` int(11) DEFAULT 0, `group_count_change` int(11) DEFAULT 0, `friend_add_count` int(11) DEFAULT 0,
-                `friend_remove_count` int(11) DEFAULT 0, `friend_count_change` int(11) DEFAULT 0, `message_stats_detail` json,
-                `user_stats_detail` json, `command_stats_detail` json,""", 'dau'),
-            'id': ('special', "`chat_type` varchar(10) NOT NULL, `chat_id` varchar(255) NOT NULL, `last_message_id` varchar(255) NOT NULL, `id_type` varchar(10) NOT NULL DEFAULT 'msg', PRIMARY KEY (`chat_type`, `chat_id`),", 'id'),
+                `friend_remove_count` int(11) DEFAULT 0, `friend_count_change` int(11) DEFAULT 0, `message_stats_detail` longtext,
+                `user_stats_detail` longtext, `command_stats_detail` longtext,""", 'dau'),
+            'id': ('special', "`chat_type` varchar(10) NOT NULL, `chat_id` varchar(170) NOT NULL, `last_message_id` varchar(255) NOT NULL, `id_type` varchar(10) NOT NULL DEFAULT 'msg', PRIMARY KEY (`chat_type`, `chat_id`),", 'id'),
             'default': ('standard', "`content` text NOT NULL,", 'standard')
         }
 
@@ -430,7 +430,12 @@ class LogDatabaseManager:
                 conn.commit()
                 self.tables_created.add(table_name)
                 return True
-        except:
+        except Exception as e:
+            try:
+                create_sql = self._get_create_table_sql(table_name, log_type)
+            except Exception:
+                create_sql = '<failed to build create table sql>'
+            logger.error(f"创建表 {table_name} ({log_type}) 失败: {e} | SQL: {create_sql}")
             return False
     
     def add_log(self, log_type, log_data):

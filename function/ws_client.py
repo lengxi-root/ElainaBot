@@ -67,6 +67,20 @@ def _get_ssl_context():
     except:
         return None
 
+def _ack_interaction(interaction_id):
+    if not interaction_id:
+        return
+    try:
+        token = BOT凭证()
+        requests.put(
+            f"https://api.sgroup.qq.com/interactions/{interaction_id}",
+            headers={"Authorization": f"QQBot {token}", "Content-Type": "application/json"},
+            json={"code": 0},
+            timeout=5
+        )
+    except Exception as e:
+        logger.debug(f"回应交互事件失败: {e}")
+
 class WebSocketClient:
     __slots__ = ('name', 'config', 'websocket', 'connected', 'running', 'reconnect_count',
                  'last_heartbeat', 'heartbeat_interval', 'heartbeat_task', 'session_id',
@@ -244,6 +258,8 @@ class WebSocketClient:
                     self.session_id = event_data.get('session_id')
                     await self._call_handlers('ready', {'session_id': self.session_id, 'bot_info': event_data.get('user', {}), 'data': event_data})
                 elif event_type in _get_supported_event_types():
+                    if event_type == "INTERACTION_CREATE" and event_data:
+                        _ack_interaction(event_data.get('id'))
                     await self._call_handlers('message', data)
         except:
             pass
